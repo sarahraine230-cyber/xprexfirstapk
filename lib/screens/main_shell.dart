@@ -3,6 +3,10 @@ import 'package:xprex/screens/feed_screen.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/screens/profile_screen.dart';
 
+// Global key + helper to allow other screens to switch tabs (e.g., after upload)
+final GlobalKey<_MainShellState> mainShellKey = GlobalKey<_MainShellState>();
+void setMainTabIndex(int index) => mainShellKey.currentState?.setIndex(index);
+
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -38,5 +42,10 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
     );
+  }
+
+  void setIndex(int index) {
+    if (index == _currentIndex) return;
+    setState(() => _currentIndex = index);
   }
 }
