@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-import 'package:video_compress/video_compress.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:path/path.dart' as p;
 import 'package:xprex/services/storage_service.dart';
@@ -28,7 +27,7 @@ class _UploadScreenState extends State<UploadScreen> {
   final _storage = StorageService();
   final _videoService = VideoService();
   final _authService = AuthService();
-  // Using video_compress (null-safe) instead of flutter_video_compress
+  // Note: Compression removed per request. We upload the original file directly.
 
   XFile? _pickedVideo;
   VideoPlayerController? _playerController;
@@ -41,7 +40,6 @@ class _UploadScreenState extends State<UploadScreen> {
     _titleController.dispose();
     _descController.dispose();
     _playerController?.dispose();
-    VideoCompress.dispose();
     super.dispose();
   }
 
@@ -99,22 +97,10 @@ class _UploadScreenState extends State<UploadScreen> {
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
     try {
-      // 1) Compress (mp4) using flutter_video_compress
-      _setProgress(0.2);
-      final info = await VideoCompress.compressVideo(
-        _pickedVideo!.path,
-        quality: VideoQuality.MediumQuality,
-      );
-      if (info == null || info.path == null) {
-        throw Exception('Compression failed.');
-      }
-      final File compressedFile = File(info.path!);
-      final int durationMs = (info.duration?.toInt() ?? 0);
-      _setProgress(0.45);
-
-      // 2) Thumbnail (JPEG bytes) using video_thumbnail
+      // 1) Thumbnail (JPEG bytes) using video_thumbnail from original file
+      _setProgress(0.15);
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
-        video: compressedFile.path,
+        video: _pickedVideo!.path,
         imageFormat: ImageFormat.JPEG,
         maxWidth: 480,
         quality: 80,
@@ -122,22 +108,30 @@ class _UploadScreenState extends State<UploadScreen> {
       if (thumbBytes == null) {
         throw Exception('Failed to generate thumbnail');
       }
-      _setProgress(0.62);
+      _setProgress(0.25);
 
-      // 3) Upload to Supabase Storage
-      final String videoUrl = await _storage.uploadVideo(
+      // 2) Upload original file to Supabase Storage with progress
+      final file = File(_pickedVideo!.path);
+      final int durationMs = _playerController?.value.duration.inMilliseconds ?? 0;
+
+      final String videoUrl = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
-        file: compressedFile,
+        file: file,
+        onProgress: (sent, total) {
+          // Map upload progress (0..1) into 0.25..0.95 UI range
+          final fraction = total > 0 ? sent / total : 0.0;
+          _setProgress(0.25 + (0.70 * fraction));
+        },
       );
-      _setProgress(0.85);
 
+      // 3) Upload thumbnail bytes
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
         userId: userId,
         timestamp: timestamp,
         bytes: thumbBytes,
       );
-      _setProgress(0.92);
+      _setProgress(0.97);
 
       // 4) Insert into videos table
       await _videoService.createVideo(
@@ -207,7 +201,7 @@ class _UploadScreenState extends State<UploadScreen> {
                 Text('Upload requires a mobile device', style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 Text(
-                  'Please run on Android or iOS to select, compress, and upload videos.',
+                  'Please run on Android or iOS to select and upload videos.',
                   style: theme.textTheme.bodyMedium,
                   textAlign: TextAlign.center,
                 ),
