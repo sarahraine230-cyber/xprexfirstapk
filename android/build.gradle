@@ -1,12 +1,14 @@
 buildscript {
+    // Pin Kotlin version for all buildscript consumers
+    ext.kotlin_version = '2.1.0'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        // Updated for AGP 8.5.2 and Kotlin 1.9.24
-        classpath 'com.android.tools.build:gradle:8.5.2'
-        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24'
+        // Align with 2025 stable toolchain
+        classpath 'com.android.tools.build:gradle:8.7.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}"
     }
 }
 
@@ -18,26 +20,27 @@ allprojects {
 }
 
 rootProject.buildDir = "../build"
-subprojects {
-    afterEvaluate { project ->
-        if (project.hasProperty("kotlin")) {
-            project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).all {
-                kotlinOptions {
-                    // Align with AGP 8.x which requires JDK 17
-                    jvmTarget = "17"
-                }
-            }
+// Ensure every Kotlin compile task (app + all plugins) targets JVM 17
+subprojects { project ->
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "17"
         }
     }
-} 
+}
  
-subprojects {
-    afterEvaluate { project ->
+subprojects { project ->
+    afterEvaluate {
         if (project.plugins.hasPlugin("com.android.application") ||
                 project.plugins.hasPlugin("com.android.library")) {
-            project.android {
+            project.extensions.findByName("android")?.with {
                 // Ensure all subprojects compile with SDK 35
-                compileSdkVersion 35
+                if (hasProperty('compileSdk')) {
+                    compileSdk = 35
+                } else {
+                    // Fallback for older plugin DSLs
+                    compileSdkVersion 35
+                }
             }
         }
         if (project.hasProperty('android')) {
