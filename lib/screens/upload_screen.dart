@@ -89,7 +89,7 @@ class _UploadScreenState extends State<UploadScreen> {
 
     setState(() {
       _isUploading = true;
-      _progress = 0.06;
+      _progress = 0.0;
       _error = null;
     });
 
@@ -97,8 +97,11 @@ class _UploadScreenState extends State<UploadScreen> {
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
     try {
+      debugPrint('🚀 Upload started. userId=$userId ts=$timestamp');
+      debugPrint('📄 Picked file: path=${_pickedVideo!.path}');
       // 1) Thumbnail (JPEG bytes) using video_thumbnail from original file
-      _setProgress(0.15);
+      _setProgress(0.10);
+      debugPrint('🖼️ Generating thumbnail...');
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: _pickedVideo!.path,
         imageFormat: ImageFormat.JPEG,
@@ -108,32 +111,38 @@ class _UploadScreenState extends State<UploadScreen> {
       if (thumbBytes == null) {
         throw Exception('Failed to generate thumbnail');
       }
-      _setProgress(0.25);
+      debugPrint('🖼️ Thumbnail generated. bytes=${thumbBytes.length}');
+      _setProgress(0.15);
 
       // 2) Upload original file to Supabase Storage with progress
       final file = File(_pickedVideo!.path);
       final int durationMs = _playerController?.value.duration.inMilliseconds ?? 0;
 
+      debugPrint('⬆️ Uploading video to storage...');
       final String videoUrl = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
         file: file,
         onProgress: (sent, total) {
-          // Map upload progress (0..1) into 0.25..0.95 UI range
+          // Map upload progress (0..1) into 0.15..0.90 UI range
           final fraction = total > 0 ? sent / total : 0.0;
-          _setProgress(0.25 + (0.70 * fraction));
+          _setProgress(0.15 + (0.75 * fraction));
         },
       );
+      debugPrint('✅ Video uploaded. publicUrl=$videoUrl');
 
       // 3) Upload thumbnail bytes
+      debugPrint('⬆️ Uploading thumbnail to storage...');
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
         userId: userId,
         timestamp: timestamp,
         bytes: thumbBytes,
       );
-      _setProgress(0.97);
+      debugPrint('✅ Thumbnail uploaded. publicUrl=$thumbnailUrl');
+      _setProgress(0.95);
 
       // 4) Insert into videos table
+      debugPrint('🗄️ Inserting video record...');
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoUrl, // storing public URL in storage_path for MVP
@@ -142,6 +151,7 @@ class _UploadScreenState extends State<UploadScreen> {
         coverImageUrl: thumbnailUrl,
         duration: (durationMs / 1000).ceil(),
       );
+      debugPrint('✅ Video record inserted.');
 
       _setProgress(1.0);
 
