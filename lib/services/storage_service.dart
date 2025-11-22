@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
@@ -33,12 +34,12 @@ class StorageService {
 
   Future<String> uploadVideo({
     required String userId,
-    required String videoId,
+    required String timestamp,
     required File file,
   }) async {
     try {
-      final extension = file.path.split('.').last;
-      final path = '$userId/$videoId.$extension';
+      // Always store as .mp4 to meet the implementation guide
+      final path = '${userId}/${timestamp}.mp4';
 
       await _supabase.storage.from('videos').upload(
         path,
@@ -46,8 +47,9 @@ class StorageService {
         fileOptions: const FileOptions(upsert: false),
       );
 
-      debugPrint('✅ Video uploaded: $path');
-      return path;
+      final url = _supabase.storage.from('videos').getPublicUrl(path);
+      debugPrint('✅ Video uploaded: $url');
+      return url;
     } catch (e) {
       debugPrint('❌ Error uploading video: $e');
       rethrow;
@@ -56,12 +58,12 @@ class StorageService {
 
   Future<String> uploadThumbnail({
     required String userId,
-    required String videoId,
+    required String timestamp,
     required File file,
   }) async {
     try {
-      final extension = file.path.split('.').last;
-      final path = '$userId/${videoId}_thumb.$extension';
+      // Always store as .jpg to meet the implementation guide
+      final path = '${userId}/${timestamp}.jpg';
 
       await _supabase.storage.from('thumbnails').upload(
         path,
@@ -100,6 +102,49 @@ class StorageService {
       debugPrint('✅ File deleted: $path');
     } catch (e) {
       debugPrint('❌ Error deleting file: $e');
+      rethrow;
+    }
+  }
+
+  // Convenience: upload raw bytes and return public URL (no upsert for videos, upsert for thumbs)
+  Future<String> uploadVideoBytes({
+    required String userId,
+    required String timestamp,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final path = '${userId}/${timestamp}.mp4';
+      await _supabase.storage.from('videos').uploadBinary(
+            path,
+            bytes,
+            fileOptions: const FileOptions(upsert: false, contentType: 'video/mp4'),
+          );
+      final url = _supabase.storage.from('videos').getPublicUrl(path);
+      debugPrint('✅ Video uploaded (bytes): $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ Error uploading video bytes: $e');
+      rethrow;
+    }
+  }
+
+  Future<String> uploadThumbnailBytes({
+    required String userId,
+    required String timestamp,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final path = '${userId}/${timestamp}.jpg';
+      await _supabase.storage.from('thumbnails').uploadBinary(
+            path,
+            bytes,
+            fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
+          );
+      final url = _supabase.storage.from('thumbnails').getPublicUrl(path);
+      debugPrint('✅ Thumbnail uploaded (bytes): $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ Error uploading thumbnail bytes: $e');
       rethrow;
     }
   }
