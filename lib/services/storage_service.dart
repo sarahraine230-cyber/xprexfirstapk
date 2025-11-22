@@ -81,18 +81,43 @@ class StorageService {
         'x-upsert': 'false',
         'Content-Type': 'video/mp4',
       });
+      request.contentLength = totalBytes;
 
-      await for (final chunk in file.openRead()) {
-        sent += chunk.length;
-        request.sink.add(chunk);
-        try {
-          onProgress(sent, totalBytes);
-        } catch (_) {}
-      }
-      await request.sink.close();
+      // Start pumping file bytes into the request sink while sending the request.
+      // This ensures progress reflects actual transfer time instead of pre-buffering.
+      final fileStream = file.openRead();
+      final pump = fileStream.listen(
+        (chunk) {
+          sent += chunk.length;
+          request.sink.add(chunk);
+          try {
+            onProgress(sent, totalBytes);
+          } catch (_) {}
+        },
+        onError: (err, st) async {
+          try {
+            await request.sink.close();
+          } catch (_) {}
+        },
+        onDone: () async {
+          try {
+            await request.sink.close();
+          } catch (_) {}
+        },
+        cancelOnError: true,
+      );
 
       final client = http.Client();
-      final response = await client.send(request);
+      http.StreamedResponse response;
+      try {
+        response = await client.send(request);
+      } finally {
+        // Do not close client until we read the stream below
+      }
+
+      // Drain the response body to completion to avoid socket leaks
+      final responseBody = await response.stream.bytesToString();
+      await pump.cancel();
       client.close();
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -100,8 +125,7 @@ class StorageService {
         debugPrint('✅ Video uploaded (streamed): $url');
         return url;
       }
-      final body = await response.stream.bytesToString();
-      throw Exception('Upload failed: ${response.statusCode} $body');
+      throw Exception('Upload failed: ${response.statusCode} $responseBody');
     } catch (e) {
       debugPrint('❌ Error uploading video with progress: $e');
       rethrow;
