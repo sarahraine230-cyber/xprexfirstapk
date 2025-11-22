@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseConfig {
   static late final SupabaseClient client;
+  static late final String urlValue;
+  static late final String anonKeyValue;
   
   static Future<void> initialize() async {
     // Prefer environment variables from build, fallback to provided values from user
@@ -28,6 +30,8 @@ class SupabaseConfig {
     );
     
     client = Supabase.instance.client;
+    urlValue = supabaseUrl;
+    anonKeyValue = supabaseAnonKey;
     debugPrint('✅ Supabase initialized successfully');
   }
 }
