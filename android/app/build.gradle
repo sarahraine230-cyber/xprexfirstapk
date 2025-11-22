@@ -14,16 +14,19 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace = "com.mycompany.CounterApp"
-    compileSdk = flutter.compileSdkVersion
+    // Pin to API 35 as requested
+    compileSdk = 35
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        // Use Java 17 per AGP 8.x requirements
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        // Kotlin JVM target 17
+        jvmTarget = "17"
     }
 
     signingConfigs {
@@ -41,7 +44,8 @@ android {
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        // Pin to API 35 as requested
+        targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
