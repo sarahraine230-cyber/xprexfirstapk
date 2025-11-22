@@ -29,6 +29,34 @@ subprojects { project ->
     }
 }
  
+// Ensure every Java compile task (app + all plugins) targets Java 17.
+// This fixes: Inconsistent JVM-target compatibility detected for tasks
+// 'compileDebugJavaWithJavac' (11) and 'compileDebugKotlin' (17)
+subprojects { project ->
+    tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        // Set release flag to guarantee 17 bytecode even if toolchain defaults differ.
+        options.release = 17
+    }
+
+    // For Android modules, also set compileOptions at the Android extension level when available
+    afterEvaluate {
+        if (project.plugins.hasPlugin("com.android.application") || project.plugins.hasPlugin("com.android.library")) {
+            try {
+                project.android {
+                    compileOptions {
+                        sourceCompatibility JavaVersion.VERSION_17
+                        targetCompatibility JavaVersion.VERSION_17
+                    }
+                }
+            } catch (Throwable ignored) {
+                // Some plugin versions may not expose android DSL here; JavaCompile fallback above still applies
+            }
+        }
+    }
+}
+
 subprojects { project ->
     afterEvaluate {
         if (project.plugins.hasPlugin("com.android.application") ||
