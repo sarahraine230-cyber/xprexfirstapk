@@ -59,7 +59,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/',
-        builder: (context, state) => const MainShell(),
+        builder: (context, state) => MainShell(key: mainShellKey),
       ),
       GoRoute(
         path: '/monetization',
