@@ -88,6 +88,52 @@ class ProfileService {
     }
   }
 
+  // Ensure a profile row exists for the given auth user id. If missing, create
+  // a minimal profile using a safe, likely-unique fallback username.
+  Future<UserProfile> ensureProfileExists({
+    required String authUserId,
+    required String email,
+  }) async {
+    try {
+      final existing = await getProfileByAuthId(authUserId);
+      if (existing != null) {
+        return existing;
+      }
+
+      // Derive a sensible default username/display from email and user id
+      final localPart = email.contains('@') ? email.split('@').first : email;
+      final baseUsername = localPart.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+      String candidate = baseUsername.isEmpty ? 'user' : baseUsername;
+
+      // Make it more likely to be unique by appending a short suffix
+      final suffix = authUserId.replaceAll('-', '').substring(0, 6);
+      candidate = '${candidate}_$suffix';
+
+      // Best-effort availability check; if taken, fall back to user_<suffix>
+      try {
+        final available = await isUsernameAvailable(candidate);
+        if (!available) {
+          candidate = 'user_$suffix';
+        }
+      } catch (_) {
+        // Ignore and proceed
+      }
+
+      debugPrint('ℹ️ Creating missing profile for authUserId=$authUserId using username=$candidate');
+      return await createProfile(
+        authUserId: authUserId,
+        email: email,
+        username: candidate,
+        displayName: localPart.isEmpty ? 'New User' : localPart,
+        avatarUrl: null,
+        bio: null,
+      );
+    } catch (e) {
+      debugPrint('❌ ensureProfileExists error: $e');
+      rethrow;
+    }
+  }
+
   Future<UserProfile> updateProfile({
     required String authUserId,
     String? username,
