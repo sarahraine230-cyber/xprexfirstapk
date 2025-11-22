@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/auth_service.dart';
+import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/screens/feed_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 
@@ -27,6 +28,7 @@ class _UploadScreenState extends State<UploadScreen> {
   final _storage = StorageService();
   final _videoService = VideoService();
   final _authService = AuthService();
+  final _profileService = ProfileService();
   // Note: Compression removed per request. We upload the original file directly.
 
   XFile? _pickedVideo;
@@ -99,6 +101,15 @@ class _UploadScreenState extends State<UploadScreen> {
     try {
       debugPrint('🚀 Upload started. userId=$userId ts=$timestamp');
       debugPrint('📄 Picked file: path=${_pickedVideo!.path}');
+      // 0) Ensure user has a profile so the videos FK constraint will pass
+      try {
+        final email = _authService.currentUser?.email ?? '';
+        await _profileService.ensureProfileExists(authUserId: userId, email: email);
+        debugPrint('✔️ Verified/created profile for user');
+      } catch (e) {
+        debugPrint('⚠️ Could not ensure profile exists: $e');
+        // Continue; the DB will still enforce FK and provide a clear error
+      }
       // 1) Thumbnail (JPEG bytes) using video_thumbnail from original file
       _setProgress(0.10);
       debugPrint('🖼️ Generating thumbnail...');
