@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
 
@@ -52,6 +53,57 @@ class StorageService {
       return url;
     } catch (e) {
       debugPrint('❌ Error uploading video: $e');
+      rethrow;
+    }
+  }
+
+  // Direct upload using HTTP with byte-level progress callback.
+  // Falls back to anon key if no user session is available.
+  Future<String> uploadVideoWithProgress({
+    required String userId,
+    required String timestamp,
+    required File file,
+    required void Function(int bytesSent, int totalBytes) onProgress,
+  }) async {
+    final bucket = 'videos';
+    final path = '$userId/$timestamp.mp4';
+    final storageEndpoint = '${SupabaseConfig.urlValue}/storage/v1/object/$bucket/$path';
+    final token = _supabase.auth.currentSession?.accessToken ?? SupabaseConfig.anonKeyValue;
+
+    try {
+      final totalBytes = await file.length();
+      int sent = 0;
+
+      final uri = Uri.parse(storageEndpoint);
+      final request = http.StreamedRequest('POST', uri);
+      request.headers.addAll({
+        'Authorization': 'Bearer $token',
+        'x-upsert': 'false',
+        'Content-Type': 'video/mp4',
+      });
+
+      await for (final chunk in file.openRead()) {
+        sent += chunk.length;
+        request.sink.add(chunk);
+        try {
+          onProgress(sent, totalBytes);
+        } catch (_) {}
+      }
+      await request.sink.close();
+
+      final client = http.Client();
+      final response = await client.send(request);
+      client.close();
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final url = _supabase.storage.from(bucket).getPublicUrl(path);
+        debugPrint('✅ Video uploaded (streamed): $url');
+        return url;
+      }
+      final body = await response.stream.bytesToString();
+      throw Exception('Upload failed: ${response.statusCode} $body');
+    } catch (e) {
+      debugPrint('❌ Error uploading video with progress: $e');
       rethrow;
     }
   }
