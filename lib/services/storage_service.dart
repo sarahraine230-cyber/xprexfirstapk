@@ -71,6 +71,13 @@ class StorageService {
     final token = _supabase.auth.currentSession?.accessToken ?? SupabaseConfig.anonKeyValue;
 
     try {
+      if (_supabase.auth.currentSession == null) {
+        debugPrint('⚠️ No Supabase session found. Falling back to anon key for storage upload. For private buckets this will be denied by RLS (403).');
+      } else {
+        debugPrint('🔐 Using user JWT for storage upload. uid=${_supabase.auth.currentUser?.id}');
+      }
+      debugPrint('📦 Storage upload target -> bucket=$bucket path=$path');
+
       final totalBytes = await file.length();
       int sent = 0;
 
