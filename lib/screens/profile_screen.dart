@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
+import 'package:xprex/services/video_service.dart';
+import 'package:xprex/models/video_model.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -11,6 +13,7 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(currentUserProfileProvider);
     final theme = Theme.of(context);
+    final videoService = VideoService();
 
     return Scaffold(
       appBar: AppBar(
@@ -68,7 +71,13 @@ class ProfileScreen extends ConsumerWidget {
                   children: [
                     _buildStat('Followers', profile.followersCount.toString(), theme),
                     _buildStat('Views', profile.totalVideoViews.toString(), theme),
-                    _buildStat('Videos', '0', theme),
+                    FutureBuilder<List<VideoModel>>(
+                      future: videoService.getUserVideos(profile.authUserId),
+                      builder: (context, snap) {
+                        final count = (snap.data ?? const <VideoModel>[]).length;
+                        return _buildStat('Videos', snap.connectionState == ConnectionState.waiting ? '…' : '$count', theme);
+                      },
+                    ),
                   ],
                 ),
                 const SizedBox(height: 24),
@@ -100,22 +109,81 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 32),
                 Text('My Videos', style: theme.textTheme.titleLarge),
                 const SizedBox(height: 16),
-                Container(
-                  height: 200,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.video_library_outlined, size: 48, color: theme.colorScheme.onSurfaceVariant),
-                        const SizedBox(height: 8),
-                        Text('No videos yet', style: theme.textTheme.bodyMedium),
-                      ],
-                    ),
-                  ),
+                FutureBuilder<List<VideoModel>>(
+                  future: videoService.getUserVideos(profile.authUserId),
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: Padding(
+                        padding: EdgeInsets.all(24.0),
+                        child: CircularProgressIndicator(),
+                      ));
+                    }
+                    final videos = snap.data ?? [];
+
+                    // Update the header stats row by rebuilding with a small row below
+                    if (videos.isNotEmpty)
+                      ; // no-op, just show grid
+
+                    if (videos.isEmpty) {
+                      return Container(
+                        height: 200,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(AppRadius.md),
+                        ),
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.video_library_outlined, size: 48, color: theme.colorScheme.onSurfaceVariant),
+                              const SizedBox(height: 8),
+                              Text('No videos yet', style: theme.textTheme.bodyMedium),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: videos.length,
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        childAspectRatio: 9 / 16,
+                      ),
+                      itemBuilder: (context, index) {
+                        final v = videos[index];
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (v.coverImageUrl != null)
+                                Image.network(v.coverImageUrl!, fit: BoxFit.cover)
+                              else
+                                Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.slow_motion_video, color: Colors.white70)),
+                              Align(
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                                  color: Colors.black.withValues(alpha: 0.4),
+                                  child: Text(
+                                    v.title,
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
               ],
             ),
