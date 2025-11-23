@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/screens/splash_screen.dart';
+import 'package:xprex/screens/brand_splash_screen.dart';
 import 'package:xprex/screens/login_screen.dart';
 import 'package:xprex/screens/signup_screen.dart';
 import 'package:xprex/screens/email_verification_screen.dart';
@@ -13,7 +14,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
   
   return GoRouter(
-    initialLocation: '/splash',
+    initialLocation: '/brand',
     redirect: (context, state) {
       final path = state.uri.path;
       
@@ -22,7 +23,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final isAuthenticated = auth.session != null;
           final isEmailVerified = auth.session?.user.emailConfirmedAt != null;
           
-          if (!isAuthenticated && !path.startsWith('/login') && !path.startsWith('/signup') && path != '/splash') {
+          // Allow brand and splash routes for all users
+          final isAllowedPublic = path == '/brand' || path == '/splash';
+
+          if (!isAuthenticated && !path.startsWith('/login') && !path.startsWith('/signup') && !isAllowedPublic) {
             return '/login';
           }
           
@@ -37,6 +41,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       );
     },
     routes: [
+      GoRoute(
+        path: '/brand',
+        builder: (context, state) => const BrandSplashScreen(),
+      ),
       GoRoute(
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
