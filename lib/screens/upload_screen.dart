@@ -130,7 +130,7 @@ class _UploadScreenState extends State<UploadScreen> {
       final int durationMs = _playerController?.value.duration.inMilliseconds ?? 0;
 
       debugPrint('⬆️ Uploading video to storage...');
-      final String videoUrl = await _storage.uploadVideoWithProgress(
+      final String storagePath = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
         file: file,
@@ -140,7 +140,7 @@ class _UploadScreenState extends State<UploadScreen> {
           _setProgress(0.15 + (0.75 * fraction));
         },
       );
-      debugPrint('✅ Video uploaded. publicUrl=$videoUrl');
+      debugPrint('✅ Video uploaded. storagePath=$storagePath');
 
       // 3) Upload thumbnail bytes
       debugPrint('⬆️ Uploading thumbnail to storage...');
@@ -156,7 +156,7 @@ class _UploadScreenState extends State<UploadScreen> {
       debugPrint('🗄️ Inserting video record...');
       await _videoService.createVideo(
         authorAuthUserId: userId,
-        storagePath: videoUrl, // storing public URL in storage_path for MVP
+        storagePath: storagePath, // store storage path; playback will resolve to signed URL
         title: _titleController.text.trim(),
         description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
         coverImageUrl: thumbnailUrl,
