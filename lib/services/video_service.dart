@@ -168,4 +168,33 @@ class VideoService {
       rethrow;
     }
   }
+
+  // --- Shares API (best-effort, table may not exist) ---
+  Future<int> getShareCount(String videoId) async {
+    try {
+      final response = await _supabase
+          .from('shares')
+          .select('id')
+          .eq('video_id', videoId);
+      if (response is List) return response.length;
+      return 0;
+    } catch (e) {
+      debugPrint('⚠️ getShareCount failed (table missing or RLS): $e');
+      return 0;
+    }
+  }
+
+  Future<void> recordShare(String videoId, String userAuthId) async {
+    try {
+      await _supabase.from('shares').insert({
+        'video_id': videoId,
+        'user_auth_id': userAuthId,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      debugPrint('✅ Share recorded');
+    } catch (e) {
+      // Do not break UX if the shares table is not present or user not allowed
+      debugPrint('⚠️ recordShare failed (non-fatal): $e');
+    }
+  }
 }
