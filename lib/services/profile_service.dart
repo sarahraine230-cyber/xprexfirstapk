@@ -218,4 +218,66 @@ class ProfileService {
       rethrow;
     }
   }
+
+  // =====================
+  // Follows API
+  // =====================
+  Future<bool> isFollowing({required String followerAuthUserId, required String followeeAuthUserId}) async {
+    try {
+      final existing = await _supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_auth_user_id', followerAuthUserId)
+          .eq('followee_auth_user_id', followeeAuthUserId)
+          .maybeSingle();
+      return existing != null;
+    } catch (e) {
+      debugPrint('❌ Error checking follow status: $e');
+      return false;
+    }
+  }
+
+  Future<void> followUser({required String followerAuthUserId, required String followeeAuthUserId}) async {
+    try {
+      if (followerAuthUserId == followeeAuthUserId) return;
+      await _supabase.from('follows').insert({
+        'follower_auth_user_id': followerAuthUserId,
+        'followee_auth_user_id': followeeAuthUserId,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+      debugPrint('✅ Followed user $followeeAuthUserId');
+    } catch (e) {
+      // ignore unique violations gracefully
+      debugPrint('❌ Follow failed: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> unfollowUser({required String followerAuthUserId, required String followeeAuthUserId}) async {
+    try {
+      await _supabase
+          .from('follows')
+          .delete()
+          .eq('follower_auth_user_id', followerAuthUserId)
+          .eq('followee_auth_user_id', followeeAuthUserId);
+      debugPrint('✅ Unfollowed user $followeeAuthUserId');
+    } catch (e) {
+      debugPrint('❌ Unfollow failed: $e');
+      rethrow;
+    }
+  }
+
+  Future<int> getFollowerCount(String followeeAuthUserId) async {
+    try {
+      final res = await _supabase
+          .from('follows')
+          .select('id')
+          .eq('followee_auth_user_id', followeeAuthUserId);
+      if (res is List) return res.length;
+      return 0;
+    } catch (e) {
+      debugPrint('❌ Error getting follower count: $e');
+      return 0;
+    }
+  }
 }
