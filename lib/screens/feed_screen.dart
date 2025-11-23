@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/models/video_model.dart';
+import 'package:xprex/services/comment_service.dart';
+import 'package:xprex/models/comment_model.dart';
 
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
@@ -159,12 +162,15 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   VideoPlayerController? _controller;
   bool _isLiked = false;
   int _likeCount = 0;
+  int _commentsCount = 0;
+  int _shareCount = 0;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _likeCount = widget.video.likesCount;
+    _commentsCount = widget.video.commentsCount;
     _init();
   }
 
@@ -185,6 +191,20 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
         ..setLooping(true);
       await _controller!.initialize();
+      // Initialize like status and share count in parallel
+      final uid = supabase.auth.currentUser?.id;
+      if (uid != null) {
+        _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
+          if (mounted) setState(() => _isLiked = liked);
+        });
+        _videoService.getShareCount(widget.video.id).then((count) {
+          if (mounted) setState(() => _shareCount = count);
+        });
+      } else {
+        _videoService.getShareCount(widget.video.id).then((count) {
+          if (mounted) setState(() => _shareCount = count);
+        });
+      }
       _updatePlayState();
     } catch (e) {
       debugPrint('❌ Failed to init player: $e');
@@ -239,6 +259,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
+        ? widget.video.authorDisplayName!
+        : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
     return Container(
       color: Colors.black,
       child: Stack(
@@ -286,7 +309,31 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('@${widget.video.authorUsername ?? "unknown"}', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: Colors.white.withValues(alpha: 0.15),
+                      backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
+                          ? NetworkImage(widget.video.authorAvatarUrl!)
+                          : null,
+                      child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
+                          ? const Icon(Icons.person_outline, color: Colors.white)
+                          : null,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(authorName, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          if (widget.video.authorDisplayName == null || widget.video.authorDisplayName!.trim().isEmpty)
+                            Text(widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : '', style: theme.textTheme.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.8))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 Text(widget.video.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (widget.video.description != null)
@@ -308,21 +355,18 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                 Text('$_likeCount', style: const TextStyle(color: Colors.white)),
                 const SizedBox(height: 16),
                 IconButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comments coming soon')));
-                  },
+                  onPressed: _openComments,
                   icon: const Icon(Icons.comment, color: Colors.white),
                   iconSize: 32,
                 ),
-                Text('${widget.video.commentsCount}', style: const TextStyle(color: Colors.white)),
+                Text('$_commentsCount', style: const TextStyle(color: Colors.white)),
                 const SizedBox(height: 16),
                 IconButton(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Share coming soon')));
-                  },
+                  onPressed: _handleShare,
                   icon: const Icon(Icons.share, color: Colors.white),
                   iconSize: 32,
                 ),
+                Text('$_shareCount', style: const TextStyle(color: Colors.white)),
               ],
             ),
           ),
@@ -332,6 +376,208 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
         ],
       ),
+    );
+  }
+
+  void _openComments() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _CommentsSheet(
+          videoId: widget.video.id,
+          onNewComment: () {
+            setState(() => _commentsCount += 1);
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _handleShare() async {
+    try {
+      final url = await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
+      await Share.share(url);
+      final uid = supabase.auth.currentUser?.id;
+      if (uid != null) {
+        await _videoService.recordShare(widget.video.id, uid);
+      }
+      setState(() => _shareCount += 1);
+    } catch (e) {
+      debugPrint('❌ share failed: $e');
+    }
+  }
+}
+
+// Snapchat-style comments sheet with rounded top and themed colors
+class _CommentsSheet extends StatefulWidget {
+  final String videoId;
+  final VoidCallback? onNewComment;
+  const _CommentsSheet({required this.videoId, this.onNewComment});
+
+  @override
+  State<_CommentsSheet> createState() => _CommentsSheetState();
+}
+
+class _CommentsSheetState extends State<_CommentsSheet> {
+  final _svc = CommentService();
+  final _inputCtrl = TextEditingController();
+  late Future<List<CommentModel>> _loader;
+  bool _posting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loader = _svc.getCommentsByVideo(widget.videoId);
+  }
+
+  @override
+  void dispose() {
+    _inputCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _post() async {
+    final text = _inputCtrl.text.trim();
+    if (text.isEmpty || _posting) return;
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return;
+    setState(() => _posting = true);
+    try {
+      await _svc.createComment(videoId: widget.videoId, authorAuthUserId: uid, text: text);
+      _inputCtrl.clear();
+      // Refresh the list
+      setState(() {
+        _loader = _svc.getCommentsByVideo(widget.videoId);
+        _posting = false;
+      });
+      widget.onNewComment?.call();
+    } catch (e) {
+      setState(() => _posting = false);
+      debugPrint('❌ post comment failed: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DraggableScrollableSheet(
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(20),
+              topRight: Radius.circular(20),
+            ),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.chat_bubble_outline, color: theme.colorScheme.primary),
+                    const SizedBox(width: 8),
+                    Text('Comments', style: theme.textTheme.titleLarge),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: Icon(Icons.close, color: theme.colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: FutureBuilder<List<CommentModel>>(
+                  future: _loader,
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final items = snap.data ?? const <CommentModel>[];
+                    if (items.isEmpty) {
+                      return Center(
+                        child: Text('Be the first to comment', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      );
+                    }
+                    return ListView.separated(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      itemCount: items.length,
+                      itemBuilder: (context, i) {
+                        final c = items[i];
+                        final name = (c.authorDisplayName != null && c.authorDisplayName!.trim().isNotEmpty)
+                            ? c.authorDisplayName!
+                            : (c.authorUsername != null ? '@${c.authorUsername}' : '');
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CircleAvatar(
+                              radius: 16,
+                              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                              backgroundImage: (c.authorAvatarUrl != null && c.authorAvatarUrl!.isNotEmpty) ? NetworkImage(c.authorAvatarUrl!) : null,
+                              child: (c.authorAvatarUrl == null || c.authorAvatarUrl!.isEmpty) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) : null,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(name, style: theme.textTheme.titleSmall),
+                                  const SizedBox(height: 4),
+                                  Text(c.text, style: theme.textTheme.bodyMedium),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    );
+                  },
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  right: 12,
+                  bottom: MediaQuery.of(context).padding.bottom + 12,
+                  top: 8,
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _inputCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Add a comment',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: _posting ? null : _post,
+                      icon: const Icon(Icons.send),
+                      label: const Text('Send'),
+                      style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
