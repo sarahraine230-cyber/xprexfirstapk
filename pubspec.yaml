@@ -34,9 +34,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/
 
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: assets/icons/dreamflow_icon.jpg
+  image_path: assets/images/edgy_tech_monogram_X_logo_sharp_angles_vibrant_gradient_turquoise_1763918747193.png
   remove_alpha_ios: true
