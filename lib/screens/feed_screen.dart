@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 import 'package:xprex/services/video_service.dart';
+import 'package:xprex/services/storage_service.dart';
+import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/models/video_model.dart';
 
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
@@ -8,11 +11,19 @@ final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   return await videoService.getFeedVideos(limit: 20);
 });
 
-class FeedScreen extends ConsumerWidget {
+class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends ConsumerState<FeedScreen> {
+  int _activeIndex = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final videosAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
 
@@ -43,64 +54,18 @@ class FeedScreen extends ConsumerWidget {
             itemCount: videos.length,
             itemBuilder: (context, index) {
               final video = videos[index];
-              return Container(
-                color: Colors.black,
-                child: Stack(
-                  children: [
-                    Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.play_circle_outline, size: 100, color: Colors.white.withValues(alpha: 0.7)),
-                          const SizedBox(height: 16),
-                          Text(video.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), textAlign: TextAlign.center),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 80,
-                      left: 16,
-                      right: 80,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('@${video.authorUsername ?? "unknown"}', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          if (video.description != null)
-                            Text(video.description!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        ],
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 80,
-                      right: 16,
-                      child: Column(
-                        children: [
-                          IconButton(
-                            onPressed: () {},
-                            icon: Icon(Icons.favorite_border, color: Colors.white),
-                            iconSize: 32,
-                          ),
-                          Text('${video.likesCount}', style: TextStyle(color: Colors.white)),
-                          const SizedBox(height: 16),
-                          IconButton(
-                            onPressed: () {},
-                            icon: Icon(Icons.comment, color: Colors.white),
-                            iconSize: 32,
-                          ),
-                          Text('${video.commentsCount}', style: TextStyle(color: Colors.white)),
-                          const SizedBox(height: 16),
-                          IconButton(
-                            onPressed: () {},
-                            icon: Icon(Icons.share, color: Colors.white),
-                            iconSize: 32,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              return VideoFeedItem(
+                key: ValueKey(video.id),
+                video: video,
+                isActive: index == _activeIndex,
+                onLikeToggled: () {
+                  // refresh list to reflect counts
+                  ref.invalidate(feedVideosProvider);
+                },
               );
+            },
+            onPageChanged: (i) {
+              setState(() => _activeIndex = i);
             },
           );
         },
@@ -117,6 +82,191 @@ class FeedScreen extends ConsumerWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class VideoFeedItem extends StatefulWidget {
+  final VideoModel video;
+  final bool isActive;
+  final VoidCallback? onLikeToggled;
+
+  const VideoFeedItem({super.key, required this.video, required this.isActive, this.onLikeToggled});
+
+  @override
+  State<VideoFeedItem> createState() => _VideoFeedItemState();
+}
+
+class _VideoFeedItemState extends State<VideoFeedItem> {
+  final _storage = StorageService();
+  final _videoService = VideoService();
+  VideoPlayerController? _controller;
+  bool _isLiked = false;
+  int _likeCount = 0;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _likeCount = widget.video.likesCount;
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant VideoFeedItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.video.id != widget.video.id) {
+      _disposeController();
+      _loading = true;
+      _init();
+    }
+    _updatePlayState();
+  }
+
+  Future<void> _init() async {
+    try {
+      final playableUrl = await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
+      _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
+        ..setLooping(true);
+      await _controller!.initialize();
+      _updatePlayState();
+    } catch (e) {
+      debugPrint('❌ Failed to init player: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _updatePlayState() {
+    if (_controller == null) return;
+    if (widget.isActive) {
+      _controller!.play();
+    } else {
+      _controller!.pause();
+    }
+    setState(() {});
+  }
+
+  Future<void> _toggleLike() async {
+    try {
+      final uid = supabase.auth.currentUser?.id;
+      if (uid == null) return;
+      final liked = await _videoService.toggleLike(widget.video.id, uid);
+      setState(() {
+        _isLiked = liked;
+        _likeCount += liked ? 1 : -1;
+      });
+      widget.onLikeToggled?.call();
+    } catch (e) {
+      debugPrint('❌ like toggle failed: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _disposeController();
+    super.dispose();
+  }
+
+  void _disposeController() {
+    try {
+      _controller?.dispose();
+    } catch (_) {}
+    _controller = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      color: Colors.black,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: _controller != null && _controller!.value.isInitialized
+                ? FittedBox(
+                    fit: BoxFit.cover,
+                    child: SizedBox(
+                      width: _controller!.value.size.width,
+                      height: _controller!.value.size.height,
+                      child: VideoPlayer(_controller!),
+                    ),
+                  )
+                : (widget.video.coverImageUrl != null
+                    ? Image.network(widget.video.coverImageUrl!, fit: BoxFit.cover)
+                    : Container(color: Colors.black)),
+          ),
+          // Tap to play/pause overlay
+          Positioned.fill(
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () {
+                  if (_controller == null) return;
+                  if (_controller!.value.isPlaying) {
+                    _controller!.pause();
+                  } else {
+                    _controller!.play();
+                  }
+                  setState(() {});
+                },
+              ),
+            ),
+          ),
+          // Bottom left: author + title
+          Positioned(
+            bottom: 80,
+            left: 16,
+            right: 80,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('@${widget.video.authorUsername ?? "unknown"}', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                Text(widget.video.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (widget.video.description != null)
+                  Text(widget.video.description!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          // Right rail
+          Positioned(
+            bottom: 80,
+            right: 16,
+            child: Column(
+              children: [
+                IconButton(
+                  onPressed: _toggleLike,
+                  icon: Icon(_isLiked ? Icons.favorite : Icons.favorite_border, color: Colors.white),
+                  iconSize: 32,
+                ),
+                Text('$_likeCount', style: const TextStyle(color: Colors.white)),
+                const SizedBox(height: 16),
+                IconButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Comments coming soon')));
+                  },
+                  icon: const Icon(Icons.comment, color: Colors.white),
+                  iconSize: 32,
+                ),
+                Text('${widget.video.commentsCount}', style: const TextStyle(color: Colors.white)),
+                const SizedBox(height: 16),
+                IconButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Share coming soon')));
+                  },
+                  icon: const Icon(Icons.share, color: Colors.white),
+                  iconSize: 32,
+                ),
+              ],
+            ),
+          ),
+          if (_loading)
+            const Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+        ],
       ),
     );
   }
