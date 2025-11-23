@@ -59,6 +59,8 @@ class StorageService {
 
   // Direct upload using HTTP with byte-level progress callback.
   // Falls back to anon key if no user session is available.
+  // Returns the storage path (e.g., "$userId/$timestamp.mp4").
+  // Use resolveVideoUrl() to turn it into a playable URL when needed.
   Future<String> uploadVideoWithProgress({
     required String userId,
     required String timestamp,
@@ -128,9 +130,9 @@ class StorageService {
       client.close();
 
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        final url = _supabase.storage.from(bucket).getPublicUrl(path);
-        debugPrint('✅ Video uploaded (streamed): $url');
-        return url;
+        // Return the storage path; playback should use a signed URL for private buckets.
+        debugPrint('✅ Video uploaded (streamed) to path=$path');
+        return path;
       }
       throw Exception('Upload failed: ${response.statusCode} $responseBody');
     } catch (e) {
@@ -173,6 +175,24 @@ class StorageService {
       debugPrint('❌ Error getting signed URL: $e');
       rethrow;
     }
+  }
+
+  // Resolve a storage_path or a public URL into a playable URL.
+  // - If storagePath already looks like an http(s) URL, return as-is.
+  // - Otherwise, generate a signed URL from the private videos bucket.
+  Future<String> resolveVideoUrl(String storagePath, {int expiresIn = 3600}) async {
+    // If it's already a URL, try to normalize public URLs back to a signed path when possible
+    if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
+      // Handle Supabase "public URL" form: /storage/v1/object/public/videos/<path>
+      final marker = '/storage/v1/object/public/videos/';
+      final i = storagePath.indexOf(marker);
+      if (i != -1) {
+        final path = storagePath.substring(i + marker.length);
+        return await getSignedVideoUrl(path, expiresIn: expiresIn);
+      }
+      return storagePath;
+    }
+    return await getSignedVideoUrl(storagePath, expiresIn: expiresIn);
   }
 
   String getPublicUrl(String bucket, String path) {
