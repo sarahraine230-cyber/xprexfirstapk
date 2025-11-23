@@ -1,12 +1,13 @@
 buildscript {
-    // Pin Kotlin version for all buildscript consumers (compatible with AGP 8.2.2)
-    ext.kotlin_version = '1.9.22'
+    // Use Kotlin 2.0.x to match plugins like package_info_plus 9.x compiled with Kotlin 2.x
+    // Keep AGP at 8.2.2 unless upgrade is required by your CI template.
+    ext.kotlin_version = '2.0.21'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        // Use AGP 8.2.2 per Codemagic requirements
+        // AGP 8.2.2 is compatible with Gradle 8.4 and Kotlin 2.0.x
         classpath 'com.android.tools.build:gradle:8.2.2'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}"
     }
