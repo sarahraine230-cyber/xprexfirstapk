@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/config/supabase_config.dart';
@@ -12,14 +14,56 @@ final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
 });
 
 class FeedScreen extends ConsumerStatefulWidget {
-  const FeedScreen({super.key});
+  final bool isVisible;
+
+  const FeedScreen({super.key, this.isVisible = true});
 
   @override
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends ConsumerState<FeedScreen> {
+class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver {
   int _activeIndex = 0;
+  bool _appActive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    // Ensure we don't hold wakelock when leaving feed
+    WakelockPlus.disable();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant FeedScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isVisible != widget.isVisible) {
+      if (!widget.isVisible) {
+        // When hidden, make sure wakelock is disabled
+        WakelockPlus.disable();
+      }
+      setState(() {});
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final active = state == AppLifecycleState.resumed;
+    if (_appActive != active) {
+      _appActive = active;
+      if (!active) {
+        // App backgrounded → release wakelock
+        WakelockPlus.disable();
+      }
+      setState(() {});
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,10 +71,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
     final videosAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
 
+    final feedVisible = widget.isVisible && _appActive;
     return Scaffold(
+      extendBodyBehindAppBar: true,
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('XpreX'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         centerTitle: true,
+        systemOverlayStyle: SystemUiOverlayStyle.light,
+        title: const Text(
+          'XpreX',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+        ),
       ),
       body: videosAsync.when(
         data: (videos) {
@@ -58,6 +111,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
                 key: ValueKey(video.id),
                 video: video,
                 isActive: index == _activeIndex,
+                feedVisible: feedVisible,
                 onLikeToggled: () {
                   // refresh list to reflect counts
                   ref.invalidate(feedVideosProvider);
@@ -90,9 +144,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
 class VideoFeedItem extends StatefulWidget {
   final VideoModel video;
   final bool isActive;
+  final bool feedVisible;
   final VoidCallback? onLikeToggled;
 
-  const VideoFeedItem({super.key, required this.video, required this.isActive, this.onLikeToggled});
+  const VideoFeedItem({super.key, required this.video, required this.isActive, required this.feedVisible, this.onLikeToggled});
 
   @override
   State<VideoFeedItem> createState() => _VideoFeedItemState();
@@ -140,10 +195,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   void _updatePlayState() {
     if (_controller == null) return;
-    if (widget.isActive) {
+    final shouldPlay = widget.feedVisible && widget.isActive;
+    if (shouldPlay) {
       _controller!.play();
+      WakelockPlus.enable();
     } else {
       _controller!.pause();
+      WakelockPlus.disable();
     }
     setState(() {});
   }
@@ -165,6 +223,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   @override
   void dispose() {
+    // Ensure we release wakelock when item is disposed
+    WakelockPlus.disable();
     _disposeController();
     super.dispose();
   }
@@ -206,8 +266,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   if (_controller == null) return;
                   if (_controller!.value.isPlaying) {
                     _controller!.pause();
+                    WakelockPlus.disable();
                   } else {
-                    _controller!.play();
+                    if (widget.feedVisible && widget.isActive) {
+                      _controller!.play();
+                      WakelockPlus.enable();
+                    }
                   }
                   setState(() {});
                 },
