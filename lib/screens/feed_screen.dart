@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_player/video_player.dart';
+import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
@@ -311,25 +312,39 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               children: [
                 Row(
                   children: [
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: Colors.white.withValues(alpha: 0.15),
-                      backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
-                          ? NetworkImage(widget.video.authorAvatarUrl!)
-                          : null,
-                      child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
-                          ? const Icon(Icons.person_outline, color: Colors.white)
-                          : null,
+                    GestureDetector(
+                      onTap: () {
+                        if (widget.video.authorAuthUserId.isNotEmpty) {
+                          context.push('/u/${widget.video.authorAuthUserId}');
+                        }
+                      },
+                      child: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.white.withValues(alpha: 0.15),
+                        backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
+                            ? NetworkImage(widget.video.authorAvatarUrl!)
+                            : null,
+                        child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
+                            ? const Icon(Icons.person_outline, color: Colors.white)
+                            : null,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(authorName, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          if (widget.video.authorDisplayName == null || widget.video.authorDisplayName!.trim().isEmpty)
-                            Text(widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : '', style: theme.textTheme.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.8))),
-                        ],
+                      child: GestureDetector(
+                        onTap: () {
+                          if (widget.video.authorAuthUserId.isNotEmpty) {
+                            context.push('/u/${widget.video.authorAuthUserId}');
+                          }
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(authorName, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+                            if (widget.video.authorDisplayName == null || widget.video.authorDisplayName!.trim().isEmpty)
+                              Text(widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : '', style: theme.textTheme.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.8))),
+                          ],
+                        ),
                       ),
                     ),
                   ],
@@ -462,7 +477,12 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DraggableScrollableSheet(
+    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: viewInsets),
+      child: DraggableScrollableSheet(
       initialChildSize: 0.85,
       minChildSize: 0.5,
       maxChildSize: 0.95,
@@ -545,14 +565,11 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                   },
                 ),
               ),
-              Padding(
-                padding: EdgeInsets.only(
-                  left: 12,
-                  right: 12,
-                  bottom: MediaQuery.of(context).padding.bottom + 12,
-                  top: 8,
-                ),
-                child: Row(
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
+                  child: Row(
                   children: [
                     Expanded(
                       child: TextField(
@@ -572,12 +589,14 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
                     ),
                   ],
+                  ),
                 ),
               ),
             ],
           ),
-        );
+          );
       },
+      ),
     );
   }
 }
