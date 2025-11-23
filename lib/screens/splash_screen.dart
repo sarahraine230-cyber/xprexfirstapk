@@ -31,13 +31,16 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       final profileService = ref.read(profileServiceProvider);
 
       if (authService.isAuthenticated && authService.isEmailVerified()) {
-        final profile = await profileService.getProfileByAuthId(authService.currentUserId!);
-        if (!mounted) return;
-        if (profile == null) {
-          context.go('/profile-setup');
-        } else {
-          context.go('/');
+        // Ensure a minimal profile exists immediately for new accounts
+        try {
+          final uid = authService.currentUserId!;
+          final email = authService.currentUser!.email ?? 'user@example.com';
+          await profileService.ensureProfileExists(authUserId: uid, email: email);
+        } catch (e) {
+          // Non-fatal; fall through
         }
+        if (!mounted) return;
+        context.go('/');
       } else if (authService.isAuthenticated && !authService.isEmailVerified()) {
         if (!mounted) return;
         context.go('/email-verification');
