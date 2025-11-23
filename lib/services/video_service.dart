@@ -5,6 +5,7 @@ import 'package:xprex/models/video_model.dart';
 
 class VideoService {
   final SupabaseClient _supabase = supabase;
+  static bool _sharesFeatureAvailable = true; // disable noisy logs after first failure
 
   Future<List<VideoModel>> getFeedVideos({
     int limit = 20,
@@ -172,6 +173,7 @@ class VideoService {
   // --- Shares API (best-effort, table may not exist) ---
   Future<int> getShareCount(String videoId) async {
     try {
+      if (!_sharesFeatureAvailable) return 0;
       final response = await _supabase
           .from('shares')
           .select('id')
@@ -179,13 +181,17 @@ class VideoService {
       if (response is List) return response.length;
       return 0;
     } catch (e) {
-      debugPrint('⚠️ getShareCount failed (table missing or RLS): $e');
+      if (_sharesFeatureAvailable) {
+        debugPrint('⚠️ getShareCount disabled (shares table missing or RLS): $e');
+        _sharesFeatureAvailable = false;
+      }
       return 0;
     }
   }
 
   Future<void> recordShare(String videoId, String userAuthId) async {
     try {
+      if (!_sharesFeatureAvailable) return;
       await _supabase.from('shares').insert({
         'video_id': videoId,
         'user_auth_id': userAuthId,
@@ -193,8 +199,11 @@ class VideoService {
       });
       debugPrint('✅ Share recorded');
     } catch (e) {
-      // Do not break UX if the shares table is not present or user not allowed
-      debugPrint('⚠️ recordShare failed (non-fatal): $e');
+      // Do not break UX; suppress further logs
+      if (_sharesFeatureAvailable) {
+        debugPrint('⚠️ recordShare disabled (non-fatal): $e');
+        _sharesFeatureAvailable = false;
+      }
     }
   }
 }
