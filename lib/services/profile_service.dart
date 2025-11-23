@@ -100,19 +100,16 @@ class ProfileService {
         return existing;
       }
 
-      // Derive a sensible default username/display from email and user id
-      final localPart = email.contains('@') ? email.split('@').first : email;
-      final baseUsername = localPart.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-      String candidate = baseUsername.isEmpty ? 'user' : baseUsername;
-
-      // Make it more likely to be unique by appending a short suffix
+      // Generate a friendly random-like handle not tied to email to avoid collisions
+      // Example: xp3f9a1 (prefix + 6 chars from user id)
       final suffix = authUserId.replaceAll('-', '').substring(0, 6);
-      candidate = '${candidate}_$suffix';
+      String candidate = 'xp$suffix';
 
       // Best-effort availability check; if taken, fall back to user_<suffix>
       try {
         final available = await isUsernameAvailable(candidate);
         if (!available) {
+          // Fallback to another pattern
           candidate = 'user_$suffix';
         }
       } catch (_) {
@@ -124,7 +121,8 @@ class ProfileService {
         authUserId: authUserId,
         email: email,
         username: candidate,
-        displayName: localPart.isEmpty ? 'New User' : localPart,
+        // Use the handle as the initial display name; users can edit later
+        displayName: candidate,
         avatarUrl: null,
         bio: null,
       );
