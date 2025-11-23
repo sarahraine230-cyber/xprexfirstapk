@@ -17,18 +17,25 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    FeedScreen(),
-    UploadScreen(),
-    ProfileScreen(),
-  ];
+  // Keep stable keys so state is preserved across tab switches
+  final _feedKey = const PageStorageKey('feed');
+  final _uploadKey = const PageStorageKey('upload');
+  final _profileKey = const PageStorageKey('profile');
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _screens),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          // Pass visibility flag so FeedScreen can pause when hidden
+          FeedScreen(key: _feedKey, isVisible: _currentIndex == 0),
+          UploadScreen(key: _uploadKey),
+          ProfileScreen(key: _profileKey),
+        ],
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) => setState(() => _currentIndex = index),
