@@ -9,6 +9,7 @@ import 'package:xprex/screens/email_verification_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
+import 'package:xprex/screens/user_profile_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
@@ -72,6 +73,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/monetization',
         builder: (context, state) => const MonetizationScreen(),
+      ),
+      GoRoute(
+        path: '/u/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id'];
+          if (id == null) {
+            return const SplashScreen();
+          }
+          return UserProfileScreen(userId: id);
+        },
       ),
     ],
   );
