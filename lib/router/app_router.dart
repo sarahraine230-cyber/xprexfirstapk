@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter/material.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
@@ -11,11 +12,14 @@ import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
 import 'package:xprex/screens/user_profile_screen.dart';
 
+final RouteObserver<PageRoute<dynamic>> routeObserver = RouteObserver<PageRoute<dynamic>>();
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
   
   return GoRouter(
     initialLocation: '/brand',
+    observers: [routeObserver],
     redirect: (context, state) {
       final path = state.uri.path;
       
