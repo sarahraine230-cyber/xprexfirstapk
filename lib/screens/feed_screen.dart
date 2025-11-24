@@ -389,6 +389,47 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final size = MediaQuery.sizeOf(context);
+    final padding = MediaQuery.viewPaddingOf(context);
+    final h = size.height;
+
+    // Responsive rail height target: ~25% on small/medium, up to 35% on large
+    const railFractionBase = 0.25;
+    const railFractionMax = 0.35;
+    final t = ((h - 700) / 700).clamp(0.0, 1.0);
+    final targetRailFraction = railFractionBase + (railFractionMax - railFractionBase) * t;
+    final targetRailHeight = h * targetRailFraction;
+
+    // Responsive bottom offset so the rail sits in the lower third without
+    // colliding with the bottom navigation bar (SafeArea)
+    final bottomGuard = padding.bottom + (h * 0.04).clamp(12.0, 36.0);
+
+    // Compute dynamic vertical spacing to compress the gaps
+    const buttonBox = 44.0; // IconButton min box (icon stays 28)
+    const badgeBox = 22.0; // Approx badge height
+    const buttonCount = 5;
+    const badgeCount = 3; // like/comment/share
+    const groupGapSlots = 4; // Between groups
+    const smallGapSlots = 3; // Between icon and its count
+    final baseContent = buttonBox * buttonCount + badgeBox * badgeCount; // 44*5 + 22*3 = 292
+    final roomForGaps = (targetRailHeight - baseContent);
+
+    final minSmall = (h * 0.0025).clamp(2.0, 4.0); // 2-4
+    final maxSmall = (h * 0.006).clamp(4.0, 8.0);  // 4-8
+    final minGroup = (h * 0.01).clamp(8.0, 12.0);  // 8-12
+    final maxGroup = (h * 0.018).clamp(12.0, 16.0); // 12-16
+
+    double smallGap;
+    double groupGap;
+    if (roomForGaps > 0) {
+      final groupShare = roomForGaps * 0.7;
+      final smallShare = roomForGaps * 0.3;
+      smallGap = (smallShare / smallGapSlots).clamp(minSmall, maxSmall);
+      groupGap = (groupShare / groupGapSlots).clamp(minGroup, maxGroup);
+    } else {
+      smallGap = minSmall;
+      groupGap = minGroup;
+    }
     final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
         ? widget.video.authorDisplayName!
         : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
@@ -500,45 +541,98 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ],
             ),
           ),
-          // Right rail
+          // Right rail (responsive positioning and spacing)
           Positioned(
-            bottom: 80,
-            right: 16,
-            child: Column(
-              children: [
-                IconButton(
-                  onPressed: _toggleLike,
-                  icon: Icon(_isLiked ? Icons.favorite : Icons.favorite_border, color: Colors.white),
-                  iconSize: 32,
-                ),
-                Text('$_likeCount', style: const TextStyle(color: Colors.white)),
-                const SizedBox(height: 16),
-                IconButton(
-                  onPressed: _openComments,
-                  icon: const Icon(Icons.comment, color: Colors.white),
-                  iconSize: 32,
-                ),
-                Text('$_commentsCount', style: const TextStyle(color: Colors.white)),
-                const SizedBox(height: 16),
-                IconButton(
-                  onPressed: _handleShare,
-                  icon: const Icon(Icons.share, color: Colors.white),
-                  iconSize: 32,
-                ),
-                Text('$_shareCount', style: const TextStyle(color: Colors.white)),
-                const SizedBox(height: 16),
-                IconButton(
-                  onPressed: _toggleSave,
-                  icon: Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border, color: Colors.white),
-                  iconSize: 32,
-                ),
-                const SizedBox(height: 16),
-                IconButton(
-                  onPressed: _toggleRepost,
-                  icon: Icon(_isReposted ? Icons.repeat : Icons.repeat, color: Colors.white),
-                  iconSize: 32,
-                ),
-              ],
+            right: 12,
+            bottom: bottomGuard,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: targetRailHeight,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _railButton(
+                    context,
+                    IconButton(
+                      onPressed: _toggleLike,
+                      icon: Icon(
+                        _isLiked ? Icons.favorite : Icons.favorite_border,
+                        color: _isLiked ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onInverseSurface,
+                      ),
+                      iconSize: 28,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(6),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: smallGap),
+                  _countBadge(context, _likeCount),
+                  SizedBox(height: groupGap),
+                  _railButton(
+                    context,
+                    IconButton(
+                      onPressed: _openComments,
+                      icon: Icon(Icons.comment, color: Theme.of(context).colorScheme.onInverseSurface),
+                      iconSize: 28,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(6),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: smallGap),
+                  _countBadge(context, _commentsCount),
+                  SizedBox(height: groupGap),
+                  _railButton(
+                    context,
+                    IconButton(
+                      onPressed: _handleShare,
+                      icon: Icon(Icons.share, color: Theme.of(context).colorScheme.onInverseSurface),
+                      iconSize: 28,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(6),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: smallGap),
+                  _countBadge(context, _shareCount),
+                  SizedBox(height: groupGap),
+                  _railButton(
+                    context,
+                    IconButton(
+                      onPressed: _toggleSave,
+                      icon: Icon(
+                        _isSaved ? Icons.bookmark : Icons.bookmark_border,
+                        color: _isSaved ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onInverseSurface,
+                      ),
+                      iconSize: 28,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(6),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: groupGap),
+                  _railButton(
+                    context,
+                    IconButton(
+                      onPressed: _toggleRepost,
+                      icon: Icon(
+                        Icons.repeat,
+                        color: _isReposted ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.onInverseSurface,
+                      ),
+                      iconSize: 28,
+                      style: IconButton.styleFrom(
+                        padding: const EdgeInsets.all(6),
+                        minimumSize: const Size(44, 44),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (_loading)
@@ -617,6 +711,34 @@ void _maybeDisableWakelock() {
   } catch (e) {
     debugPrint('wakelock disable ignored: $e');
   }
+}
+
+// Right-rail helpers: ensure icon legibility on light video frames
+Widget _railButton(BuildContext context, Widget child) {
+  return Container(
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.35),
+      shape: BoxShape.circle,
+    ),
+    child: child,
+  );
+}
+
+Widget _countBadge(BuildContext context, int count) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: 0.35),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Text(
+      '$count',
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onInverseSurface,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
 }
 
 // Snapchat-style comments sheet with rounded top and themed colors
