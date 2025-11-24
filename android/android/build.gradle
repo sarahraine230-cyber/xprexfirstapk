@@ -1,0 +1,111 @@
+buildscript {
+    // Keep these aligned with settings.gradle plugins block
+    ext.kotlin_version = '2.2.10'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Match AGP here to avoid older classpaths being pulled in by legacy plugins
+        classpath 'com.android.tools.build:gradle:8.6.1'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.buildDir = "../build"
+// Ensure every Kotlin compile task (app + all plugins) targets JVM 17
+subprojects { project ->
+    // Force Kotlin stdlib artifacts to match the Gradle plugin version to prevent metadata mismatches
+    configurations.configureEach { cfg ->
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {
+                details.useVersion kotlin_version
+                details.because 'Align Kotlin stdlib with Kotlin Gradle plugin to avoid metadata 2.x mismatches'
+            }
+        }
+    }
+
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions {
+            jvmTarget = "17"
+        }
+    }
+}
+ 
+// Ensure every Java compile task (app + all plugins) targets Java 17.
+// This fixes: Inconsistent JVM-target compatibility detected for tasks
+// 'compileDebugJavaWithJavac' (11) and 'compileDebugKotlin' (17)
+subprojects { project ->
+    tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
+        // Target Java 17 without using the unsupported '--release' flag on Android.
+        // AGP configures the bootclasspath; using '--release' breaks that.
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        // Do NOT set options.release here. See https://issuetracker.google.com/278800528
+    }
+
+    // For Android modules, also set compileOptions at the Android extension level when available
+    afterEvaluate {
+        if (project.plugins.hasPlugin("com.android.application") || project.plugins.hasPlugin("com.android.library")) {
+            try {
+                project.android {
+                    compileOptions {
+                        sourceCompatibility JavaVersion.VERSION_17
+                        targetCompatibility JavaVersion.VERSION_17
+                    }
+                }
+            } catch (Throwable ignored) {
+                // Some plugin versions may not expose android DSL here; JavaCompile fallback above still applies
+            }
+        }
+    }
+}
+
+subprojects { project ->
+    afterEvaluate {
+        if (project.plugins.hasPlugin("com.android.application") ||
+                project.plugins.hasPlugin("com.android.library")) {
+            project.extensions.findByName("android")?.with {
+                // Ensure all subprojects compile with SDK 35
+                if (hasProperty('compileSdk')) {
+                    compileSdk = 35
+                } else {
+                    // Fallback for older plugin DSLs
+                    compileSdkVersion 35
+                }
+            }
+        }
+        if (project.hasProperty('android')) {
+            project.android {
+                if (namespace == null) {
+                    namespace project.group
+                }
+            }
+        }
+    }
+}
+
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+}
+
+subprojects {
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
