@@ -9,6 +9,10 @@ ALTER TABLE public.videos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.flags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.saves ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reposts ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
 -- PROFILES POLICIES
@@ -123,3 +127,67 @@ CREATE POLICY "Authenticated users can insert flags"
   WITH CHECK (auth.uid() = reporter_auth_user_id);
 
 -- Note: Only admin API can update/delete flags (handled via service role key)
+
+-- =====================================================
+-- FOLLOWS POLICIES
+-- =====================================================
+
+-- Anyone can view follows (for counts and relations)
+CREATE POLICY "Follows are viewable by everyone"
+  ON public.follows FOR SELECT
+  USING (true);
+
+-- Authenticated users can follow others
+CREATE POLICY "Authenticated users can insert follows"
+  ON public.follows FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = follower_auth_user_id AND follower_auth_user_id <> followee_auth_user_id);
+
+-- Users can unfollow (delete their own follows)
+CREATE POLICY "Users can delete their own follows"
+  ON public.follows FOR DELETE
+  USING (auth.uid() = follower_auth_user_id);
+
+-- =====================================================
+-- SHARES POLICIES
+-- =====================================================
+CREATE POLICY "Shares are viewable by everyone"
+  ON public.shares FOR SELECT
+  USING (true);
+
+CREATE POLICY "Authenticated users can insert shares"
+  ON public.shares FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_auth_id);
+
+-- =====================================================
+-- SAVES POLICIES
+-- =====================================================
+CREATE POLICY "Saves are viewable by everyone"
+  ON public.saves FOR SELECT
+  USING (true);
+
+CREATE POLICY "Authenticated users can insert saves"
+  ON public.saves FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = user_auth_id);
+
+CREATE POLICY "Users can delete their own saves"
+  ON public.saves FOR DELETE
+  USING (auth.uid() = user_auth_id);
+
+-- =====================================================
+-- REPOSTS POLICIES
+-- =====================================================
+CREATE POLICY "Reposts are viewable by everyone"
+  ON public.reposts FOR SELECT
+  USING (true);
+
+CREATE POLICY "Authenticated users can insert reposts"
+  ON public.reposts FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = reposter_auth_user_id);
+
+CREATE POLICY "Users can delete their own reposts"
+  ON public.reposts FOR DELETE
+  USING (auth.uid() = reposter_auth_user_id);
