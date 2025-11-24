@@ -288,3 +288,99 @@ COMMENT ON TABLE public.videos IS 'Video metadata and statistics';
 COMMENT ON TABLE public.comments IS 'Video comments';
 COMMENT ON TABLE public.likes IS 'Video likes by users';
 COMMENT ON TABLE public.flags IS 'Content moderation flags';
+
+-- =====================================================
+-- SOCIAL: FOLLOWS, SHARES, SAVES, REPOSTS
+-- =====================================================
+
+-- FOLLOWS
+CREATE TABLE IF NOT EXISTS public.follows (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  follower_auth_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  followee_auth_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(follower_auth_user_id, followee_auth_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_follows_followee ON public.follows (followee_auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_follows_follower ON public.follows (follower_auth_user_id);
+
+-- SHARES
+CREATE TABLE IF NOT EXISTS public.shares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id UUID NOT NULL REFERENCES public.videos(id) ON DELETE CASCADE,
+  user_auth_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shares_video ON public.shares (video_id);
+CREATE INDEX IF NOT EXISTS idx_shares_user ON public.shares (user_auth_id);
+
+-- SAVES / BOOKMARKS
+CREATE TABLE IF NOT EXISTS public.saves (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id UUID NOT NULL REFERENCES public.videos(id) ON DELETE CASCADE,
+  user_auth_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(video_id, user_auth_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saves_video_user ON public.saves (video_id, user_auth_id);
+CREATE INDEX IF NOT EXISTS idx_saves_user ON public.saves (user_auth_id);
+
+-- REPOSTS
+CREATE TABLE IF NOT EXISTS public.reposts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id UUID NOT NULL REFERENCES public.videos(id) ON DELETE CASCADE,
+  reposter_auth_user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(video_id, reposter_auth_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_reposts_video_user ON public.reposts (video_id, reposter_auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_reposts_user ON public.reposts (reposter_auth_user_id);
+
+-- =====================================================
+-- TRIGGERS TO MAINTAIN COUNTS
+-- =====================================================
+
+-- Followers count on profiles
+CREATE OR REPLACE FUNCTION increment_followers()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.profiles SET followers_count = followers_count + 1
+  WHERE auth_user_id = NEW.followee_auth_user_id;
+  RETURN NEW;
+END;$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION decrement_followers()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.profiles SET followers_count = followers_count - 1
+  WHERE auth_user_id = OLD.followee_auth_user_id;
+  RETURN OLD;
+END;$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS increment_followers_count ON public.follows;
+CREATE TRIGGER increment_followers_count
+  AFTER INSERT ON public.follows
+  FOR EACH ROW EXECUTE FUNCTION increment_followers();
+
+DROP TRIGGER IF EXISTS decrement_followers_count ON public.follows;
+CREATE TRIGGER decrement_followers_count
+  AFTER DELETE ON public.follows
+  FOR EACH ROW EXECUTE FUNCTION decrement_followers();
+
+-- =====================================================
+-- RPCs
+-- =====================================================
+
+-- Increment profile.total_video_views
+CREATE OR REPLACE FUNCTION increment_video_views(user_id UUID, increment_by INT)
+RETURNS VOID AS $$
+BEGIN
+  UPDATE public.profiles
+  SET total_video_views = total_video_views + increment_by
+  WHERE auth_user_id = user_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
