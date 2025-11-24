@@ -393,43 +393,18 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
 
-    // Responsive rail height target: ~25% on small/medium, up to 35% on large
-    const railFractionBase = 0.25;
-    const railFractionMax = 0.35;
-    final t = ((h - 700) / 700).clamp(0.0, 1.0);
-    final targetRailFraction = railFractionBase + (railFractionMax - railFractionBase) * t;
-    final targetRailHeight = h * targetRailFraction;
+    // 1) Fixed column height: 35% of screen height across all sizes
+    final double railHeight = h * 0.35;
 
-    // Responsive bottom offset so the rail sits in the lower third without
-    // colliding with the bottom navigation bar (SafeArea)
-    final bottomGuard = padding.bottom + (h * 0.04).clamp(12.0, 36.0);
+    // 3) Keep the column comfortably above the bottom nav bar
+    // Maintain ~72 logical pixels above the bottom inset
+    final double bottomGuard = padding.bottom + 72.0;
 
-    // Compute dynamic vertical spacing to compress the gaps
-    const buttonBox = 44.0; // IconButton min box (icon stays 28)
-    const badgeBox = 22.0; // Approx badge height
-    const buttonCount = 5;
-    const badgeCount = 3; // like/comment/share
-    const groupGapSlots = 4; // Between groups
-    const smallGapSlots = 3; // Between icon and its count
-    final baseContent = buttonBox * buttonCount + badgeBox * badgeCount; // 44*5 + 22*3 = 292
-    final roomForGaps = (targetRailHeight - baseContent);
-
-    final minSmall = (h * 0.0025).clamp(2.0, 4.0); // 2-4
-    final maxSmall = (h * 0.006).clamp(4.0, 8.0);  // 4-8
-    final minGroup = (h * 0.01).clamp(8.0, 12.0);  // 8-12
-    final maxGroup = (h * 0.018).clamp(12.0, 16.0); // 12-16
-
-    double smallGap;
-    double groupGap;
-    if (roomForGaps > 0) {
-      final groupShare = roomForGaps * 0.7;
-      final smallShare = roomForGaps * 0.3;
-      smallGap = (smallShare / smallGapSlots).clamp(minSmall, maxSmall);
-      groupGap = (groupShare / groupGapSlots).clamp(minGroup, maxGroup);
-    } else {
-      smallGap = minSmall;
-      groupGap = minGroup;
-    }
+    // 2) Button spacing: tightened to guarantee fit within 35% height
+    // Use 12 between icon groups and 4 between icon and its count.
+    // This preserves readable density while avoiding overflow on smaller screens.
+    const double smallGap = 4.0; // icon ↔ count
+    const double groupGap = 12.0; // between icon groups (like↔comment↔share↔save↔repost)
     final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
         ? widget.video.authorDisplayName!
         : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
@@ -541,97 +516,101 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ],
             ),
           ),
-          // Right rail (responsive positioning and spacing)
+          // Right rail (fixed height and spacing)
           Positioned(
             right: 12,
             bottom: bottomGuard,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: targetRailHeight,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _railButton(
-                    context,
-                    IconButton(
-                      onPressed: _toggleLike,
-                      icon: Icon(
-                        _isLiked ? Icons.favorite : Icons.favorite_border,
-                        color: _isLiked ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onInverseSurface,
-                      ),
-                      iconSize: 28,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(6),
-                        minimumSize: const Size(44, 44),
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: smallGap),
-                  _countBadge(context, _likeCount),
-                  SizedBox(height: groupGap),
-                  _railButton(
-                    context,
-                    IconButton(
-                      onPressed: _openComments,
-                      icon: Icon(Icons.comment, color: Theme.of(context).colorScheme.onInverseSurface),
-                      iconSize: 28,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(6),
-                        minimumSize: const Size(44, 44),
+            child: SizedBox(
+              height: railHeight,
+              // Scale down slightly if content would exceed 35% height to avoid overflow
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.bottomCenter,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _railButton(
+                      context,
+                      IconButton(
+                        onPressed: _toggleLike,
+                        icon: Icon(
+                          _isLiked ? Icons.favorite : Icons.favorite_border,
+                          color: _isLiked ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onInverseSurface,
+                        ),
+                        // Comfortable icon size retained; FittedBox will only shrink when necessary
+                        iconSize: 30,
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(6),
+                          minimumSize: const Size.square(40),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: smallGap),
-                  _countBadge(context, _commentsCount),
-                  SizedBox(height: groupGap),
-                  _railButton(
-                    context,
-                    IconButton(
-                      onPressed: _handleShare,
-                      icon: Icon(Icons.share, color: Theme.of(context).colorScheme.onInverseSurface),
-                      iconSize: 28,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(6),
-                        minimumSize: const Size(44, 44),
+                    SizedBox(height: smallGap),
+                    _countBadge(context, _likeCount),
+                    SizedBox(height: groupGap),
+                    _railButton(
+                      context,
+                      IconButton(
+                        onPressed: _openComments,
+                        icon: Icon(Icons.comment, color: Theme.of(context).colorScheme.onInverseSurface),
+                        iconSize: 30,
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(6),
+                          minimumSize: const Size.square(40),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: smallGap),
-                  _countBadge(context, _shareCount),
-                  SizedBox(height: groupGap),
-                  _railButton(
-                    context,
-                    IconButton(
-                      onPressed: _toggleSave,
-                      icon: Icon(
-                        _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                        color: _isSaved ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onInverseSurface,
-                      ),
-                      iconSize: 28,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(6),
-                        minimumSize: const Size(44, 44),
+                    SizedBox(height: smallGap),
+                    _countBadge(context, _commentsCount),
+                    SizedBox(height: groupGap),
+                    _railButton(
+                      context,
+                      IconButton(
+                        onPressed: _handleShare,
+                        icon: Icon(Icons.share, color: Theme.of(context).colorScheme.onInverseSurface),
+                        iconSize: 30,
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(6),
+                          minimumSize: const Size.square(40),
+                        ),
                       ),
                     ),
-                  ),
-                  SizedBox(height: groupGap),
-                  _railButton(
-                    context,
-                    IconButton(
-                      onPressed: _toggleRepost,
-                      icon: Icon(
-                        Icons.repeat,
-                        color: _isReposted ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.onInverseSurface,
-                      ),
-                      iconSize: 28,
-                      style: IconButton.styleFrom(
-                        padding: const EdgeInsets.all(6),
-                        minimumSize: const Size(44, 44),
+                    SizedBox(height: smallGap),
+                    _countBadge(context, _shareCount),
+                    SizedBox(height: groupGap),
+                    _railButton(
+                      context,
+                      IconButton(
+                        onPressed: _toggleSave,
+                        icon: Icon(
+                          _isSaved ? Icons.bookmark : Icons.bookmark_border,
+                          color: _isSaved ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onInverseSurface,
+                        ),
+                        iconSize: 30,
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(6),
+                          minimumSize: const Size.square(40),
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                    SizedBox(height: groupGap),
+                    _railButton(
+                      context,
+                      IconButton(
+                        onPressed: _toggleRepost,
+                        icon: Icon(
+                          Icons.repeat,
+                          color: _isReposted ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.onInverseSurface,
+                        ),
+                        iconSize: 30,
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(6),
+                          minimumSize: const Size.square(40),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -726,7 +705,7 @@ Widget _railButton(BuildContext context, Widget child) {
 
 Widget _countBadge(BuildContext context, int count) {
   return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
     decoration: BoxDecoration(
       color: Colors.black.withValues(alpha: 0.35),
       borderRadius: BorderRadius.circular(10),
