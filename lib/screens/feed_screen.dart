@@ -5,6 +5,7 @@ import 'package:video_player/video_player.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart' show RouteAware, ModalRoute, PageRoute;
 import 'package:xprex/router/app_router.dart';
 import 'package:xprex/services/video_service.dart';
@@ -40,13 +41,24 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
   }
 
+  // Subscribe to route observer once when dependencies change, not in build
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
   // RouteAware
   @override
   void didPushNext() {
     // Another route has been pushed on top of this one
     if (_routeVisible) {
       setState(() => _routeVisible = false);
-      WakelockPlus.disable();
+      _maybeDisableWakelock();
+      debugPrint('📺 FeedScreen.didPushNext → route hidden, pausing feed visuals');
     }
   }
 
@@ -55,13 +67,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     // Back to this route
     if (!_routeVisible) {
       setState(() => _routeVisible = true);
+      debugPrint('📺 FeedScreen.didPopNext → route visible again');
     }
   }
 
   @override
   void dispose() {
     // Ensure we don't hold wakelock when leaving feed
-    WakelockPlus.disable();
+    _maybeDisableWakelock();
     WidgetsBinding.instance.removeObserver(this);
     final route = ModalRoute.of(context);
     if (route is PageRoute) {
@@ -76,7 +89,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     if (oldWidget.isVisible != widget.isVisible) {
       if (!widget.isVisible) {
         // When hidden, make sure wakelock is disabled
-        WakelockPlus.disable();
+        _maybeDisableWakelock();
       }
       setState(() {});
     }
@@ -89,7 +102,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
       _appActive = active;
       if (!active) {
         // App backgrounded → release wakelock
-        WakelockPlus.disable();
+        _maybeDisableWakelock();
       }
       setState(() {});
     }
@@ -97,11 +110,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    // Subscribe to route changes so we can pause playback when another route is pushed
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      routeObserver.subscribe(this, route);
-    }
+    // Route subscription handled in didChangeDependencies
     final ref = this.ref;
     final videosAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
@@ -255,10 +264,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final shouldPlay = widget.feedVisible && widget.isActive;
     if (shouldPlay) {
       _controller!.play();
-      WakelockPlus.enable();
+      _maybeEnableWakelock();
     } else {
       _controller!.pause();
-      WakelockPlus.disable();
+      _maybeDisableWakelock();
     }
     setState(() {});
   }
@@ -298,9 +307,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
           _isLiked = !_isLiked;
           _likeCount += _isLiked ? 1 : -1;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to like. Please try again.')),
-        );
+        final msg = e.toString().contains('42703')
+            ? 'Like failed: backend counters missing. Please run latest SQL.'
+            : 'Failed to like. Please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     }
   }
@@ -409,11 +419,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   if (_controller == null) return;
                   if (_controller!.value.isPlaying) {
                     _controller!.pause();
-                    WakelockPlus.disable();
+            _maybeDisableWakelock();
                   } else {
                     if (widget.feedVisible && widget.isActive) {
                       _controller!.play();
-                      WakelockPlus.enable();
+              _maybeEnableWakelock();
                     }
                   }
                   setState(() {});
@@ -432,14 +442,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: () {
+                      onTap: () async {
                         // Pause playback before navigating away so audio doesn't continue
                         try {
                           _controller?.pause();
-                          WakelockPlus.disable();
+                          _controller?.setVolume(0);
+                          _maybeDisableWakelock();
                         } catch (_) {}
                         if (widget.video.authorAuthUserId.isNotEmpty) {
-                          context.push('/u/${widget.video.authorAuthUserId}');
+                          await context.push('/u/${widget.video.authorAuthUserId}');
+                          // Attempt to restore volume when back
+                          try { _controller?.setVolume(1.0); } catch (_) {}
                         }
                       },
                       child: CircleAvatar(
@@ -456,14 +469,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () {
+                        onTap: () async {
                           // Pause playback before navigating away so audio doesn't continue
                           try {
                             _controller?.pause();
-                            WakelockPlus.disable();
+                            _controller?.setVolume(0);
+                            _maybeDisableWakelock();
                           } catch (_) {}
                           if (widget.video.authorAuthUserId.isNotEmpty) {
-                            context.push('/u/${widget.video.authorAuthUserId}');
+                            await context.push('/u/${widget.video.authorAuthUserId}');
+                            try { _controller?.setVolume(1.0); } catch (_) {}
                           }
                         },
                         child: Column(
@@ -540,7 +555,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final wasPlaying = _controller?.value.isPlaying == true;
     try {
       _controller?.pause();
-      WakelockPlus.disable();
+      _maybeDisableWakelock();
     } catch (_) {}
 
     showModalBottomSheet(
@@ -560,7 +575,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       if (wasPlaying && widget.feedVisible && widget.isActive) {
         try {
           _controller?.play();
-          WakelockPlus.enable();
+          _maybeEnableWakelock();
         } catch (_) {}
       }
     });
@@ -582,6 +597,25 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     } catch (e) {
       debugPrint('❌ share failed: $e');
     }
+  }
+}
+
+// Wakelock helpers to avoid noisy errors on web
+void _maybeEnableWakelock() {
+  if (kIsWeb) return; // Skip on web
+  try {
+    WakelockPlus.enable();
+  } catch (e) {
+    debugPrint('wakelock enable ignored: $e');
+  }
+}
+
+void _maybeDisableWakelock() {
+  if (kIsWeb) return; // Skip on web
+  try {
+    WakelockPlus.disable();
+  } catch (e) {
+    debugPrint('wakelock disable ignored: $e');
   }
 }
 
@@ -644,9 +678,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       setState(() => _posting = false);
       debugPrint('❌ post comment failed: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to post comment')),
-        );
+        final msg = e.toString().contains('42703')
+            ? 'Comment failed: backend counters missing. Please run latest SQL.'
+            : 'Failed to post comment';
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     }
   }

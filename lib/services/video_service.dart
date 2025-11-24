@@ -16,7 +16,7 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          .select('*, profiles!author_auth_user_id(username, display_name, avatar_url)')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
 
@@ -36,7 +36,7 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          .select('*, profiles!author_auth_user_id(username, display_name, avatar_url)')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', authUserId)
           .order('created_at', ascending: false);
 
@@ -55,7 +55,7 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          .select('*, profiles!author_auth_user_id(username, display_name, avatar_url)')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('id', videoId)
           .maybeSingle();
 
@@ -91,7 +91,7 @@ class VideoService {
       final response = await _supabase
           .from('videos')
           .insert(data)
-          .select('*, profiles!author_auth_user_id(username, display_name, avatar_url)')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .single();
 
       debugPrint('✅ Video created: $title');
@@ -303,7 +303,7 @@ class VideoService {
       if (!_repostsFeatureAvailable) return [];
       final rows = await _supabase
           .from('reposts')
-          .select('created_at, video:videos(*, profiles!author_auth_user_id(username, display_name, avatar_url))')
+          .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url))')
           .eq('reposter_auth_user_id', userAuthId)
           .order('created_at', ascending: false);
       final list = <VideoModel>[];
