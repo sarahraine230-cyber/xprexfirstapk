@@ -5,6 +5,8 @@ import 'package:video_player/video_player.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:flutter/material.dart' show RouteAware, ModalRoute, PageRoute;
+import 'package:xprex/router/app_router.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/config/supabase_config.dart';
@@ -27,9 +29,10 @@ class FeedScreen extends ConsumerStatefulWidget {
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver {
+class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
   int _activeIndex = 0;
   bool _appActive = true;
+  bool _routeVisible = true;
 
   @override
   void initState() {
@@ -37,11 +40,33 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
   }
 
+  // RouteAware
+  @override
+  void didPushNext() {
+    // Another route has been pushed on top of this one
+    if (_routeVisible) {
+      setState(() => _routeVisible = false);
+      WakelockPlus.disable();
+    }
+  }
+
+  @override
+  void didPopNext() {
+    // Back to this route
+    if (!_routeVisible) {
+      setState(() => _routeVisible = true);
+    }
+  }
+
   @override
   void dispose() {
     // Ensure we don't hold wakelock when leaving feed
     WakelockPlus.disable();
     WidgetsBinding.instance.removeObserver(this);
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.unsubscribe(this);
+    }
     super.dispose();
   }
 
@@ -72,11 +97,16 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
+    // Subscribe to route changes so we can pause playback when another route is pushed
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
     final ref = this.ref;
     final videosAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
 
-    final feedVisible = widget.isVisible && _appActive;
+    final feedVisible = widget.isVisible && _appActive && _routeVisible;
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
@@ -167,6 +197,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _commentsCount = 0;
   int _shareCount = 0;
   bool _loading = true;
+  bool _isSaved = false;
+  bool _isReposted = false;
 
   @override
   void initState() {
@@ -198,6 +230,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       if (uid != null) {
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
+        });
+        _videoService.isVideoSavedByUser(widget.video.id, uid).then((saved) {
+          if (mounted) setState(() => _isSaved = saved);
         });
         _videoService.getShareCount(widget.video.id).then((count) {
           if (mounted) setState(() => _shareCount = count);
@@ -265,6 +300,62 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to like. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleSave() async {
+    try {
+      final uid = supabase.auth.currentUser?.id;
+      if (uid == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please sign in to save videos')),
+          );
+        }
+        return;
+      }
+      final prev = _isSaved;
+      setState(() => _isSaved = !prev);
+      final saved = await _videoService.toggleSave(widget.video.id, uid);
+      if (mounted && saved != _isSaved) {
+        setState(() => _isSaved = saved);
+      }
+    } catch (e) {
+      debugPrint('❌ toggle save failed: $e');
+      if (mounted) {
+        setState(() => _isSaved = !_isSaved);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to save. Please try again.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleRepost() async {
+    try {
+      final uid = supabase.auth.currentUser?.id;
+      if (uid == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please sign in to repost')),
+          );
+        }
+        return;
+      }
+      final prev = _isReposted;
+      setState(() => _isReposted = !prev);
+      final reposted = await _videoService.toggleRepost(widget.video.id, uid);
+      if (mounted && reposted != _isReposted) {
+        setState(() => _isReposted = reposted);
+      }
+    } catch (e) {
+      debugPrint('❌ toggle repost failed: $e');
+      if (mounted) {
+        setState(() => _isReposted = !_isReposted);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to repost. Please try again.')),
         );
       }
     }
@@ -420,6 +511,18 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   iconSize: 32,
                 ),
                 Text('$_shareCount', style: const TextStyle(color: Colors.white)),
+                const SizedBox(height: 16),
+                IconButton(
+                  onPressed: _toggleSave,
+                  icon: Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border, color: Colors.white),
+                  iconSize: 32,
+                ),
+                const SizedBox(height: 16),
+                IconButton(
+                  onPressed: _toggleRepost,
+                  icon: Icon(_isReposted ? Icons.repeat : Icons.repeat, color: Colors.white),
+                  iconSize: 32,
+                ),
               ],
             ),
           ),
