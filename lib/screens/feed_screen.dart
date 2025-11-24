@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/config/supabase_config.dart';
+import 'package:xprex/config/app_links.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/comment_service.dart';
 import 'package:xprex/models/comment_model.dart';
@@ -230,15 +231,42 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Future<void> _toggleLike() async {
     try {
       final uid = supabase.auth.currentUser?.id;
-      if (uid == null) return;
-      final liked = await _videoService.toggleLike(widget.video.id, uid);
+      if (uid == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please sign in to like videos')),
+          );
+        }
+        return;
+      }
+      // Optimistic UI update for snappier feel
+      final previousLiked = _isLiked;
       setState(() {
-        _isLiked = liked;
-        _likeCount += liked ? 1 : -1;
+        _isLiked = !previousLiked;
+        _likeCount += _isLiked ? 1 : -1;
       });
       widget.onLikeToggled?.call();
+
+      final liked = await _videoService.toggleLike(widget.video.id, uid);
+      if (liked != _isLiked && mounted) {
+        // Backend disagreed; reconcile
+        setState(() {
+          _isLiked = liked;
+          _likeCount += liked ? 1 : -1;
+        });
+      }
     } catch (e) {
       debugPrint('❌ like toggle failed: $e');
+      if (mounted) {
+        // Revert optimistic update on failure
+        setState(() {
+          _isLiked = !_isLiked;
+          _likeCount += _isLiked ? 1 : -1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to like. Please try again.')),
+        );
+      }
     }
   }
 
@@ -314,6 +342,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   children: [
                     GestureDetector(
                       onTap: () {
+                        // Pause playback before navigating away so audio doesn't continue
+                        try {
+                          _controller?.pause();
+                          WakelockPlus.disable();
+                        } catch (_) {}
                         if (widget.video.authorAuthUserId.isNotEmpty) {
                           context.push('/u/${widget.video.authorAuthUserId}');
                         }
@@ -333,6 +366,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     Expanded(
                       child: GestureDetector(
                         onTap: () {
+                          // Pause playback before navigating away so audio doesn't continue
+                          try {
+                            _controller?.pause();
+                            WakelockPlus.disable();
+                          } catch (_) {}
                           if (widget.video.authorAuthUserId.isNotEmpty) {
                             context.push('/u/${widget.video.authorAuthUserId}');
                           }
@@ -395,6 +433,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   }
 
   void _openComments() {
+    // Pause while comments are open
+    final wasPlaying = _controller?.value.isPlaying == true;
+    try {
+      _controller?.pause();
+      WakelockPlus.disable();
+    } catch (_) {}
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -407,12 +452,24 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      // Resume if appropriate when sheet closes
+      if (wasPlaying && widget.feedVisible && widget.isActive) {
+        try {
+          _controller?.play();
+          WakelockPlus.enable();
+        } catch (_) {}
+      }
+    });
   }
 
   Future<void> _handleShare() async {
     try {
-      final url = await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
+      // Prefer sharing a public app route if configured; fallback to signed storage URL
+      final deepLink = AppLinks.videoLink(widget.video.id);
+      final url = deepLink.isNotEmpty
+          ? deepLink
+          : await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
       await Share.share(url);
       final uid = supabase.auth.currentUser?.id;
       if (uid != null) {
@@ -457,7 +514,14 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _posting) return;
     final uid = supabase.auth.currentUser?.id;
-    if (uid == null) return;
+    if (uid == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please sign in to comment')),
+        );
+      }
+      return;
+    }
     setState(() => _posting = true);
     try {
       await _svc.createComment(videoId: widget.videoId, authorAuthUserId: uid, text: text);
@@ -467,10 +531,20 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         _loader = _svc.getCommentsByVideo(widget.videoId);
         _posting = false;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Comment posted')),
+        );
+      }
       widget.onNewComment?.call();
     } catch (e) {
       setState(() => _posting = false);
       debugPrint('❌ post comment failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to post comment')),
+        );
+      }
     }
   }
 
