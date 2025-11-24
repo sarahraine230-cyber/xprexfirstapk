@@ -6,6 +6,8 @@ import 'package:xprex/models/video_model.dart';
 class VideoService {
   final SupabaseClient _supabase = supabase;
   static bool _sharesFeatureAvailable = true; // disable noisy logs after first failure
+  static bool _savesFeatureAvailable = true;
+  static bool _repostsFeatureAvailable = true;
 
   Future<List<VideoModel>> getFeedVideos({
     int limit = 20,
@@ -204,6 +206,120 @@ class VideoService {
         debugPrint('⚠️ recordShare disabled (non-fatal): $e');
         _sharesFeatureAvailable = false;
       }
+    }
+  }
+
+  // --- Saves / Bookmarks ---
+  Future<bool> toggleSave(String videoId, String userAuthId) async {
+    try {
+      if (!_savesFeatureAvailable) return false;
+      final existing = await _supabase
+          .from('saves')
+          .select('id')
+          .eq('video_id', videoId)
+          .eq('user_auth_id', userAuthId)
+          .maybeSingle();
+      if (existing != null) {
+        await _supabase
+            .from('saves')
+            .delete()
+            .eq('video_id', videoId)
+            .eq('user_auth_id', userAuthId);
+        debugPrint('✅ Removed bookmark');
+        return false;
+      } else {
+        await _supabase.from('saves').insert({
+          'video_id': videoId,
+          'user_auth_id': userAuthId,
+        });
+        debugPrint('✅ Saved video');
+        return true;
+      }
+    } catch (e) {
+      if (_savesFeatureAvailable) {
+        debugPrint('❌ toggleSave failed (disabling saves): $e');
+        _savesFeatureAvailable = false;
+      }
+      rethrow;
+    }
+  }
+
+  Future<bool> isVideoSavedByUser(String videoId, String userAuthId) async {
+    try {
+      if (!_savesFeatureAvailable) return false;
+      final res = await _supabase
+          .from('saves')
+          .select('id')
+          .eq('video_id', videoId)
+          .eq('user_auth_id', userAuthId)
+          .maybeSingle();
+      return res != null;
+    } catch (e) {
+      if (_savesFeatureAvailable) {
+        debugPrint('⚠️ isVideoSavedByUser disabled: $e');
+        _savesFeatureAvailable = false;
+      }
+      return false;
+    }
+  }
+
+  // --- Reposts ---
+  Future<bool> toggleRepost(String videoId, String userAuthId) async {
+    try {
+      if (!_repostsFeatureAvailable) return false;
+      final existing = await _supabase
+          .from('reposts')
+          .select('id')
+          .eq('video_id', videoId)
+          .eq('reposter_auth_user_id', userAuthId)
+          .maybeSingle();
+      if (existing != null) {
+        await _supabase
+            .from('reposts')
+            .delete()
+            .eq('video_id', videoId)
+            .eq('reposter_auth_user_id', userAuthId);
+        debugPrint('✅ Repost removed');
+        return false;
+      } else {
+        await _supabase.from('reposts').insert({
+          'video_id': videoId,
+          'reposter_auth_user_id': userAuthId,
+        });
+        debugPrint('✅ Reposted video');
+        return true;
+      }
+    } catch (e) {
+      if (_repostsFeatureAvailable) {
+        debugPrint('❌ toggleRepost failed (disabling reposts): $e');
+        _repostsFeatureAvailable = false;
+      }
+      rethrow;
+    }
+  }
+
+  Future<List<VideoModel>> getRepostedVideos(String userAuthId) async {
+    try {
+      if (!_repostsFeatureAvailable) return [];
+      final rows = await _supabase
+          .from('reposts')
+          .select('created_at, video:videos(*, profiles!author_auth_user_id(username, display_name, avatar_url))')
+          .eq('reposter_auth_user_id', userAuthId)
+          .order('created_at', ascending: false);
+      final list = <VideoModel>[];
+      for (final row in (rows as List)) {
+        final videoJson = (row as Map<String, dynamic>)['video'] as Map<String, dynamic>?;
+        if (videoJson != null) {
+          list.add(VideoModel.fromJson(videoJson));
+        }
+      }
+      return list;
+    } catch (e) {
+      if (_repostsFeatureAvailable) {
+        debugPrint('⚠️ getRepostedVideos disabled: $e');
+        _repostsFeatureAvailable = false;
+      }
+      return [];
     }
   }
 }
