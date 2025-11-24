@@ -150,27 +150,34 @@ CREATE TRIGGER update_flags_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 
--- Function to increment video likes count
+-- Important: run as SECURITY DEFINER so RLS on videos doesn't block counter updates
 CREATE OR REPLACE FUNCTION increment_video_likes()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   UPDATE public.videos
   SET likes_count = likes_count + 1
   WHERE id = NEW.video_id;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
--- Function to decrement video likes count
 CREATE OR REPLACE FUNCTION decrement_video_likes()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   UPDATE public.videos
   SET likes_count = likes_count - 1
   WHERE id = OLD.video_id;
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Trigger for like insert
 DROP TRIGGER IF EXISTS increment_likes_count ON public.likes;
@@ -186,27 +193,33 @@ CREATE TRIGGER decrement_likes_count
   FOR EACH ROW
   EXECUTE FUNCTION decrement_video_likes();
 
--- Function to increment video comments count
 CREATE OR REPLACE FUNCTION increment_video_comments()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   UPDATE public.videos
   SET comments_count = comments_count + 1
   WHERE id = NEW.video_id;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
--- Function to decrement video comments count
 CREATE OR REPLACE FUNCTION decrement_video_comments()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   UPDATE public.videos
   SET comments_count = comments_count - 1
   WHERE id = OLD.video_id;
   RETURN OLD;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Trigger for comment insert
 DROP TRIGGER IF EXISTS increment_comments_count ON public.comments;
