@@ -19,7 +19,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   final _videoSvc = VideoService();
 
   UserProfile? _profile;
-  List<VideoModel>? _videos;
+  List<_ProfileVideoItem>? _items;
   bool _loading = true;
   bool _isFollowing = false;
   int _followerCount = 0;
@@ -35,6 +35,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     try {
       final profile = await _profileSvc.getProfileByAuthId(widget.userId);
       final videos = await _videoSvc.getUserVideos(widget.userId);
+      final reposted = await _videoSvc.getRepostedVideos(widget.userId);
       final viewerId = supabase.auth.currentUser?.id;
       bool following = false;
       if (viewerId != null) {
@@ -44,7 +45,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       if (mounted) {
         setState(() {
           _profile = profile;
-          _videos = videos;
+          _items = [
+            ...videos.map((v) => _ProfileVideoItem(video: v, isRepost: false)),
+            ...reposted.map((v) => _ProfileVideoItem(video: v, isRepost: true)),
+          ];
           _isFollowing = following;
           _followerCount = followers;
           _loading = false;
@@ -124,7 +128,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           children: [
                             _stat(theme, 'Followers', '$_followerCount'),
                             _stat(theme, 'Views', '${_profile!.totalVideoViews}'),
-                            _stat(theme, 'Videos', '${_videos?.length ?? 0}'),
+                            _stat(theme, 'Videos', '${_items?.length ?? 0}'),
                           ],
                         ),
                         const SizedBox(height: 16),
@@ -144,7 +148,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           child: Text('Videos', style: theme.textTheme.titleLarge),
                         ),
                         const SizedBox(height: 12),
-                        if ((_videos ?? const []).isEmpty)
+                         if ((_items ?? const []).isEmpty)
                           Container(
                             height: 180,
                             decoration: BoxDecoration(
@@ -156,10 +160,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             ),
                           )
                         else
-                          GridView.builder(
+                           GridView.builder(
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
-                            itemCount: _videos!.length,
+                             itemCount: _items!.length,
                             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                               crossAxisCount: 3,
                               crossAxisSpacing: 8,
@@ -167,7 +171,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               childAspectRatio: 9 / 16,
                             ),
                             itemBuilder: (context, index) {
-                              final v = _videos![index];
+                               final item = _items![index];
+                               final v = item.video;
                               return ClipRRect(
                                 borderRadius: BorderRadius.circular(8),
                                 child: Stack(
@@ -177,6 +182,26 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       Image.network(v.coverImageUrl!, fit: BoxFit.cover)
                                     else
                                       Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.slow_motion_video, color: Colors.white70)),
+                                     if (item.isRepost)
+                                       Positioned(
+                                         top: 6,
+                                         left: 6,
+                                         child: Container(
+                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                           decoration: BoxDecoration(
+                                             color: Colors.black.withValues(alpha: 0.5),
+                                             borderRadius: BorderRadius.circular(6),
+                                           ),
+                                           child: const Row(
+                                             mainAxisSize: MainAxisSize.min,
+                                             children: [
+                                               Icon(Icons.repeat, color: Colors.white, size: 12),
+                                               SizedBox(width: 4),
+                                               Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                             ],
+                                           ),
+                                         ),
+                                       ),
                                     Align(
                                       alignment: Alignment.bottomCenter,
                                       child: Container(
@@ -211,4 +236,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       ],
     );
   }
+}
+
+class _ProfileVideoItem {
+  final VideoModel video;
+  final bool isRepost;
+  _ProfileVideoItem({required this.video, required this.isRepost});
 }
