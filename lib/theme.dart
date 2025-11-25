@@ -170,6 +170,61 @@ class FontSizes {
 // THEMES
 // =============================================================================
 
+/// Simple theme extension to expose neon accent colors used in the feed rail
+class NeonAccentTheme extends ThemeExtension<NeonAccentTheme> {
+  final Color cyan;
+  final Color purple;
+  final Color blue;
+  final Color railScrim; // translucent background behind icons
+
+  const NeonAccentTheme({
+    required this.cyan,
+    required this.purple,
+    required this.blue,
+    required this.railScrim,
+  });
+
+  static const NeonAccentTheme light = NeonAccentTheme(
+    cyan: Color(0xFF22D3EE), // cyan-400
+    purple: Color(0xFFA78BFA), // violet-300
+    blue: Color(0xFF60A5FA), // blue-400
+    railScrim: Color(0xAA000000),
+  );
+
+  static const NeonAccentTheme dark = NeonAccentTheme(
+    cyan: Color(0xFF06B6D4), // cyan-500
+    purple: Color(0xFF8B5CF6), // violet-500
+    blue: Color(0xFF3B82F6), // blue-500
+    railScrim: Color(0x66000000),
+  );
+
+  @override
+  ThemeExtension<NeonAccentTheme> copyWith({
+    Color? cyan,
+    Color? purple,
+    Color? blue,
+    Color? railScrim,
+  }) {
+    return NeonAccentTheme(
+      cyan: cyan ?? this.cyan,
+      purple: purple ?? this.purple,
+      blue: blue ?? this.blue,
+      railScrim: railScrim ?? this.railScrim,
+    );
+  }
+
+  @override
+  ThemeExtension<NeonAccentTheme> lerp(ThemeExtension<NeonAccentTheme>? other, double t) {
+    if (other is! NeonAccentTheme) return this;
+    return NeonAccentTheme(
+      cyan: Color.lerp(cyan, other.cyan, t) ?? cyan,
+      purple: Color.lerp(purple, other.purple, t) ?? purple,
+      blue: Color.lerp(blue, other.blue, t) ?? blue,
+      railScrim: Color.lerp(railScrim, other.railScrim, t) ?? railScrim,
+    );
+  }
+}
+
 /// Light theme with modern, neutral aesthetic
 ThemeData get lightTheme => ThemeData(
   useMaterial3: true,
@@ -214,6 +269,9 @@ ThemeData get lightTheme => ThemeData(
     ),
   ),
   textTheme: _buildTextTheme(Brightness.light),
+  extensions: const <ThemeExtension<dynamic>>[
+    NeonAccentTheme.light,
+  ],
 );
 
 /// Dark theme with good contrast and readability
@@ -260,6 +318,9 @@ ThemeData get darkTheme => ThemeData(
     ),
   ),
   textTheme: _buildTextTheme(Brightness.dark),
+  extensions: const <ThemeExtension<dynamic>>[
+    NeonAccentTheme.dark,
+  ],
 );
 
 /// Build text theme using Inter font family
