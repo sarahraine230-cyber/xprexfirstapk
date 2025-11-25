@@ -405,12 +405,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                 ? h * 0.38
                 : h * 0.36));
 
-    // Keep the column comfortably above the bottom nav bar
+    // Keep the column comfortably above the bottom nav bar (base position)
     final double bottomGuard = padding.bottom + 88.0;
 
-    // Icon sizing: increase ~55–60% over previous and keep responsive
-    // 36 → ~56 on small; 40 → ~64 on large. Bounded for tablets.
-    final double iconSize = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
+    // Icon sizing: increase ~80–85% over the previous sizing and keep responsive
+    // Original baseline produced ~56–64; we multiply by ~1.82 and widen bounds.
+    final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
+    final double iconSize = (_previous * 1.82).clamp(90.0, 120.0);
 
     // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
     const double baseIcon = 32.0;
@@ -533,7 +534,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
           // Right rail (responsive height and spacing)
           Positioned(
             right: 12,
-            bottom: bottomGuard,
+            // Lower the rail by ~20% of its own height from the current base position
+            bottom: (bottomGuard - (railHeight * 0.20)).clamp(padding.bottom + 12.0, double.infinity),
             child: SizedBox(
               height: railHeight,
               // Scale down slightly if content would exceed target height to avoid overflow
@@ -549,8 +551,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       onTap: _toggleLike,
                       color: _isLiked ? theme.colorScheme.error : theme.colorScheme.onInverseSurface,
                       glow: neon?.purple ?? theme.colorScheme.primary,
-                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-                      outlined: true,
+                      background: Colors.transparent,
+                      outlined: false,
                     ),
                     SizedBox(height: smallGap),
                     _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary),
@@ -561,8 +563,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       onTap: _openComments,
                       color: theme.colorScheme.onInverseSurface,
                       glow: neon?.cyan ?? theme.colorScheme.secondary,
-                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-                      outlined: true,
+                      background: Colors.transparent,
+                      outlined: false,
                     ),
                     SizedBox(height: smallGap),
                     _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary),
@@ -573,8 +575,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       onTap: _handleShare,
                       color: theme.colorScheme.onInverseSurface,
                       glow: neon?.blue ?? theme.colorScheme.tertiary,
-                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-                      outlined: true,
+                      background: Colors.transparent,
+                      outlined: false,
                     ),
                     SizedBox(height: smallGap),
                     _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary),
@@ -585,8 +587,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       onTap: _toggleSave,
                       color: _isSaved ? theme.colorScheme.primary : theme.colorScheme.onInverseSurface,
                       glow: neon?.blue ?? theme.colorScheme.primary,
-                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-                      outlined: true,
+                      background: Colors.transparent,
+                      outlined: false,
                     ),
                     SizedBox(height: groupGap),
                     _NeonRailButton(
@@ -595,8 +597,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       onTap: _toggleRepost,
                       color: _isReposted ? theme.colorScheme.secondary : theme.colorScheme.onInverseSurface,
                       glow: neon?.purple ?? theme.colorScheme.secondary,
-                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-                      outlined: true,
+                      background: Colors.transparent,
+                      outlined: false,
                     ),
                   ],
                 ),
@@ -758,25 +760,10 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
           curve: Curves.easeOut,
           width: containerSize,
           height: containerSize,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                widget.background,
-                widget.background.withValues(alpha: 0.2),
-              ],
-            ),
-            border: widget.outlined
-                ? Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1.2)
-                : null,
-            boxShadow: [
-              BoxShadow(
-                color: widget.glow.withValues(alpha: _pressed ? 0.6 : 0.35),
-                blurRadius: _pressed ? 18 : 12,
-                spreadRadius: _pressed ? 1.2 : 0.6,
-              ),
-            ],
-          ),
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.transparent, // No background, no border, no shadow
+        ),
           child: Center(
             child: Icon(widget.icon, size: widget.size, color: widget.color),
           ),
