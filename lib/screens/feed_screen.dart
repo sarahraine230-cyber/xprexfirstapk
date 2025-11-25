@@ -395,22 +395,22 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
 
-    // Responsive rail height ~32–40% like TikTok, fixed bands per request
-    // Very small phones get taller rail for comfort; large screens stay subtle
+    // Responsive rail height with a slight bump to accommodate larger icons
+    // Keep placement the same; only the container height grows slightly
     final double railHeight = h <= 640
-        ? h * 0.40
+        ? h * 0.44
         : (h <= 780
-            ? h * 0.37
+            ? h * 0.41
             : (h <= 900
-                ? h * 0.34
-                : h * 0.32));
+                ? h * 0.38
+                : h * 0.36));
 
     // Keep the column comfortably above the bottom nav bar
     final double bottomGuard = padding.bottom + 88.0;
 
-    // Icon sizing: increase ~15–20% over previous and scale with height
-    // Keep within sensible bounds so icons don't look oversized on tablets
-    final double iconSize = (36.0 * (h / 800.0)).clamp(36.0, 40.0);
+    // Icon sizing: increase ~55–60% over previous and keep responsive
+    // 36 → ~56 on small; 40 → ~64 on large. Bounded for tablets.
+    final double iconSize = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
 
     // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
     const double baseIcon = 32.0;
@@ -741,7 +741,8 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
 
   @override
   Widget build(BuildContext context) {
-    final double containerSize = widget.size + 18; // provides comfy hit area ~50px
+    // Grow hit area proportionally with icon size to keep UX strong
+    final double containerSize = widget.size + (18 * (widget.size / 36.0));
     return GestureDetector(
       onTapDown: (_) => _setPressed(true),
       onTapCancel: () => _setPressed(false),
