@@ -408,10 +408,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     // Keep the column comfortably above the bottom nav bar (base position)
     final double bottomGuard = padding.bottom + 88.0;
 
-    // Icon sizing: increase ~80–85% over the previous sizing and keep responsive
-    // Original baseline produced ~56–64; we multiply by ~1.82 and widen bounds.
+    // Icon sizing: previously increased ~80–85%. Now scale to 200% of current size (2x),
+    // while keeping responsiveness and without altering placement.
     final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
-    final double iconSize = (_previous * 1.82).clamp(90.0, 120.0);
+    final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
 
     // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
     const double baseIcon = 32.0;
@@ -549,43 +549,47 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: _isLiked ? Icons.favorite : Icons.favorite_border,
                       size: iconSize,
                       onTap: _toggleLike,
-                      color: _isLiked ? theme.colorScheme.error : theme.colorScheme.onInverseSurface,
+                      // Force pure white icon color always (ignore theme/dark mode)
+                      color: Colors.white,
                       glow: neon?.purple ?? theme.colorScheme.primary,
                       background: Colors.transparent,
                       outlined: false,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary),
+                    _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary, textScale: 2.0),
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.comment,
                       size: iconSize,
                       onTap: _openComments,
-                      color: theme.colorScheme.onInverseSurface,
+                      // Force pure white icon color always (ignore theme/dark mode)
+                      color: Colors.white,
                       glow: neon?.cyan ?? theme.colorScheme.secondary,
                       background: Colors.transparent,
                       outlined: false,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary),
+                    _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary, textScale: 2.0),
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.share,
                       size: iconSize,
                       onTap: _handleShare,
-                      color: theme.colorScheme.onInverseSurface,
+                      // Force pure white icon color always (ignore theme/dark mode)
+                      color: Colors.white,
                       glow: neon?.blue ?? theme.colorScheme.tertiary,
                       background: Colors.transparent,
                       outlined: false,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary),
+                    _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary, textScale: 2.0),
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
                       size: iconSize,
                       onTap: _toggleSave,
-                      color: _isSaved ? theme.colorScheme.primary : theme.colorScheme.onInverseSurface,
+                      // Force pure white icon color always (ignore theme/dark mode)
+                      color: Colors.white,
                       glow: neon?.blue ?? theme.colorScheme.primary,
                       background: Colors.transparent,
                       outlined: false,
@@ -595,7 +599,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: Icons.repeat,
                       size: iconSize,
                       onTap: _toggleRepost,
-                      color: _isReposted ? theme.colorScheme.secondary : theme.colorScheme.onInverseSurface,
+                      // Force pure white icon color always (ignore theme/dark mode)
+                      color: Colors.white,
                       glow: neon?.purple ?? theme.colorScheme.secondary,
                       background: Colors.transparent,
                       outlined: false,
@@ -683,29 +688,18 @@ void _maybeDisableWakelock() {
   }
 }
 
-// Right-rail helpers: neon accents with subtle glow
-Widget _countBadge(BuildContext context, int count, {Color? glowColor}) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-    decoration: BoxDecoration(
-      color: (Theme.of(context).extension<NeonAccentTheme>()?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
-      borderRadius: BorderRadius.circular(10),
-      boxShadow: [
-        if (glowColor != null)
-          BoxShadow(
-            color: glowColor.withValues(alpha: 0.35),
-            blurRadius: 10,
-            spreadRadius: 0.5,
-          ),
-      ],
-    ),
-    child: Text(
-      '$count',
-      style: TextStyle(
-        color: Theme.of(context).colorScheme.onInverseSurface,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.2,
-      ),
+// Right-rail count text: bare, always white, huge (fixed size), no backgrounds/shadows
+Widget _countBadge(BuildContext context, int count, {Color? glowColor, double textScale = 1.0}) {
+  // Bare text only: no background container, no shadow, no opacity layers
+  return Text(
+    '$count',
+    textAlign: TextAlign.center,
+    style: TextStyle(
+      color: Colors.white, // Force pure white always
+      fontSize: 80.0, // Huge, fixed per requirements
+      fontWeight: FontWeight.w600,
+      letterSpacing: 0.0,
+      height: 0.98, // keep line box tight without affecting layout
     ),
   );
 }
