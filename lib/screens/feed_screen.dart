@@ -15,6 +15,7 @@ import 'package:xprex/config/app_links.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/comment_service.dart';
 import 'package:xprex/models/comment_model.dart';
+import 'package:xprex/theme.dart';
 
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
@@ -389,22 +390,22 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final neon = Theme.of(context).extension<NeonAccentTheme>();
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
 
-    // 1) Fixed column height: 35% of screen height across all sizes
-    final double railHeight = h * 0.35;
+    // Responsive rail height ~30–35% like TikTok, depending on device height
+    final double railHeight = h <= 700
+        ? h * 0.35
+        : (h <= 840 ? h * 0.33 : h * 0.31);
 
-    // 3) Keep the column comfortably above the bottom nav bar
-    // Maintain ~72 logical pixels above the bottom inset
-    final double bottomGuard = padding.bottom + 72.0;
+    // Keep the column comfortably above the bottom nav bar
+    final double bottomGuard = padding.bottom + 88.0;
 
-    // 2) Button spacing: tightened to guarantee fit within 35% height
-    // Use 12 between icon groups and 4 between icon and its count.
-    // This preserves readable density while avoiding overflow on smaller screens.
-    const double smallGap = 4.0; // icon ↔ count
-    const double groupGap = 12.0; // between icon groups (like↔comment↔share↔save↔repost)
+    // Moderate spacing similar to TikTok
+    const double smallGap = 6.0; // icon ↔ count
+    const double groupGap = 14.0; // between icon groups
     final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
         ? widget.video.authorDisplayName!
         : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
@@ -516,98 +517,73 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ],
             ),
           ),
-          // Right rail (fixed height and spacing)
+          // Right rail (responsive height and spacing)
           Positioned(
             right: 12,
             bottom: bottomGuard,
             child: SizedBox(
               height: railHeight,
-              // Scale down slightly if content would exceed 35% height to avoid overflow
+              // Scale down slightly if content would exceed target height to avoid overflow
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.bottomCenter,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _railButton(
-                      context,
-                      IconButton(
-                        onPressed: _toggleLike,
-                        icon: Icon(
-                          _isLiked ? Icons.favorite : Icons.favorite_border,
-                          color: _isLiked ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.onInverseSurface,
-                        ),
-                        // Comfortable icon size retained; FittedBox will only shrink when necessary
-                        iconSize: 30,
-                        style: IconButton.styleFrom(
-                          padding: const EdgeInsets.all(6),
-                          minimumSize: const Size.square(40),
-                        ),
-                      ),
+                    _NeonRailButton(
+                      icon: _isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 32,
+                      onTap: _toggleLike,
+                      color: _isLiked ? theme.colorScheme.error : theme.colorScheme.onInverseSurface,
+                      glow: neon?.purple ?? theme.colorScheme.primary,
+                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
+                      outlined: true,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _likeCount),
+                    _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary),
                     SizedBox(height: groupGap),
-                    _railButton(
-                      context,
-                      IconButton(
-                        onPressed: _openComments,
-                        icon: Icon(Icons.comment, color: Theme.of(context).colorScheme.onInverseSurface),
-                        iconSize: 30,
-                        style: IconButton.styleFrom(
-                          padding: const EdgeInsets.all(6),
-                          minimumSize: const Size.square(40),
-                        ),
-                      ),
+                    _NeonRailButton(
+                      icon: Icons.comment,
+                      size: 32,
+                      onTap: _openComments,
+                      color: theme.colorScheme.onInverseSurface,
+                      glow: neon?.cyan ?? theme.colorScheme.secondary,
+                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
+                      outlined: true,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _commentsCount),
+                    _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary),
                     SizedBox(height: groupGap),
-                    _railButton(
-                      context,
-                      IconButton(
-                        onPressed: _handleShare,
-                        icon: Icon(Icons.share, color: Theme.of(context).colorScheme.onInverseSurface),
-                        iconSize: 30,
-                        style: IconButton.styleFrom(
-                          padding: const EdgeInsets.all(6),
-                          minimumSize: const Size.square(40),
-                        ),
-                      ),
+                    _NeonRailButton(
+                      icon: Icons.share,
+                      size: 32,
+                      onTap: _handleShare,
+                      color: theme.colorScheme.onInverseSurface,
+                      glow: neon?.blue ?? theme.colorScheme.tertiary,
+                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
+                      outlined: true,
                     ),
                     SizedBox(height: smallGap),
-                    _countBadge(context, _shareCount),
+                    _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary),
                     SizedBox(height: groupGap),
-                    _railButton(
-                      context,
-                      IconButton(
-                        onPressed: _toggleSave,
-                        icon: Icon(
-                          _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                          color: _isSaved ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.onInverseSurface,
-                        ),
-                        iconSize: 30,
-                        style: IconButton.styleFrom(
-                          padding: const EdgeInsets.all(6),
-                          minimumSize: const Size.square(40),
-                        ),
-                      ),
+                    _NeonRailButton(
+                      icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
+                      size: 32,
+                      onTap: _toggleSave,
+                      color: _isSaved ? theme.colorScheme.primary : theme.colorScheme.onInverseSurface,
+                      glow: neon?.blue ?? theme.colorScheme.primary,
+                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
+                      outlined: true,
                     ),
                     SizedBox(height: groupGap),
-                    _railButton(
-                      context,
-                      IconButton(
-                        onPressed: _toggleRepost,
-                        icon: Icon(
-                          Icons.repeat,
-                          color: _isReposted ? Theme.of(context).colorScheme.secondary : Theme.of(context).colorScheme.onInverseSurface,
-                        ),
-                        iconSize: 30,
-                        style: IconButton.styleFrom(
-                          padding: const EdgeInsets.all(6),
-                          minimumSize: const Size.square(40),
-                        ),
-                      ),
+                    _NeonRailButton(
+                      icon: Icons.repeat,
+                      size: 32,
+                      onTap: _toggleRepost,
+                      color: _isReposted ? theme.colorScheme.secondary : theme.colorScheme.onInverseSurface,
+                      glow: neon?.purple ?? theme.colorScheme.secondary,
+                      background: (neon?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
+                      outlined: true,
                     ),
                   ],
                 ),
@@ -692,32 +668,108 @@ void _maybeDisableWakelock() {
   }
 }
 
-// Right-rail helpers: ensure icon legibility on light video frames
-Widget _railButton(BuildContext context, Widget child) {
+// Right-rail helpers: neon accents with subtle glow
+Widget _countBadge(BuildContext context, int count, {Color? glowColor}) {
   return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
     decoration: BoxDecoration(
-      color: Colors.black.withValues(alpha: 0.35),
-      shape: BoxShape.circle,
-    ),
-    child: child,
-  );
-}
-
-Widget _countBadge(BuildContext context, int count) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-    decoration: BoxDecoration(
-      color: Colors.black.withValues(alpha: 0.35),
+      color: (Theme.of(context).extension<NeonAccentTheme>()?.railScrim ?? Colors.black.withValues(alpha: 0.35)),
       borderRadius: BorderRadius.circular(10),
+      boxShadow: [
+        if (glowColor != null)
+          BoxShadow(
+            color: glowColor.withValues(alpha: 0.35),
+            blurRadius: 10,
+            spreadRadius: 0.5,
+          ),
+      ],
     ),
     child: Text(
       '$count',
       style: TextStyle(
         color: Theme.of(context).colorScheme.onInverseSurface,
         fontWeight: FontWeight.w600,
+        letterSpacing: 0.2,
       ),
     ),
   );
+}
+
+class _NeonRailButton extends StatefulWidget {
+  final IconData icon;
+  final double size;
+  final VoidCallback onTap;
+  final Color color;
+  final Color glow;
+  final Color background;
+  final bool outlined;
+
+  const _NeonRailButton({
+    required this.icon,
+    required this.size,
+    required this.onTap,
+    required this.color,
+    required this.glow,
+    required this.background,
+    this.outlined = false,
+  });
+
+  @override
+  State<_NeonRailButton> createState() => _NeonRailButtonState();
+}
+
+class _NeonRailButtonState extends State<_NeonRailButton> {
+  bool _pressed = false;
+
+  void _setPressed(bool v) {
+    if (_pressed == v) return;
+    setState(() => _pressed = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double containerSize = widget.size + 18; // provides comfy hit area ~50px
+    return GestureDetector(
+      onTapDown: (_) => _setPressed(true),
+      onTapCancel: () => _setPressed(false),
+      onTapUp: (_) => _setPressed(false),
+      onTap: widget.onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedScale(
+        scale: _pressed ? 1.07 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOut,
+          width: containerSize,
+          height: containerSize,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [
+                widget.background,
+                widget.background.withValues(alpha: 0.2),
+              ],
+            ),
+            border: widget.outlined
+                ? Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1.2)
+                : null,
+            boxShadow: [
+              BoxShadow(
+                color: widget.glow.withValues(alpha: _pressed ? 0.6 : 0.35),
+                blurRadius: _pressed ? 18 : 12,
+                spreadRadius: _pressed ? 1.2 : 0.6,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Icon(widget.icon, size: widget.size, color: widget.color),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // Snapchat-style comments sheet with rounded top and themed colors
