@@ -395,17 +395,30 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
 
-    // Responsive rail height ~30–35% like TikTok, depending on device height
-    final double railHeight = h <= 700
-        ? h * 0.35
-        : (h <= 840 ? h * 0.33 : h * 0.31);
+    // Responsive rail height ~32–40% like TikTok, fixed bands per request
+    // Very small phones get taller rail for comfort; large screens stay subtle
+    final double railHeight = h <= 640
+        ? h * 0.40
+        : (h <= 780
+            ? h * 0.37
+            : (h <= 900
+                ? h * 0.34
+                : h * 0.32));
 
     // Keep the column comfortably above the bottom nav bar
     final double bottomGuard = padding.bottom + 88.0;
 
-    // Moderate spacing similar to TikTok
-    const double smallGap = 6.0; // icon ↔ count
-    const double groupGap = 14.0; // between icon groups
+    // Icon sizing: increase ~15–20% over previous and scale with height
+    // Keep within sensible bounds so icons don't look oversized on tablets
+    final double iconSize = (36.0 * (h / 800.0)).clamp(36.0, 40.0);
+
+    // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
+    const double baseIcon = 32.0;
+    const double baseSmallGap = 6.0; // icon ↔ count
+    const double baseGroupGap = 14.0; // between icon groups
+    final double scaleRatio = iconSize / baseIcon;
+    final double smallGap = (baseSmallGap * scaleRatio).clamp(5.0, 8.0);
+    final double groupGap = (baseGroupGap * scaleRatio).clamp(12.0, 18.0);
     final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
         ? widget.video.authorDisplayName!
         : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
@@ -532,7 +545,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   children: [
                     _NeonRailButton(
                       icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: 32,
+                      size: iconSize,
                       onTap: _toggleLike,
                       color: _isLiked ? theme.colorScheme.error : theme.colorScheme.onInverseSurface,
                       glow: neon?.purple ?? theme.colorScheme.primary,
@@ -544,7 +557,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.comment,
-                      size: 32,
+                      size: iconSize,
                       onTap: _openComments,
                       color: theme.colorScheme.onInverseSurface,
                       glow: neon?.cyan ?? theme.colorScheme.secondary,
@@ -556,7 +569,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.share,
-                      size: 32,
+                      size: iconSize,
                       onTap: _handleShare,
                       color: theme.colorScheme.onInverseSurface,
                       glow: neon?.blue ?? theme.colorScheme.tertiary,
@@ -568,7 +581,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                      size: 32,
+                      size: iconSize,
                       onTap: _toggleSave,
                       color: _isSaved ? theme.colorScheme.primary : theme.colorScheme.onInverseSurface,
                       glow: neon?.blue ?? theme.colorScheme.primary,
@@ -578,7 +591,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.repeat,
-                      size: 32,
+                      size: iconSize,
                       onTap: _toggleRepost,
                       color: _isReposted ? theme.colorScheme.secondary : theme.colorScheme.onInverseSurface,
                       glow: neon?.purple ?? theme.colorScheme.secondary,
