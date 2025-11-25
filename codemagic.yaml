@@ -1,0 +1,30 @@
+workflows:
+  android-arm64:
+    name: Android ARM64 Build
+    max_build_duration: 60
+
+    environment:
+      flutter: stable
+      java: 17
+      groups:
+        - secrets  # this loads your Supabase URL + anon key from Codemagic UI env vars
+
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          flutter pub get
+
+      - name: Build Android APK (ARM64 only)
+        script: |
+          flutter build apk --release --target-platform android-arm64
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+
+    publishing:
+      email:
+        recipients:
+          - your_rudeboyemyres@gmail.com
+        notify:
+          success: true
+          failure: true
