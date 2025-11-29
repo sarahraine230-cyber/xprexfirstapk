@@ -17,6 +17,10 @@ import 'package:xprex/services/comment_service.dart';
 import 'package:xprex/models/comment_model.dart';
 import 'package:xprex/theme.dart';
 
+// --- NEW IMPORTS ADDED HERE ---
+import 'package:xprex/services/save_service.dart';
+import 'package:xprex/services/repost_service.dart';
+
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
   return await videoService.getFeedVideos(limit: 20);
@@ -191,7 +195,6 @@ class VideoFeedItem extends StatefulWidget {
   final bool isActive;
   final bool feedVisible;
   final VoidCallback? onLikeToggled;
-
   const VideoFeedItem({super.key, required this.video, required this.isActive, required this.feedVisible, this.onLikeToggled});
 
   @override
@@ -201,6 +204,11 @@ class VideoFeedItem extends StatefulWidget {
 class _VideoFeedItemState extends State<VideoFeedItem> {
   final _storage = StorageService();
   final _videoService = VideoService();
+  
+  // --- NEW SERVICES INSTANTIATED HERE ---
+  final _saveService = SaveService();
+  final _repostService = RepostService();
+
   VideoPlayerController? _controller;
   bool _isLiked = false;
   int _likeCount = 0;
@@ -241,9 +249,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
         });
-        _videoService.isVideoSavedByUser(widget.video.id, uid).then((saved) {
+        
+        // --- UPDATED: Use SaveService ---
+        _saveService.isVideoSaved(widget.video.id, uid).then((saved) {
           if (mounted) setState(() => _isSaved = saved);
         });
+
+        // --- UPDATED: Use RepostService ---
+        _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
+          if (mounted) setState(() => _isReposted = reposted);
+        });
+
         _videoService.getShareCount(widget.video.id).then((count) {
           if (mounted) setState(() => _shareCount = count);
         });
@@ -327,9 +343,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         }
         return;
       }
+      
       final prev = _isSaved;
-      setState(() => _isSaved = !prev);
-      final saved = await _videoService.toggleSave(widget.video.id, uid);
+      setState(() => _isSaved = !prev); // Optimistic UI
+      
+      // --- UPDATED: Use SaveService ---
+      final saved = await _saveService.toggleSave(widget.video.id, uid);
+      
       if (mounted && saved != _isSaved) {
         setState(() => _isSaved = saved);
       }
@@ -355,9 +375,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         }
         return;
       }
+      
       final prev = _isReposted;
-      setState(() => _isReposted = !prev);
-      final reposted = await _videoService.toggleRepost(widget.video.id, uid);
+      setState(() => _isReposted = !prev); // Optimistic UI
+      
+      // --- UPDATED: Use RepostService ---
+      final reposted = await _repostService.toggleRepost(widget.video.id, uid);
+      
       if (mounted && reposted != _isReposted) {
         setState(() => _isReposted = reposted);
       }
@@ -394,7 +418,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
-
     // Responsive rail height with a slight bump to accommodate larger icons
     // Keep placement the same; only the container height grows slightly
     final double railHeight = h <= 640
@@ -404,19 +427,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             : (h <= 900
                 ? h * 0.38
                 : h * 0.36));
-
     // Keep the column comfortably above the bottom nav bar (base position)
     final double bottomGuard = padding.bottom + 88.0;
-
     // Icon sizing: previously increased ~80–85%. Now scale to 200% of current size (2x),
     // while keeping responsiveness and without altering placement.
     final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
     final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
-
     // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
     const double baseIcon = 32.0;
     const double baseSmallGap = 6.0; // icon ↔ count
-    const double baseGroupGap = 14.0; // between icon groups
+    const double baseGroupGap = 14.0;
+    // between icon groups
     final double scaleRatio = iconSize / baseIcon;
     final double smallGap = (baseSmallGap * scaleRatio).clamp(5.0, 8.0);
     final double groupGap = (baseGroupGap * scaleRatio).clamp(12.0, 18.0);
@@ -450,11 +471,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   if (_controller == null) return;
                   if (_controller!.value.isPlaying) {
                     _controller!.pause();
-            _maybeDisableWakelock();
+                    _maybeDisableWakelock();
                   } else {
                     if (widget.feedVisible && widget.isActive) {
                       _controller!.play();
-              _maybeEnableWakelock();
+                      _maybeEnableWakelock();
                     }
                   }
                   setState(() {});
@@ -722,14 +743,12 @@ class _NeonRailButton extends StatefulWidget {
     required this.background,
     this.outlined = false,
   });
-
   @override
   State<_NeonRailButton> createState() => _NeonRailButtonState();
 }
 
 class _NeonRailButtonState extends State<_NeonRailButton> {
   bool _pressed = false;
-
   void _setPressed(bool v) {
     if (_pressed == v) return;
     setState(() => _pressed = v);
