@@ -9,6 +9,10 @@ class VideoModel {
   final int playbackCount;
   final int likesCount;
   final int commentsCount;
+  // --- NEW FIELDS ---
+  final int savesCount;
+  final int repostsCount;
+  
   final DateTime createdAt;
   final DateTime updatedAt;
   
@@ -28,6 +32,10 @@ class VideoModel {
     this.playbackCount = 0,
     this.likesCount = 0,
     this.commentsCount = 0,
+    // --- NEW DEFAULTS ---
+    this.savesCount = 0,
+    this.repostsCount = 0,
+    
     required this.createdAt,
     required this.updatedAt,
     this.authorUsername,
@@ -48,10 +56,14 @@ class VideoModel {
       playbackCount: json['playback_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
       commentsCount: json['comments_count'] as int? ?? 0,
+      // --- MAP NEW FIELDS ---
+      savesCount: json['saves_count'] as int? ?? 0,
+      repostsCount: json['reposts_count'] as int? ?? 0,
+      
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
     );
-    
+
     if (json.containsKey('profiles')) {
       final profile = json['profiles'] as Map<String, dynamic>?;
       if (profile != null) {
@@ -75,6 +87,10 @@ class VideoModel {
     'playback_count': playbackCount,
     'likes_count': likesCount,
     'comments_count': commentsCount,
+    // --- SERIALIZE NEW FIELDS ---
+    'saves_count': savesCount,
+    'reposts_count': repostsCount,
+    
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt.toIso8601String(),
   };
@@ -90,6 +106,10 @@ class VideoModel {
     int? playbackCount,
     int? likesCount,
     int? commentsCount,
+    // --- ADD COPY PARAMETERS ---
+    int? savesCount,
+    int? repostsCount,
+    
     DateTime? createdAt,
     DateTime? updatedAt,
     String? authorUsername,
@@ -107,6 +127,10 @@ class VideoModel {
     playbackCount: playbackCount ?? this.playbackCount,
     likesCount: likesCount ?? this.likesCount,
     commentsCount: commentsCount ?? this.commentsCount,
+    // --- COPY NEW FIELDS ---
+    savesCount: savesCount ?? this.savesCount,
+    repostsCount: repostsCount ?? this.repostsCount,
+    
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     authorUsername: authorUsername ?? this.authorUsername,
