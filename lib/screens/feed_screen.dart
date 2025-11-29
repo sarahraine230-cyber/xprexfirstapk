@@ -17,7 +17,6 @@ import 'package:xprex/services/comment_service.dart';
 import 'package:xprex/models/comment_model.dart';
 import 'package:xprex/theme.dart';
 
-// --- NEW IMPORTS ADDED HERE ---
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 
@@ -46,7 +45,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
   }
 
-  // Subscribe to route observer once when dependencies change, not in build
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -56,10 +54,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     }
   }
 
-  // RouteAware
   @override
   void didPushNext() {
-    // Another route has been pushed on top of this one
     if (_routeVisible) {
       setState(() => _routeVisible = false);
       _maybeDisableWakelock();
@@ -69,7 +65,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void didPopNext() {
-    // Back to this route
     if (!_routeVisible) {
       setState(() => _routeVisible = true);
       debugPrint('📺 FeedScreen.didPopNext → route visible again');
@@ -78,7 +73,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
-    // Ensure we don't hold wakelock when leaving feed
     _maybeDisableWakelock();
     WidgetsBinding.instance.removeObserver(this);
     final route = ModalRoute.of(context);
@@ -93,7 +87,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     super.didUpdateWidget(oldWidget);
     if (oldWidget.isVisible != widget.isVisible) {
       if (!widget.isVisible) {
-        // When hidden, make sure wakelock is disabled
         _maybeDisableWakelock();
       }
       setState(() {});
@@ -106,7 +99,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     if (_appActive != active) {
       _appActive = active;
       if (!active) {
-        // App backgrounded → release wakelock
         _maybeDisableWakelock();
       }
       setState(() {});
@@ -115,7 +107,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   Widget build(BuildContext context) {
-    // Route subscription handled in didChangeDependencies
     final ref = this.ref;
     final videosAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
@@ -162,7 +153,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                 isActive: index == _activeIndex,
                 feedVisible: feedVisible,
                 onLikeToggled: () {
-                  // refresh list to reflect counts
                   ref.invalidate(feedVideosProvider);
                 },
               );
@@ -204,8 +194,6 @@ class VideoFeedItem extends StatefulWidget {
 class _VideoFeedItemState extends State<VideoFeedItem> {
   final _storage = StorageService();
   final _videoService = VideoService();
-  
-  // --- NEW SERVICES INSTANTIATED HERE ---
   final _saveService = SaveService();
   final _repostService = RepostService();
 
@@ -214,15 +202,23 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _likeCount = 0;
   int _commentsCount = 0;
   int _shareCount = 0;
-  bool _loading = true;
+  
+  // --- NEW STATE VARIABLES ---
   bool _isSaved = false;
+  int _saveCount = 0;
   bool _isReposted = false;
+  int _repostCount = 0;
+  
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
+    // --- INITIALIZE COUNTS ---
+    _saveCount = widget.video.savesCount;
+    _repostCount = widget.video.repostsCount;
     _init();
   }
 
@@ -243,23 +239,18 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
         ..setLooping(true);
       await _controller!.initialize();
-      // Initialize like status and share count in parallel
+      
       final uid = supabase.auth.currentUser?.id;
       if (uid != null) {
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
         });
-        
-        // --- UPDATED: Use SaveService ---
         _saveService.isVideoSaved(widget.video.id, uid).then((saved) {
           if (mounted) setState(() => _isSaved = saved);
         });
-
-        // --- UPDATED: Use RepostService ---
         _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
           if (mounted) setState(() => _isReposted = reposted);
         });
-
         _videoService.getShareCount(widget.video.id).then((count) {
           if (mounted) setState(() => _shareCount = count);
         });
@@ -300,7 +291,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         }
         return;
       }
-      // Optimistic UI update for snappier feel
       final previousLiked = _isLiked;
       setState(() {
         _isLiked = !previousLiked;
@@ -310,7 +300,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
       final liked = await _videoService.toggleLike(widget.video.id, uid);
       if (liked != _isLiked && mounted) {
-        // Backend disagreed; reconcile
         setState(() {
           _isLiked = liked;
           _likeCount += liked ? 1 : -1;
@@ -319,7 +308,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     } catch (e) {
       debugPrint('❌ like toggle failed: $e');
       if (mounted) {
-        // Revert optimistic update on failure
         setState(() {
           _isLiked = !_isLiked;
           _likeCount += _isLiked ? 1 : -1;
@@ -345,18 +333,28 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       }
       
       final prev = _isSaved;
-      setState(() => _isSaved = !prev); // Optimistic UI
+      // --- OPTIMISTIC UPDATE: TOGGLE SAVE COUNT ---
+      setState(() {
+        _isSaved = !prev;
+        _saveCount += _isSaved ? 1 : -1;
+      });
       
-      // --- UPDATED: Use SaveService ---
       final saved = await _saveService.toggleSave(widget.video.id, uid);
       
       if (mounted && saved != _isSaved) {
-        setState(() => _isSaved = saved);
+        setState(() {
+          _isSaved = saved;
+          // Revert if backend disagreed
+          _saveCount += saved ? 1 : -1; 
+        });
       }
     } catch (e) {
       debugPrint('❌ toggle save failed: $e');
       if (mounted) {
-        setState(() => _isSaved = !_isSaved);
+        setState(() {
+           _isSaved = !_isSaved;
+           _saveCount += _isSaved ? 1 : -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to save. Please try again.')),
         );
@@ -377,18 +375,27 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       }
       
       final prev = _isReposted;
-      setState(() => _isReposted = !prev); // Optimistic UI
+      // --- OPTIMISTIC UPDATE: TOGGLE REPOST COUNT ---
+      setState(() {
+        _isReposted = !prev;
+        _repostCount += _isReposted ? 1 : -1;
+      });
       
-      // --- UPDATED: Use RepostService ---
       final reposted = await _repostService.toggleRepost(widget.video.id, uid);
       
       if (mounted && reposted != _isReposted) {
-        setState(() => _isReposted = reposted);
+        setState(() {
+          _isReposted = reposted;
+          _repostCount += reposted ? 1 : -1;
+        });
       }
     } catch (e) {
       debugPrint('❌ toggle repost failed: $e');
       if (mounted) {
-        setState(() => _isReposted = !_isReposted);
+        setState(() {
+          _isReposted = !_isReposted;
+          _repostCount += _isReposted ? 1 : -1;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Failed to repost. Please try again.')),
         );
@@ -398,7 +405,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   @override
   void dispose() {
-    // Ensure we release wakelock when item is disposed
     WakelockPlus.disable();
     _disposeController();
     super.dispose();
@@ -418,8 +424,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
-    // Responsive rail height with a slight bump to accommodate larger icons
-    // Keep placement the same; only the container height grows slightly
+    
     final double railHeight = h <= 640
         ? h * 0.44
         : (h <= 780
@@ -427,23 +432,22 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             : (h <= 900
                 ? h * 0.38
                 : h * 0.36));
-    // Keep the column comfortably above the bottom nav bar (base position)
     final double bottomGuard = padding.bottom + 88.0;
-    // Icon sizing: previously increased ~80–85%. Now scale to 200% of current size (2x),
-    // while keeping responsiveness and without altering placement.
+    
     final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
     final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
-    // Maintain spacing ratios by scaling gaps relative to the original 32px icon baseline
+    
     const double baseIcon = 32.0;
-    const double baseSmallGap = 6.0; // icon ↔ count
+    const double baseSmallGap = 6.0; 
     const double baseGroupGap = 14.0;
-    // between icon groups
+    
     final double scaleRatio = iconSize / baseIcon;
     final double smallGap = (baseSmallGap * scaleRatio).clamp(5.0, 8.0);
     final double groupGap = (baseGroupGap * scaleRatio).clamp(12.0, 18.0);
     final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
         ? widget.video.authorDisplayName!
         : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
+        
     return Container(
       color: Colors.black,
       child: Stack(
@@ -462,7 +466,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     ? Image.network(widget.video.coverImageUrl!, fit: BoxFit.cover)
                     : Container(color: Colors.black)),
           ),
-          // Tap to play/pause overlay
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -483,7 +486,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ),
             ),
           ),
-          // Bottom left: author + title
           Positioned(
             bottom: 80,
             left: 16,
@@ -495,7 +497,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   children: [
                     GestureDetector(
                       onTap: () async {
-                        // Pause playback before navigating away so audio doesn't continue
                         try {
                           _controller?.pause();
                           _controller?.setVolume(0);
@@ -503,7 +504,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                         } catch (_) {}
                         if (widget.video.authorAuthUserId.isNotEmpty) {
                           await context.push('/u/${widget.video.authorAuthUserId}');
-                          // Attempt to restore volume when back
                           try { _controller?.setVolume(1.0); } catch (_) {}
                         }
                       },
@@ -522,7 +522,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     Expanded(
                       child: GestureDetector(
                         onTap: () async {
-                          // Pause playback before navigating away so audio doesn't continue
                           try {
                             _controller?.pause();
                             _controller?.setVolume(0);
@@ -552,14 +551,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ],
             ),
           ),
-          // Right rail (responsive height and spacing)
           Positioned(
             right: 12,
-            // Lower the rail by ~20% of its own height from the current base position
             bottom: (bottomGuard - (railHeight * 0.20)).clamp(padding.bottom + 12.0, double.infinity),
             child: SizedBox(
               height: railHeight,
-              // Scale down slightly if content would exceed target height to avoid overflow
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.bottomCenter,
@@ -570,7 +566,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: _isLiked ? Icons.favorite : Icons.favorite_border,
                       size: iconSize,
                       onTap: _toggleLike,
-                      // Force pure white icon color always (ignore theme/dark mode)
                       color: Colors.white,
                       glow: neon?.purple ?? theme.colorScheme.primary,
                       background: Colors.transparent,
@@ -583,7 +578,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: Icons.comment,
                       size: iconSize,
                       onTap: _openComments,
-                      // Force pure white icon color always (ignore theme/dark mode)
                       color: Colors.white,
                       glow: neon?.cyan ?? theme.colorScheme.secondary,
                       background: Colors.transparent,
@@ -596,7 +590,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: Icons.share,
                       size: iconSize,
                       onTap: _handleShare,
-                      // Force pure white icon color always (ignore theme/dark mode)
                       color: Colors.white,
                       glow: neon?.blue ?? theme.colorScheme.tertiary,
                       background: Colors.transparent,
@@ -609,23 +602,28 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
                       size: iconSize,
                       onTap: _toggleSave,
-                      // Force pure white icon color always (ignore theme/dark mode)
                       color: Colors.white,
                       glow: neon?.blue ?? theme.colorScheme.primary,
                       background: Colors.transparent,
                       outlined: false,
                     ),
+                    // --- NEW: DISPLAY SAVE COUNT ---
+                    SizedBox(height: smallGap),
+                    _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
+                    
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.repeat,
                       size: iconSize,
                       onTap: _toggleRepost,
-                      // Force pure white icon color always (ignore theme/dark mode)
                       color: Colors.white,
                       glow: neon?.purple ?? theme.colorScheme.secondary,
                       background: Colors.transparent,
                       outlined: false,
                     ),
+                    // --- NEW: DISPLAY REPOST COUNT ---
+                    SizedBox(height: smallGap),
+                    _countBadge(context, _repostCount, glowColor: neon?.purple ?? theme.colorScheme.secondary, textScale: 2.0),
                   ],
                 ),
               ),
@@ -641,7 +639,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   }
 
   void _openComments() {
-    // Pause while comments are open
     final wasPlaying = _controller?.value.isPlaying == true;
     try {
       _controller?.pause();
@@ -661,7 +658,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         );
       },
     ).whenComplete(() {
-      // Resume if appropriate when sheet closes
       if (wasPlaying && widget.feedVisible && widget.isActive) {
         try {
           _controller?.play();
@@ -673,7 +669,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   Future<void> _handleShare() async {
     try {
-      // Prefer sharing a public app route if configured; fallback to signed storage URL
       final deepLink = AppLinks.videoLink(widget.video.id);
       final url = deepLink.isNotEmpty
           ? deepLink
@@ -690,9 +685,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   }
 }
 
-// Wakelock helpers to avoid noisy errors on web
 void _maybeEnableWakelock() {
-  if (kIsWeb) return; // Skip on web
+  if (kIsWeb) return;
   try {
     WakelockPlus.enable();
   } catch (e) {
@@ -701,7 +695,7 @@ void _maybeEnableWakelock() {
 }
 
 void _maybeDisableWakelock() {
-  if (kIsWeb) return; // Skip on web
+  if (kIsWeb) return;
   try {
     WakelockPlus.disable();
   } catch (e) {
@@ -709,18 +703,16 @@ void _maybeDisableWakelock() {
   }
 }
 
-// Right-rail count text: bare, always white, huge (fixed size), no backgrounds/shadows
 Widget _countBadge(BuildContext context, int count, {Color? glowColor, double textScale = 1.0}) {
-  // Bare text only: no background container, no shadow, no opacity layers
   return Text(
     '$count',
     textAlign: TextAlign.center,
     style: TextStyle(
-      color: Colors.white, // Force pure white always
-      fontSize: 80.0, // Huge, fixed per requirements
+      color: Colors.white,
+      fontSize: 80.0,
       fontWeight: FontWeight.w600,
       letterSpacing: 0.0,
-      height: 0.98, // keep line box tight without affecting layout
+      height: 0.98,
     ),
   );
 }
@@ -756,7 +748,6 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
 
   @override
   Widget build(BuildContext context) {
-    // Grow hit area proportionally with icon size to keep UX strong
     final double containerSize = widget.size + (18 * (widget.size / 36.0));
     return GestureDetector(
       onTapDown: (_) => _setPressed(true),
@@ -775,7 +766,7 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
           height: containerSize,
         decoration: const BoxDecoration(
           shape: BoxShape.circle,
-          color: Colors.transparent, // No background, no border, no shadow
+          color: Colors.transparent,
         ),
           child: Center(
             child: Icon(widget.icon, size: widget.size, color: widget.color),
@@ -786,7 +777,6 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
   }
 }
 
-// Snapchat-style comments sheet with rounded top and themed colors
 class _CommentsSheet extends StatefulWidget {
   final String videoId;
   final VoidCallback? onNewComment;
@@ -830,7 +820,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     try {
       await _svc.createComment(videoId: widget.videoId, authorAuthUserId: uid, text: text);
       _inputCtrl.clear();
-      // Refresh the list
       setState(() {
         _loader = _svc.getCommentsByVideo(widget.videoId);
         _posting = false;
