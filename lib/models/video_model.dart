@@ -9,17 +9,25 @@ class VideoModel {
   final int playbackCount;
   final int likesCount;
   final int commentsCount;
-  // --- NEW FIELDS ---
+  // --- COUNTERS ---
   final int savesCount;
   final int repostsCount;
   
   final DateTime createdAt;
   final DateTime updatedAt;
   
+  // --- RECOMMENDATION ENGINE ---
+  final List<String> tags;
+
+  // --- AUTHOR INFO ---
   String? authorUsername;
   String? authorDisplayName;
   String? authorAvatarUrl;
   bool? isLikedByCurrentUser;
+
+  // --- REPOST INFO (RPC) ---
+  final String? repostedByUsername;
+  final String? repostedByAvatarUrl;
 
   VideoModel({
     required this.id,
@@ -32,16 +40,19 @@ class VideoModel {
     this.playbackCount = 0,
     this.likesCount = 0,
     this.commentsCount = 0,
-    // --- NEW DEFAULTS ---
     this.savesCount = 0,
     this.repostsCount = 0,
-    
     required this.createdAt,
     required this.updatedAt,
+    // --- DEFAULTS ---
+    this.tags = const [],
+    
     this.authorUsername,
     this.authorDisplayName,
     this.authorAvatarUrl,
     this.isLikedByCurrentUser,
+    this.repostedByUsername,
+    this.repostedByAvatarUrl,
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
@@ -56,14 +67,21 @@ class VideoModel {
       playbackCount: json['playback_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
       commentsCount: json['comments_count'] as int? ?? 0,
-      // --- MAP NEW FIELDS ---
       savesCount: json['saves_count'] as int? ?? 0,
       repostsCount: json['reposts_count'] as int? ?? 0,
-      
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
+      
+      // --- MAP TAGS ---
+      // Safely handle nulls and convert dynamic list to List<String>
+      tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+
+      // --- MAP RPC FIELDS (For Feed) ---
+      repostedByUsername: json['reposted_by_username'] as String?,
+      repostedByAvatarUrl: json['reposted_by_avatar_url'] as String?,
     );
 
+    // 1. Handle nested profiles (Standard Query)
     if (json.containsKey('profiles')) {
       final profile = json['profiles'] as Map<String, dynamic>?;
       if (profile != null) {
@@ -72,6 +90,11 @@ class VideoModel {
         video.authorAvatarUrl = profile['avatar_url'] as String?;
       }
     }
+    
+    // 2. Handle flattened profile fields (RPC/Feed Query)
+    if (json.containsKey('author_username')) video.authorUsername = json['author_username'] as String?;
+    if (json.containsKey('author_display_name')) video.authorDisplayName = json['author_display_name'] as String?;
+    if (json.containsKey('author_avatar_url')) video.authorAvatarUrl = json['author_avatar_url'] as String?;
     
     return video;
   }
@@ -87,12 +110,12 @@ class VideoModel {
     'playback_count': playbackCount,
     'likes_count': likesCount,
     'comments_count': commentsCount,
-    // --- SERIALIZE NEW FIELDS ---
     'saves_count': savesCount,
     'reposts_count': repostsCount,
-    
     'created_at': createdAt.toIso8601String(),
     'updated_at': updatedAt.toIso8601String(),
+    // --- SERIALIZE NEW FIELDS ---
+    'tags': tags,
   };
 
   VideoModel copyWith({
@@ -106,16 +129,17 @@ class VideoModel {
     int? playbackCount,
     int? likesCount,
     int? commentsCount,
-    // --- ADD COPY PARAMETERS ---
     int? savesCount,
     int? repostsCount,
-    
     DateTime? createdAt,
     DateTime? updatedAt,
+    List<String>? tags,
     String? authorUsername,
     String? authorDisplayName,
     String? authorAvatarUrl,
     bool? isLikedByCurrentUser,
+    String? repostedByUsername,
+    String? repostedByAvatarUrl,
   }) => VideoModel(
     id: id ?? this.id,
     authorAuthUserId: authorAuthUserId ?? this.authorAuthUserId,
@@ -127,15 +151,16 @@ class VideoModel {
     playbackCount: playbackCount ?? this.playbackCount,
     likesCount: likesCount ?? this.likesCount,
     commentsCount: commentsCount ?? this.commentsCount,
-    // --- COPY NEW FIELDS ---
     savesCount: savesCount ?? this.savesCount,
     repostsCount: repostsCount ?? this.repostsCount,
-    
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    tags: tags ?? this.tags,
     authorUsername: authorUsername ?? this.authorUsername,
     authorDisplayName: authorDisplayName ?? this.authorDisplayName,
     authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
     isLikedByCurrentUser: isLikedByCurrentUser ?? this.isLikedByCurrentUser,
+    repostedByUsername: repostedByUsername ?? this.repostedByUsername,
+    repostedByAvatarUrl: repostedByAvatarUrl ?? this.repostedByAvatarUrl,
   );
 }
