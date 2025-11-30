@@ -29,6 +29,7 @@ class _UploadScreenState extends State<UploadScreen> {
   final _videoService = VideoService();
   final _authService = AuthService();
   final _profileService = ProfileService();
+  
   // Note: Compression removed per request. We upload the original file directly.
 
   XFile? _pickedVideo;
@@ -36,6 +37,9 @@ class _UploadScreenState extends State<UploadScreen> {
   bool _isUploading = false;
   double _progress = 0.0; // 0..1 visual step progress
   String? _error;
+  
+  // --- NEW: Selected Tags State ---
+  List<String> _selectedTags = [];
 
   @override
   void dispose() {
@@ -60,7 +64,6 @@ class _UploadScreenState extends State<UploadScreen> {
       _playerController?.dispose();
       final controller = VideoPlayerController.file(File(xfile.path));
       await controller.initialize();
-
       setState(() {
         _pickedVideo = xfile;
         _playerController = controller;
@@ -94,7 +97,6 @@ class _UploadScreenState extends State<UploadScreen> {
       _progress = 0.0;
       _error = null;
     });
-
     final userId = _authService.currentUserId!;
     final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
@@ -124,7 +126,6 @@ class _UploadScreenState extends State<UploadScreen> {
       }
       debugPrint('🖼️ Thumbnail generated. bytes=${thumbBytes.length}');
       _setProgress(0.15);
-
       // 2) Upload original file to Supabase Storage with progress
       final file = File(_pickedVideo!.path);
       final int durationMs = _playerController?.value.duration.inMilliseconds ?? 0;
@@ -141,7 +142,6 @@ class _UploadScreenState extends State<UploadScreen> {
         },
       );
       debugPrint('✅ Video uploaded. storagePath=$storagePath');
-
       // 3) Upload thumbnail bytes
       debugPrint('⬆️ Uploading thumbnail to storage...');
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
@@ -161,6 +161,8 @@ class _UploadScreenState extends State<UploadScreen> {
         description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
         coverImageUrl: thumbnailUrl,
         duration: (durationMs / 1000).ceil(),
+        // --- PASS TAGS TO SERVICE ---
+        tags: _selectedTags,
       );
       debugPrint('✅ Video record inserted.');
 
@@ -178,7 +180,6 @@ class _UploadScreenState extends State<UploadScreen> {
       setMainTabIndex(0);
 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload complete')));
-
       // Reset UI
       setState(() {
         _pickedVideo = null;
@@ -186,6 +187,7 @@ class _UploadScreenState extends State<UploadScreen> {
         _playerController = null;
         _titleController.clear();
         _descController.clear();
+        _selectedTags = []; // Reset tags
         _isUploading = false;
         _progress = 0.0;
       });
@@ -207,7 +209,6 @@ class _UploadScreenState extends State<UploadScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     if (kIsWeb) {
       return Scaffold(
         appBar: AppBar(title: const Text('Upload Video')),
@@ -237,12 +238,13 @@ class _UploadScreenState extends State<UploadScreen> {
       appBar: AppBar(title: const Text('Upload Video')),
       body: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Preview or Centered pick prompt
-            Expanded(
-              child: Container(
+        child: SingleChildScrollView( // Changed to SingleChildScrollView to avoid overflow
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Preview or Centered pick prompt
+              Container(
+                height: 250, // Fixed height for preview
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceVariant,
                   borderRadius: BorderRadius.circular(12),
@@ -290,61 +292,167 @@ class _UploadScreenState extends State<UploadScreen> {
                         ),
                       ),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            // Fields
-            TextField(
-              controller: _titleController,
-              textInputAction: TextInputAction.next,
-              maxLength: 80,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
+              const SizedBox(height: 16),
+        
+              // Fields
+              TextField(
+                controller: _titleController,
+                textInputAction: TextInputAction.next,
+                maxLength: 80,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _descController,
-              textInputAction: TextInputAction.done,
-              maxLines: 3,
-              maxLength: 2200,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                border: OutlineInputBorder(),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descController,
+                textInputAction: TextInputAction.done,
+                maxLines: 3,
+                maxLength: 2200,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  border: OutlineInputBorder(),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            if (_pickedVideo != null)
-              Text(
-                p.basename(_pickedVideo!.path),
-                style: theme.textTheme.labelMedium,
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 12),
+              
+              // --- NEW: TAG INPUT WIDGET ---
+              TagInputWidget(
+                maxTags: 5,
+                onChanged: (tags) {
+                  _selectedTags = tags;
+                },
               ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              const SizedBox(height: 20),
+        
+              if (_pickedVideo != null)
+                Text(
+                  p.basename(_pickedVideo!.path),
+                  style: theme.textTheme.labelMedium,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              if (_error != null) ...[
+                const SizedBox(height: 8),
+                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+              ],
+        
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _isUploading ? null : _upload,
+                icon: const Icon(Icons.cloud_upload),
+                label: const Text('Upload'),
+              ),
+              const SizedBox(height: 12),
+              if (_isUploading)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LinearProgressIndicator(value: _progress),
+                    const SizedBox(height: 6),
+                    Text('${(_progress * 100).toStringAsFixed(0)}%'),
+                  ],
+                ),
+              // Extra padding at bottom for scrolling
+              const SizedBox(height: 40),
             ],
-
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _isUploading ? null : _upload,
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('Upload'),
-            ),
-            const SizedBox(height: 12),
-            if (_isUploading)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  LinearProgressIndicator(value: _progress),
-                  const SizedBox(height: 6),
-                  Text('${(_progress * 100).toStringAsFixed(0)}%'),
-                ],
-              ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+// --- NEW CLASS: TagInputWidget ---
+class TagInputWidget extends StatefulWidget {
+  final ValueChanged<List<String>> onChanged;
+  final int maxTags;
+
+  const TagInputWidget({super.key, required this.onChanged, this.maxTags = 5});
+
+  @override
+  State<TagInputWidget> createState() => _TagInputWidgetState();
+}
+
+class _TagInputWidgetState extends State<TagInputWidget> {
+  final _controller = TextEditingController();
+  final List<String> _tags = [];
+
+  void _addTag(String value) {
+    final tag = value.trim();
+    if (tag.isNotEmpty && !_tags.contains(tag) && _tags.length < widget.maxTags) {
+      setState(() {
+        _tags.add(tag);
+      });
+      widget.onChanged(_tags);
+      _controller.clear();
+    }
+  }
+
+  void _removeTag(String tag) {
+    setState(() {
+      _tags.remove(tag);
+    });
+    widget.onChanged(_tags);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Input Field
+        TextField(
+          controller: _controller,
+          enabled: _tags.length < widget.maxTags,
+          decoration: InputDecoration(
+            labelText: _tags.length < widget.maxTags 
+                ? 'Tags (Optional)' 
+                : 'Max tags reached',
+            hintText: 'Add tag (e.g. comedy, dance)',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () => _addTag(_controller.text),
+            ),
+            border: const OutlineInputBorder(),
+          ),
+          onSubmitted: _addTag,
+        ),
+        const SizedBox(height: 8),
+        
+        // Chips Display
+        if (_tags.isNotEmpty)
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 4.0,
+            children: _tags.map((tag) {
+              return Chip(
+                label: Text('#$tag'),
+                backgroundColor: theme.colorScheme.secondaryContainer,
+                labelStyle: TextStyle(color: theme.colorScheme.onSecondaryContainer),
+                deleteIcon: const Icon(Icons.close, size: 16),
+                onDeleted: () => _removeTag(tag),
+              );
+            }).toList(),
+          ),
+        
+        // Counter
+        Padding(
+          padding: const EdgeInsets.only(top: 4.0),
+          child: Text(
+            '${_tags.length}/${widget.maxTags} tags',
+            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ),
+      ],
     );
   }
 }
