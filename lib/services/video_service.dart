@@ -34,7 +34,7 @@ class VideoService {
     }
   }
 
-  [span_0](start_span)/// THE ALGORITHM: "For You" Feed[span_0](end_span)
+  /// THE ALGORITHM: "For You" Feed
   /// Uses the SQL Logic to score videos based on User Interests + Freshness + Popularity.
   Future<List<VideoModel>> getForYouFeed({int limit = 20, int offset = 0}) async {
     try {
@@ -63,7 +63,7 @@ class VideoService {
     }
   }
 
-  [span_1](start_span)/// "Following" Feed[span_1](end_span)
+  /// "Following" Feed
   /// Shows videos created by or REPOSTED by people you follow.
   Future<List<VideoModel>> getFollowingFeed({int limit = 20, int offset = 0}) async {
     try {
@@ -122,7 +122,7 @@ class VideoService {
     }
   }
 
-  [span_2](start_span)/// UPDATED: Accepts tags for the recommendation engine[span_2](end_span)
+  /// UPDATED: Accepts tags for the recommendation engine
   Future<VideoModel> createVideo({
     required String authorAuthUserId,
     required String storagePath,
