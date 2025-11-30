@@ -20,7 +20,7 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 
-// --- THE WIRING FIX IS HERE ---
+// --- THE WIRING FIX: Call the Smart Algorithm ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
   // We now call the "Brain" algorithm instead of the raw feed
@@ -335,7 +335,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       }
       
       final prev = _isSaved;
-      // --- OPTIMISTIC UPDATE: TOGGLE SAVE COUNT ---
       setState(() {
         _isSaved = !prev;
         _saveCount += _isSaved ? 1 : -1;
@@ -345,7 +344,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       if (mounted && saved != _isSaved) {
         setState(() {
           _isSaved = saved;
-          // Revert if backend disagreed
           _saveCount += saved ? 1 : -1; 
         });
       }
@@ -376,7 +374,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       }
       
       final prev = _isReposted;
-      // --- OPTIMISTIC UPDATE: TOGGLE REPOST COUNT ---
       setState(() {
         _isReposted = !prev;
         _repostCount += _isReposted ? 1 : -1;
@@ -485,6 +482,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ),
             ),
           ),
+          
+          // --- UPDATED BOTTOM LEFT SECTION WITH REPOST BADGE ---
           Positioned(
             bottom: 80,
             left: 16,
@@ -492,6 +491,33 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // 1. THE REPOST BADGE (Conditional)
+                if (widget.video.repostedByUsername != null)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2), // Glass effect
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.repeat, color: Colors.white, size: 12),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${widget.video.repostedByUsername} reposted',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // 2. AUTHOR INFO ROW
                 Row(
                   children: [
                     GestureDetector(
@@ -550,6 +576,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ],
             ),
           ),
+          
           Positioned(
             right: 12,
             bottom: (bottomGuard - (railHeight * 0.20)).clamp(padding.bottom + 12.0, double.infinity),
@@ -606,7 +633,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       background: Colors.transparent,
                       outlined: false,
                     ),
-                    // --- DISPLAY SAVE COUNT ---
                     SizedBox(height: smallGap),
                     _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
                     
@@ -620,7 +646,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       background: Colors.transparent,
                       outlined: false,
                     ),
-                    // --- DISPLAY REPOST COUNT ---
                     SizedBox(height: smallGap),
                     _countBadge(context, _repostCount, glowColor: neon?.purple ?? theme.colorScheme.secondary, textScale: 2.0),
                   ],
@@ -780,7 +805,6 @@ class _CommentsSheet extends StatefulWidget {
   final String videoId;
   final VoidCallback? onNewComment;
   const _CommentsSheet({required this.videoId, this.onNewComment});
-
   @override
   State<_CommentsSheet> createState() => _CommentsSheetState();
 }
