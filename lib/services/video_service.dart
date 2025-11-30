@@ -5,10 +5,14 @@ import 'package:xprex/models/video_model.dart';
 
 class VideoService {
   final SupabaseClient _supabase = supabase;
-  static bool _sharesFeatureAvailable = true; // disable noisy logs after first failure
+  
+  // Feature flags to disable noisy logs if tables are missing during dev
+  static bool _sharesFeatureAvailable = true;
   static bool _savesFeatureAvailable = true;
   static bool _repostsFeatureAvailable = true;
 
+  /// Standard raw feed (Time-based). 
+  /// Useful for "Newest" tab or fallback.
   Future<List<VideoModel>> getFeedVideos({
     int limit = 20,
     int offset = 0,
@@ -19,16 +23,70 @@ class VideoService {
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
+          
+      final videos = (response as List)
+          .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
+          .toList();
+      return videos;
+    } catch (e) {
+      debugPrint('❌ Error fetching feed videos: $e');
+      rethrow;
+    }
+  }
+
+  [span_0](start_span)/// THE ALGORITHM: "For You" Feed[span_0](end_span)
+  /// Uses the SQL Logic to score videos based on User Interests + Freshness + Popularity.
+  Future<List<VideoModel>> getForYouFeed({int limit = 20, int offset = 0}) async {
+    try {
+      final uid = _supabase.auth.currentUser?.id;
+      // If no user, fallback to standard time-based feed
+      if (uid == null) return getFeedVideos(limit: limit, offset: offset);
+
+      final response = await _supabase.rpc(
+        'get_for_you_feed',
+        params: {
+          'viewer_id': uid,
+          'limit_val': limit,
+          'offset_val': offset,
+        },
+      );
+
+      final videos = (response as List)
+          .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
+          .toList();
+      
+      return videos;
+    } catch (e) {
+      debugPrint('❌ Error fetching For You feed: $e');
+      // Graceful fallback to raw feed if RPC fails
+      return getFeedVideos(limit: limit, offset: offset);
+    }
+  }
+
+  [span_1](start_span)/// "Following" Feed[span_1](end_span)
+  /// Shows videos created by or REPOSTED by people you follow.
+  Future<List<VideoModel>> getFollowingFeed({int limit = 20, int offset = 0}) async {
+    try {
+      final uid = _supabase.auth.currentUser?.id;
+      if (uid == null) return [];
+
+      final response = await _supabase.rpc(
+        'get_following_feed',
+        params: {
+          'viewer_id': uid,
+          'limit_val': limit,
+          'offset_val': offset,
+        },
+      );
 
       final videos = (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
 
-      debugPrint('✅ Fetched ${videos.length} videos');
       return videos;
     } catch (e) {
-      debugPrint('❌ Error fetching feed videos: $e');
-      rethrow;
+      debugPrint('❌ Error fetching following feed: $e');
+      return [];
     }
   }
 
@@ -39,11 +97,9 @@ class VideoService {
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', authUserId)
           .order('created_at', ascending: false);
-
       final videos = (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
-
       return videos;
     } catch (e) {
       debugPrint('❌ Error fetching user videos: $e');
@@ -58,7 +114,6 @@ class VideoService {
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('id', videoId)
           .maybeSingle();
-
       if (response == null) return null;
       return VideoModel.fromJson(response);
     } catch (e) {
@@ -67,6 +122,7 @@ class VideoService {
     }
   }
 
+  [span_2](start_span)/// UPDATED: Accepts tags for the recommendation engine[span_2](end_span)
   Future<VideoModel> createVideo({
     required String authorAuthUserId,
     required String storagePath,
@@ -74,6 +130,8 @@ class VideoService {
     String? description,
     String? coverImageUrl,
     required int duration,
+    // --- NEW: Tags for the algorithm ---
+    List<String> tags = const [],
   }) async {
     try {
       final now = DateTime.now();
@@ -84,16 +142,19 @@ class VideoService {
         'description': description,
         'cover_image_url': coverImageUrl,
         'duration': duration,
+        // --- Save Tags ---
+        'tags': tags,
+        
         'created_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
       };
-
+      
       final response = await _supabase
           .from('videos')
           .insert(data)
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .single();
-
+          
       debugPrint('✅ Video created: $title');
       return VideoModel.fromJson(response);
     } catch (e) {
@@ -107,7 +168,7 @@ class VideoService {
       await _supabase
           .from('videos')
           .update({
-            'playback_count': 1,
+            'playback_count': 1, // Note: this sets it to 1, usually you want to increment via RPC or logic
           })
           .eq('id', videoId);
     } catch (e) {
@@ -123,7 +184,6 @@ class VideoService {
           .eq('video_id', videoId)
           .eq('user_auth_id', userAuthId)
           .maybeSingle();
-
       if (existing != null) {
         await _supabase
             .from('likes')
@@ -154,7 +214,6 @@ class VideoService {
           .eq('video_id', videoId)
           .eq('user_auth_id', userAuthId)
           .maybeSingle();
-
       return response != null;
     } catch (e) {
       debugPrint('❌ Error checking like status: $e');
@@ -172,7 +231,7 @@ class VideoService {
     }
   }
 
-  // --- Shares API (best-effort, table may not exist) ---
+  // --- Shares API ---
   Future<int> getShareCount(String videoId) async {
     try {
       if (!_sharesFeatureAvailable) return 0;
@@ -184,7 +243,7 @@ class VideoService {
       return 0;
     } catch (e) {
       if (_sharesFeatureAvailable) {
-        debugPrint('⚠️ getShareCount disabled (shares table missing or RLS): $e');
+        debugPrint('⚠️ getShareCount disabled: $e');
         _sharesFeatureAvailable = false;
       }
       return 0;
@@ -201,9 +260,8 @@ class VideoService {
       });
       debugPrint('✅ Share recorded');
     } catch (e) {
-      // Do not break UX; suppress further logs
       if (_sharesFeatureAvailable) {
-        debugPrint('⚠️ recordShare disabled (non-fatal): $e');
+        debugPrint('⚠️ recordShare disabled: $e');
         _sharesFeatureAvailable = false;
       }
     }
@@ -237,7 +295,7 @@ class VideoService {
       }
     } catch (e) {
       if (_savesFeatureAvailable) {
-        debugPrint('❌ toggleSave failed (disabling saves): $e');
+        debugPrint('❌ toggleSave failed: $e');
         _savesFeatureAvailable = false;
       }
       rethrow;
@@ -291,7 +349,7 @@ class VideoService {
       }
     } catch (e) {
       if (_repostsFeatureAvailable) {
-        debugPrint('❌ toggleRepost failed (disabling reposts): $e');
+        debugPrint('❌ toggleRepost failed: $e');
         _repostsFeatureAvailable = false;
       }
       rethrow;
