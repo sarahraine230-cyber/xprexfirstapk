@@ -20,9 +20,11 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 
+// --- THE WIRING FIX IS HERE ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
-  return await videoService.getFeedVideos(limit: 20);
+  // We now call the "Brain" algorithm instead of the raw feed
+  return await videoService.getForYouFeed(limit: 20);
 });
 
 class FeedScreen extends ConsumerStatefulWidget {
@@ -203,7 +205,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _commentsCount = 0;
   int _shareCount = 0;
   
-  // --- NEW STATE VARIABLES ---
+  // --- STATE VARIABLES ---
   bool _isSaved = false;
   int _saveCount = 0;
   bool _isReposted = false;
@@ -338,7 +340,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         _isSaved = !prev;
         _saveCount += _isSaved ? 1 : -1;
       });
-      
       final saved = await _saveService.toggleSave(widget.video.id, uid);
       
       if (mounted && saved != _isSaved) {
@@ -380,7 +381,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         _isReposted = !prev;
         _repostCount += _isReposted ? 1 : -1;
       });
-      
       final reposted = await _repostService.toggleRepost(widget.video.id, uid);
       
       if (mounted && reposted != _isReposted) {
@@ -424,7 +424,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
     final h = size.height;
-    
     final double railHeight = h <= 640
         ? h * 0.44
         : (h <= 780
@@ -438,7 +437,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
     
     const double baseIcon = 32.0;
-    const double baseSmallGap = 6.0; 
+    const double baseSmallGap = 6.0;
     const double baseGroupGap = 14.0;
     
     final double scaleRatio = iconSize / baseIcon;
@@ -607,7 +606,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       background: Colors.transparent,
                       outlined: false,
                     ),
-                    // --- NEW: DISPLAY SAVE COUNT ---
+                    // --- DISPLAY SAVE COUNT ---
                     SizedBox(height: smallGap),
                     _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
                     
@@ -621,7 +620,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       background: Colors.transparent,
                       outlined: false,
                     ),
-                    // --- NEW: DISPLAY REPOST COUNT ---
+                    // --- DISPLAY REPOST COUNT ---
                     SizedBox(height: smallGap),
                     _countBadge(context, _repostCount, glowColor: neon?.purple ?? theme.colorScheme.secondary, textScale: 2.0),
                   ],
