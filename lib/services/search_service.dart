@@ -7,7 +7,6 @@ import 'package:xprex/models/profile_model.dart';
 class SearchService {
   final SupabaseClient _supabase = supabase;
 
-  // Search for Users (Username or Display Name)
   Future<List<ProfileModel>> searchUsers(String query) async {
     if (query.trim().isEmpty) return [];
     try {
@@ -26,7 +25,6 @@ class SearchService {
     }
   }
 
-  // Search for Videos (Title, Description, or Tags)
   Future<List<VideoModel>> searchVideos(String query) async {
     if (query.trim().isEmpty) return [];
     try {
@@ -35,18 +33,17 @@ class SearchService {
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .or('title.ilike.%$query%,description.ilike.%$query%')
-          .order('likes_count', ascending: false) // Show popular matches first
+          .order('likes_count', ascending: false)
           .limit(20);
 
-      // 2. Search Tags (Exact match on tags array)
-      // Note: Partial tag search is harder in pure PostgREST, so we check if the tag array contains the query
+      // 2. Search Tags (Array contains)
       final tagResponse = await _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .contains('tags', [query.toLowerCase()]) 
           .limit(20);
 
-      // 3. Merge results and remove duplicates
+      // 3. Merge results to remove duplicates
       final Map<String, VideoModel> merged = {};
       
       for (var json in textResponse) {
