@@ -5,6 +5,7 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/search_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/models/profile_model.dart';
+import 'package:xprex/screens/video_player_screen.dart'; // Import the player screen
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -161,7 +162,15 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         final video = _videoResults[index];
         return GestureDetector(
           onTap: () {
-            // TODO: Navigate to video player
+            // Navigate to the video player screen with the search results list
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => VideoPlayerScreen(
+                  videos: _videoResults, // Pass the whole list so they can scroll
+                  initialIndex: index,   // Start at the clicked video
+                ),
+              ),
+            );
           },
           child: ClipRRect(
             borderRadius: BorderRadius.circular(8),
