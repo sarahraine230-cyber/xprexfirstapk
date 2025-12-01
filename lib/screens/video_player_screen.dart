@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/screens/feed_screen.dart'; // Imports VideoFeedItem
+import 'package:xprex/screens/feed_screen.dart'; // Needed for VideoFeedItem
 
 class VideoPlayerScreen extends StatefulWidget {
   final List<VideoModel> videos;
@@ -37,12 +37,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      // Allow the video to go behind the status bar
       extendBodyBehindAppBar: true,
+      // A generic AppBar that floats on top
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        // White back arrow for visibility on dark video
         leading: const BackButton(color: Colors.white),
       ),
       body: PageView.builder(
@@ -53,14 +52,14 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           setState(() => _activeIndex = index);
         },
         itemBuilder: (context, index) {
-          // We reuse the exact same item from the Feed!
+          // Reuse the feed item logic
           return VideoFeedItem(
             video: widget.videos[index],
             isActive: index == _activeIndex,
-            feedVisible: true, // Always play since this screen is top
+            feedVisible: true, // Always play since we are on the player screen
             onLikeToggled: () {
-              // Optional: Update search list state if needed
-            }, 
+              // Optional: You could update local state here if needed
+            },
           );
         },
       ),
