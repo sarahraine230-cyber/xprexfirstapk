@@ -5,6 +5,7 @@ import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/config/supabase_config.dart';
+import 'package:xprex/screens/video_player_screen.dart'; // Import Player
 
 class UserProfileScreen extends StatefulWidget {
   final String userId; // Supabase auth user id
@@ -17,7 +18,6 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   final _profileSvc = ProfileService();
   final _videoSvc = VideoService();
-
   UserProfile? _profile;
   List<_ProfileVideoItem>? _items;
   bool _loading = true;
@@ -173,49 +173,70 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             itemBuilder: (context, index) {
                                final item = _items![index];
                                final v = item.video;
-                              return ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    if (v.coverImageUrl != null)
-                                      Image.network(v.coverImageUrl!, fit: BoxFit.cover)
-                                    else
-                                      Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.slow_motion_video, color: Colors.white70)),
-                                     if (item.isRepost)
-                                       Positioned(
-                                         top: 6,
-                                         left: 6,
-                                         child: Container(
-                                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                           decoration: BoxDecoration(
-                                             color: Colors.black.withValues(alpha: 0.5),
-                                             borderRadius: BorderRadius.circular(6),
-                                           ),
-                                           child: const Row(
-                                             mainAxisSize: MainAxisSize.min,
-                                             children: [
-                                               Icon(Icons.repeat, color: Colors.white, size: 12),
-                                               SizedBox(width: 4),
-                                               Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10)),
-                                             ],
-                                           ),
-                                         ),
-                                       ),
-                                    Align(
-                                      alignment: Alignment.bottomCenter,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                                        color: Colors.black.withValues(alpha: 0.4),
-                                        child: Text(
-                                          v.title,
-                                          overflow: TextOverflow.ellipsis,
-                                          maxLines: 1,
-                                          style: const TextStyle(color: Colors.white, fontSize: 12),
-                                        ),
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  // --- NAVIGATE TO PLAYER ---
+                                  // We must extract the pure List<VideoModel> from our wrapper items
+                                  final allVideos = _items!.map((e) => e.video).toList();
+                                  
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => VideoPlayerScreen(
+                                        videos: allVideos,
+                                        initialIndex: index,
                                       ),
                                     ),
-                                  ],
+                                  );
+                                },
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      if (v.coverImageUrl != null)
+                                        Image.network(v.coverImageUrl!, fit: BoxFit.cover)
+                                      else
+                                        Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.slow_motion_video, color: Colors.white70)),
+                                       
+                                       // Repost Badge
+                                       if (item.isRepost)
+                                         Positioned(
+                                           top: 6,
+                                           left: 6,
+                                           child: Container(
+                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                             decoration: BoxDecoration(
+                                               color: Colors.black.withValues(alpha: 0.5),
+                                               borderRadius: BorderRadius.circular(6),
+                                             ),
+                                             child: const Row(
+                                               mainAxisSize: MainAxisSize.min,
+                                               children: [
+                                                 Icon(Icons.repeat, color: Colors.white, size: 12),
+                                                 SizedBox(width: 4),
+                                                 Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10)),
+                                               ],
+                                             ),
+                                           ),
+                                         ),
+                                         
+                                      Align(
+                                        alignment: Alignment.bottomCenter,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
+                                          color: Colors.black.withValues(alpha: 0.4),
+                                          width: double.infinity,
+                                          child: Text(
+                                            v.title,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               );
                             },
@@ -223,7 +244,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       ],
                     ),
                   ),
-                ),
+              ),
     );
   }
 
