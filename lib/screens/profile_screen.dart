@@ -7,6 +7,7 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/models/video_model.dart';
+import 'package:xprex/screens/video_player_screen.dart'; // Import Player
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -180,7 +181,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// Reusable Grid Component to keep code clean
+// Reusable Grid Component with Tap-to-Play
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
@@ -224,8 +225,17 @@ class _VideoGrid extends StatelessWidget {
           itemBuilder: (context, index) {
             final v = videos[index];
             return GestureDetector(
+              behavior: HitTestBehavior.opaque, // Catch all taps
               onTap: () {
-                // Navigate to video player or feed starting at this index
+                // --- NAVIGATE TO PLAYER ---
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => VideoPlayerScreen(
+                      videos: videos, // Pass the list from this tab
+                      initialIndex: index,
+                    ),
+                  ),
+                );
               },
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -237,7 +247,6 @@ class _VideoGrid extends StatelessWidget {
                     else
                       Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.play_circle_outline, color: Colors.white70)),
                     
-                    // Optional: View count overlay
                     Align(
                       alignment: Alignment.bottomLeft,
                       child: Container(
@@ -269,7 +278,6 @@ class _VideoGrid extends StatelessWidget {
   }
 }
 
-// Required helper class to make TabBar work inside NestedScrollView header
 class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   final TabBar _tabBar;
   _SliverAppBarDelegate(this._tabBar);
@@ -283,7 +291,7 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
     final theme = Theme.of(context);
     return Container(
-      color: theme.colorScheme.surface, // Background color for the tabs
+      color: theme.colorScheme.surface, 
       child: _tabBar,
     );
   }
