@@ -5,7 +5,7 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/search_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/models/profile_model.dart';
-import 'package:xprex/screens/video_player_screen.dart'; // Import the player screen
+import 'package:xprex/screens/video_player_screen.dart'; // Ensure this import works now
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -56,7 +56,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       _currentQuery = query;
     });
 
-    // Run both searches in parallel
     final results = await Future.wait([
       _searchService.searchVideos(query),
       _searchService.searchUsers(query),
@@ -92,7 +91,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
               border: InputBorder.none,
               prefixIcon: Icon(Icons.search, color: theme.colorScheme.onSurfaceVariant),
               hintStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              contentPadding: const EdgeInsets.only(top: 2), // vertically center text
+              contentPadding: const EdgeInsets.only(top: 2),
             ),
             style: theme.textTheme.bodyMedium,
           ),
@@ -113,12 +112,10 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
           : TabBarView(
               controller: _tabController,
               children: [
-                // 1. Video Results Grid
                 _videoResults.isEmpty && _currentQuery.isNotEmpty
                     ? _buildEmptyState(theme, 'No videos found')
                     : _buildVideoGrid(theme),
                 
-                // 2. User Results List
                 _userResults.isEmpty && _currentQuery.isNotEmpty
                     ? _buildEmptyState(theme, 'No people found')
                     : _buildUserList(theme),
@@ -161,13 +158,14 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
       itemBuilder: (context, index) {
         final video = _videoResults[index];
         return GestureDetector(
+          behavior: HitTestBehavior.opaque, // Ensure touches are caught!
           onTap: () {
-            // Navigate to the video player screen with the search results list
+            debugPrint('🖱️ Tapped video: ${video.title}'); // Debug log
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => VideoPlayerScreen(
-                  videos: _videoResults, // Pass the whole list so they can scroll
-                  initialIndex: index,   // Start at the clicked video
+                  videos: _videoResults,
+                  initialIndex: index,
                 ),
               ),
             );
@@ -182,7 +180,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                 else
                   Container(color: Colors.grey[900]),
                 
-                // Gradient overlay for text readability
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Container(
@@ -196,7 +193,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
                     ),
                   ),
                 ),
-                // Title
                 Align(
                   alignment: Alignment.bottomLeft,
                   child: Padding(
