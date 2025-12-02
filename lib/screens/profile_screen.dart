@@ -11,7 +11,8 @@ import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/video_player_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
-import 'package:xprex/screens/follow_list_screen.dart'; // Import the new screen
+import 'package:xprex/screens/follow_list_screen.dart';
+import 'package:xprex/screens/creator_hub_screen.dart'; // Import Hub
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -39,6 +40,7 @@ class ProfileScreen extends ConsumerWidget {
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
+                  // 1. Pinterest-Style AppBar (Minimal)
                   SliverAppBar(
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
@@ -69,11 +71,13 @@ class ProfileScreen extends ConsumerWidget {
                     ],
                   ),
 
+                  // 2. The Profile Content
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Column(
                         children: [
+                          // Avatar
                           CircleAvatar(
                             radius: 50,
                             backgroundColor: theme.colorScheme.surfaceContainerHighest,
@@ -82,6 +86,7 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 16),
                           
+                          // Name & Handle
                           Text(
                             profile.displayName,
                             style: theme.textTheme.headlineMedium?.copyWith(
@@ -99,11 +104,11 @@ class ProfileScreen extends ConsumerWidget {
                           
                           const SizedBox(height: 16),
 
-                          // --- STATS ROW (CLICKABLE) ---
+                          // STATS ROW (CLICKABLE)
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Followers (Clickable)
+                              // Followers
                               InkWell(
                                 onTap: () {
                                   Navigator.of(context).push(
@@ -125,7 +130,7 @@ class ProfileScreen extends ConsumerWidget {
                               const Text('·'),
                               const SizedBox(width: 8),
                               
-                              // Following (Clickable)
+                              // Following
                               FutureBuilder<int>(
                                 future: Supabase.instance.client
                                     .from('follows')
@@ -156,6 +161,7 @@ class ProfileScreen extends ConsumerWidget {
 
                           const SizedBox(height: 12),
 
+                          // BIO
                           if (profile.bio != null)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -170,15 +176,20 @@ class ProfileScreen extends ConsumerWidget {
 
                           const SizedBox(height: 24),
 
+                          // ACTION ROW: Creator Hub | Share | Edit
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
+                              // HERO BUTTON: Creator Hub
                               FilledButton(
                                 onPressed: () {
-                                  context.push('/monetization');
+                                  // --- UPDATED: Go to Creator Hub Screen ---
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (context) => const CreatorHubScreen()),
+                                  );
                                 },
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE60023),
+                                  backgroundColor: const Color(0xFFE60023), // Pinterest Red
                                   foregroundColor: Colors.white,
                                   elevation: 0,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -193,6 +204,7 @@ class ProfileScreen extends ConsumerWidget {
                               ),
                               const SizedBox(width: 12),
                               
+                              // Share Button
                               InkWell(
                                 onTap: () {
                                   Share.share('Check out my profile on XpreX: @${profile.username}');
@@ -210,6 +222,7 @@ class ProfileScreen extends ConsumerWidget {
                               
                               const SizedBox(width: 8),
 
+                              // Edit Button
                               InkWell(
                                 onTap: () {
                                   Navigator.of(context).push(
@@ -236,6 +249,7 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
 
+                  // 3. Tab Bar
                   SliverPersistentHeader(
                     delegate: _SliverAppBarDelegate(
                       TabBar(
@@ -256,6 +270,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                 ];
               },
+              // The Tab Views
               body: TabBarView(
                 children: [
                   _VideoGrid(loader: videoService.getUserVideos(profile.authUserId)),
@@ -283,6 +298,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
+// Reusable Grid with Tap-to-Play
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
