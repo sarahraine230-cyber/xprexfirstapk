@@ -20,9 +20,9 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
   bool _isLoading = true;
   
   // Stats
-  int _followersCount = 0; // Passed from profile usually, but we fetch fresh
+  int _followersCount = 0;
   int _views30d = 0;
-  int _totalAudience30d = 0; // Unique approximations
+  int _totalAudience30d = 0;
   int _engagedAudience30d = 0;
   List<VideoModel> _recentVideos = [];
 
@@ -39,19 +39,14 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
     if (userId == null) return;
 
     try {
-      // 1. Fetch Profile for Follower Count
       final profile = await profileService.getProfileByAuthId(userId);
-      
-      // 2. Fetch User Videos to calc 30-day stats
       final allVideos = await _videoService.getUserVideos(userId);
       
-      // 3. Logic: Filter for last 30 days
       final now = DateTime.now();
       final cutoff = now.subtract(const Duration(days: 30));
       
       final recentList = allVideos.where((v) => v.createdAt.isAfter(cutoff)).toList();
       
-      // 4. Calculate Stats
       int v30 = 0;
       int engaged = 0;
       
@@ -64,11 +59,9 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
         setState(() {
           _followersCount = profile?.followersCount ?? 0;
           _views30d = v30;
-          // For MVP, Total Audience is roughly Total Views + Unique Interactions
-          // In a real app, this requires complex SQL distinct counts.
           _totalAudience30d = v30 + (engaged ~/ 2); 
           _engagedAudience30d = engaged;
-          _recentVideos = recentList.take(6).toList(); // Top 6 recent
+          _recentVideos = recentList.take(6).toList();
           _isLoading = false;
         });
       }
@@ -90,7 +83,8 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F8F8), // Light grey background like Pinterest
+      // Uses the global theme background (White in Light, Dark Grey in Dark)
+      backgroundColor: theme.scaffoldBackgroundColor, 
       appBar: AppBar(
         title: const Text('Creator Hub', style: TextStyle(fontWeight: FontWeight.bold)),
         centerTitle: true,
@@ -108,16 +102,15 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                 _HubTopButton(
                   icon: Icons.add, 
                   label: 'Creation', 
+                  theme: theme,
                   onTap: () {
-                    // Navigate to Upload Tab (Index 2 in MainShell)
-                    // We can't easily switch tabs from here without a global key or pop
-                    // So we just push the screen directly for now
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const UploadScreen()));
                   }
                 ),
                 _HubTopButton(
                   icon: Icons.notifications_active_outlined, 
-                  label: 'Pulse', // "Engagements" -> "Pulse"
+                  label: 'Pulse', 
+                  theme: theme,
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Pulse (Notifications) coming soon!'))
@@ -127,6 +120,7 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                 _HubTopButton(
                   icon: Icons.monetization_on_outlined, 
                   label: 'Monetization', 
+                  theme: theme,
                   onTap: () {
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MonetizationScreen()));
                   }
@@ -134,21 +128,18 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
               ],
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
 
             // --- PERFORMANCE CARD ---
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                // Adaptive surface color (Off-white in Light, Dark Grey in Dark)
+                color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
+                border: Border.all(
+                  color: theme.colorScheme.outline.withValues(alpha: 0.1),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -158,21 +149,24 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                       CircleAvatar(
                         radius: 12,
                         backgroundColor: theme.colorScheme.primary,
-                        child: const Icon(Icons.bar_chart, size: 14, color: Colors.white),
+                        child: Icon(Icons.bar_chart, size: 14, color: theme.colorScheme.onPrimary),
                       ),
                       const SizedBox(width: 8),
-                      Text('Performance', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        'Performance', 
+                        style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)
+                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
                   
-                  _StatRow(label: 'Followers (All Time)', value: '$_followersCount'),
+                  _StatRow(label: 'Followers (All Time)', value: '$_followersCount', theme: theme),
                   const SizedBox(height: 16),
-                  _StatRow(label: 'Views (30 days)', value: _formatNum(_views30d), trend: true),
+                  _StatRow(label: 'Views (30 days)', value: _formatNum(_views30d), trend: true, theme: theme),
                   const SizedBox(height: 16),
-                  _StatRow(label: 'Total Audience', value: _formatNum(_totalAudience30d)),
+                  _StatRow(label: 'Total Audience', value: _formatNum(_totalAudience30d), theme: theme),
                   const SizedBox(height: 16),
-                  _StatRow(label: 'Engaged Audience', value: _formatNum(_engagedAudience30d)),
+                  _StatRow(label: 'Engaged Audience', value: _formatNum(_engagedAudience30d), theme: theme),
 
                   const SizedBox(height: 24),
                   Center(
@@ -187,20 +181,36 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
               ),
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
 
             // --- RECENT VIDEOS ---
             Align(
               alignment: Alignment.centerLeft,
-              child: Text('Recent Videos (30 Days)', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              child: Text(
+                'Recent Videos (30 Days)', 
+                style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             if (_recentVideos.isEmpty)
               Container(
                 padding: const EdgeInsets.all(32),
-                alignment: Alignment.center, // --- FIXED: Was Center(...) ---
-                child: Text('No videos in the last 30 days', style: TextStyle(color: Colors.grey)),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  children: [
+                    Icon(Icons.videocam_off_outlined, color: theme.colorScheme.onSurfaceVariant, size: 40),
+                    const SizedBox(height: 8),
+                    Text(
+                      'No videos in the last 30 days', 
+                      style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+                    ),
+                  ],
+                ),
               )
             else
               ListView.separated(
@@ -212,8 +222,9 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   final v = _recentVideos[index];
                   return Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: theme.colorScheme.surface, // Clean card background
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
                     ),
                     child: ListTile(
                       contentPadding: const EdgeInsets.all(8),
@@ -221,15 +232,23 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                         borderRadius: BorderRadius.circular(8),
                         child: v.coverImageUrl != null 
                           ? Image.network(v.coverImageUrl!, width: 50, height: 50, fit: BoxFit.cover)
-                          : Container(width: 50, height: 50, color: Colors.grey),
+                          : Container(width: 50, height: 50, color: theme.colorScheme.surfaceContainerHighest),
                       ),
-                      title: Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text('${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views'),
+                      title: Text(
+                        v.title, 
+                        maxLines: 1, 
+                        overflow: TextOverflow.ellipsis, 
+                        style: const TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      subtitle: Text(
+                        '${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views',
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
                       trailing: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.favorite, size: 16, color: theme.colorScheme.primary),
-                          Text('${v.likesCount}', style: const TextStyle(fontSize: 12)),
+                          Text('${v.likesCount}', style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface)),
                         ],
                       ),
                     ),
@@ -255,8 +274,14 @@ class _HubTopButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final ThemeData theme; // Pass theme down
 
-  const _HubTopButton({required this.icon, required this.label, required this.onTap});
+  const _HubTopButton({
+    required this.icon, 
+    required this.label, 
+    required this.onTap, 
+    required this.theme
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -268,20 +293,20 @@ class _HubTopButton extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: Colors.white,
+              // Adaptive Color: Uses Surface Container (Greyish in Light, Darker Grey in Dark)
+              color: theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                )
-              ],
             ),
-            child: Icon(icon, size: 28, color: Colors.black87),
+            child: Icon(icon, size: 28, color: theme.colorScheme.onSurface),
           ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(
+            label, 
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface, // Ensures text is visible in dark mode
+            )
+          ),
         ],
       ),
     );
@@ -292,8 +317,14 @@ class _StatRow extends StatelessWidget {
   final String label;
   final String value;
   final bool trend;
+  final ThemeData theme;
 
-  const _StatRow({required this.label, required this.value, this.trend = false});
+  const _StatRow({
+    required this.label, 
+    required this.value, 
+    this.trend = false, 
+    required this.theme
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -303,16 +334,28 @@ class _StatRow extends StatelessWidget {
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+            Text(
+              label, 
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant
+              )
+            ),
           ],
         ),
         Row(
           children: [
-            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              value, 
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: theme.colorScheme.onSurface
+              )
+            ),
             if (trend) ...[
               const SizedBox(width: 4),
-              // Fake trend for MVP demo
-              // const Icon(Icons.arrow_upward, size: 14, color: Colors.green),
+              // Using Success/Green color usually, but sticking to theme primary/secondary to be safe
+              // or hardcoded green if you want a specific "Up" indicator
+              const Icon(Icons.arrow_upward, size: 14, color: Colors.green),
             ]
           ],
         ),
