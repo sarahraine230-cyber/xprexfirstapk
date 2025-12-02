@@ -10,7 +10,8 @@ import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/video_player_screen.dart';
-import 'package:xprex/screens/profile_setup_screen.dart'; // Import for Edit link
+import 'package:xprex/screens/profile_setup_screen.dart';
+import 'package:xprex/screens/follow_list_screen.dart'; // Import the new screen
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -38,7 +39,6 @@ class ProfileScreen extends ConsumerWidget {
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
-                  // 1. Pinterest-Style AppBar (Minimal)
                   SliverAppBar(
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
@@ -69,13 +69,11 @@ class ProfileScreen extends ConsumerWidget {
                     ],
                   ),
 
-                  // 2. The Profile Content
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Column(
                         children: [
-                          // Avatar
                           CircleAvatar(
                             radius: 50,
                             backgroundColor: theme.colorScheme.surfaceContainerHighest,
@@ -84,7 +82,6 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 16),
                           
-                          // Name & Handle
                           Text(
                             profile.displayName,
                             style: theme.textTheme.headlineMedium?.copyWith(
@@ -102,19 +99,33 @@ class ProfileScreen extends ConsumerWidget {
                           
                           const SizedBox(height: 16),
 
-                          // STATS ROW: Followers | Following (No Views)
+                          // --- STATS ROW (CLICKABLE) ---
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(
-                                '${profile.followersCount} followers',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              // Followers (Clickable)
+                              InkWell(
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (ctx) => FollowListScreen(
+                                        userId: profile.authUserId, 
+                                        type: 'followers'
+                                      ),
+                                    ),
+                                  );
+                                },
+                                child: Text(
+                                  '${profile.followersCount} followers',
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
                               ),
+                              
                               const SizedBox(width: 8),
                               const Text('·'),
                               const SizedBox(width: 8),
                               
-                              // We need to fetch "Following" count dynamically since it's not in the UserProfile model yet
+                              // Following (Clickable)
                               FutureBuilder<int>(
                                 future: Supabase.instance.client
                                     .from('follows')
@@ -122,9 +133,21 @@ class ProfileScreen extends ConsumerWidget {
                                     .eq('follower_auth_user_id', profile.authUserId),
                                 builder: (context, snap) {
                                   final count = snap.data ?? 0;
-                                  return Text(
-                                    '$count following',
-                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  return InkWell(
+                                    onTap: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (ctx) => FollowListScreen(
+                                            userId: profile.authUserId, 
+                                            type: 'following'
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: Text(
+                                      '$count following',
+                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                                    ),
                                   );
                                 },
                               ),
@@ -133,7 +156,6 @@ class ProfileScreen extends ConsumerWidget {
 
                           const SizedBox(height: 12),
 
-                          // BIO (Now below stats)
                           if (profile.bio != null)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -148,17 +170,15 @@ class ProfileScreen extends ConsumerWidget {
 
                           const SizedBox(height: 24),
 
-                          // ACTION ROW: Creator Hub | Share | Edit
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // Hero Button
                               FilledButton(
                                 onPressed: () {
                                   context.push('/monetization');
                                 },
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE60023), // Pinterest Red
+                                  backgroundColor: const Color(0xFFE60023),
                                   foregroundColor: Colors.white,
                                   elevation: 0,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -173,7 +193,6 @@ class ProfileScreen extends ConsumerWidget {
                               ),
                               const SizedBox(width: 12),
                               
-                              // Share Button (Circle)
                               InkWell(
                                 onTap: () {
                                   Share.share('Check out my profile on XpreX: @${profile.username}');
@@ -191,10 +210,8 @@ class ProfileScreen extends ConsumerWidget {
                               
                               const SizedBox(width: 8),
 
-                              // EDIT Button (Pen Icon - Links to Setup Screen)
                               InkWell(
                                 onTap: () {
-                                  // Navigate to ProfileSetupScreen in "Edit Mode" by passing the profile
                                   Navigator.of(context).push(
                                     MaterialPageRoute(
                                       builder: (context) => ProfileSetupScreen(originalProfile: profile),
@@ -219,7 +236,6 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
 
-                  // 3. Tab Bar
                   SliverPersistentHeader(
                     delegate: _SliverAppBarDelegate(
                       TabBar(
@@ -240,7 +256,6 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                 ];
               },
-              // The Tab Views
               body: TabBarView(
                 children: [
                   _VideoGrid(loader: videoService.getUserVideos(profile.authUserId)),
@@ -268,7 +283,6 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// Reusable Grid with Tap-to-Play
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
