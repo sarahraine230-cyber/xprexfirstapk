@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:xprex/services/video_service.dart';
@@ -9,6 +10,7 @@ import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/video_player_screen.dart';
+import 'package:xprex/screens/profile_setup_screen.dart'; // Import for Edit link
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -41,10 +43,8 @@ class ProfileScreen extends ConsumerWidget {
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
                     pinned: true,
-                    // Small "Graph" icon to represent stats/business nature
                     leading: Icon(Icons.bar_chart_rounded, color: theme.colorScheme.onSurface),
                     actions: [
-                      // Settings / Logout
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
                         color: theme.colorScheme.onSurface,
@@ -100,9 +100,40 @@ class ProfileScreen extends ConsumerWidget {
                             ),
                           ),
                           
+                          const SizedBox(height: 16),
+
+                          // STATS ROW: Followers | Following (No Views)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                '${profile.followersCount} followers',
+                                style: const TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(width: 8),
+                              const Text('·'),
+                              const SizedBox(width: 8),
+                              
+                              // We need to fetch "Following" count dynamically since it's not in the UserProfile model yet
+                              FutureBuilder<int>(
+                                future: Supabase.instance.client
+                                    .from('follows')
+                                    .count(CountOption.exact)
+                                    .eq('follower_auth_user_id', profile.authUserId),
+                                builder: (context, snap) {
+                                  final count = snap.data ?? 0;
+                                  return Text(
+                                    '$count following',
+                                    style: const TextStyle(fontWeight: FontWeight.w600),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+
                           const SizedBox(height: 12),
 
-                          // Bio (Clean)
+                          // BIO (Now below stats)
                           if (profile.bio != null)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -115,42 +146,19 @@ class ProfileScreen extends ConsumerWidget {
                               ),
                             ),
 
-                          const SizedBox(height: 16),
-
-                          // Pinterest-Style Inline Stats
-                          // "182 followers · 63 following · 714k views"
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                '${profile.followersCount} followers',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text('·'),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${profile.totalVideoViews} views',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-
                           const SizedBox(height: 24),
 
-                          // PRIMARY ACTION: The "Creator Hub" (Monetization)
-                          // This replaces the boring "Edit Profile" bar.
+                          // ACTION ROW: Creator Hub | Share | Edit
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
+                              // Hero Button
                               FilledButton(
                                 onPressed: () {
-                                  // TODO: Navigate to Monetization Eligibility Page
-                                  // This is the Phase 3 Goal from your PDF
                                   context.push('/monetization');
                                 },
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE60023), // Pinterest/YouTube Red (Action color)
+                                  backgroundColor: const Color(0xFFE60023), // Pinterest Red
                                   foregroundColor: Colors.white,
                                   elevation: 0,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -183,10 +191,15 @@ class ProfileScreen extends ConsumerWidget {
                               
                               const SizedBox(width: 8),
 
-                              // Edit Button (Circle - deemphasized)
+                              // EDIT Button (Pen Icon - Links to Setup Screen)
                               InkWell(
                                 onTap: () {
-                                  // Open simple edit dialog or screen
+                                  // Navigate to ProfileSetupScreen in "Edit Mode" by passing the profile
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (context) => ProfileSetupScreen(originalProfile: profile),
+                                    ),
+                                  );
                                 },
                                 borderRadius: BorderRadius.circular(30),
                                 child: Container(
@@ -206,13 +219,13 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
 
-                  // 3. Clean Tab Bar
+                  // 3. Tab Bar
                   SliverPersistentHeader(
                     delegate: _SliverAppBarDelegate(
                       TabBar(
                         labelColor: theme.colorScheme.onSurface,
                         unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                        indicatorColor: theme.colorScheme.onSurface, // Minimalist black indicator
+                        indicatorColor: theme.colorScheme.onSurface,
                         indicatorSize: TabBarIndicatorSize.label,
                         indicatorWeight: 3,
                         labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -255,7 +268,7 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// Reusable Grid with Tap-to-Play logic (Preserved from previous step)
+// Reusable Grid with Tap-to-Play
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
@@ -320,7 +333,7 @@ class _VideoGrid extends StatelessWidget {
                     else
                       Container(color: theme.colorScheme.surfaceContainerHighest),
                     
-                    if (v.repostedByUsername != null) // Small indicator for reposts in grid
+                    if (v.repostedByUsername != null)
                       Positioned(
                         top: 4, left: 4,
                         child: Container(
