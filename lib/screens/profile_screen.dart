@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart'; // Added for share functionality
+import 'package:share_plus/share_plus.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:xprex/services/video_service.dart';
@@ -24,7 +24,7 @@ class ProfileScreen extends ConsumerWidget {
     final repostService = RepostService();
 
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface, // Clean background like Pinterest
+      backgroundColor: theme.colorScheme.surface,
       body: profileAsync.when(
         data: (profile) {
           if (profile == null) {
@@ -36,20 +36,19 @@ class ProfileScreen extends ConsumerWidget {
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
-                  // 1. Minimal AppBar (Pinterest Style)
+                  // 1. Pinterest-Style AppBar (Minimal)
                   SliverAppBar(
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
                     pinned: true,
-                    centerTitle: true,
-                    // Replaced Title with a small icon or empty space for cleanliness
-                    title: Icon(Icons.bar_chart_rounded, color: theme.colorScheme.onSurface), 
+                    // Small "Graph" icon to represent stats/business nature
+                    leading: Icon(Icons.bar_chart_rounded, color: theme.colorScheme.onSurface),
                     actions: [
+                      // Settings / Logout
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
                         color: theme.colorScheme.onSurface,
                         onPressed: () async {
-                          // Logout Logic moved to Settings icon
                           final confirm = await showDialog<bool>(
                             context: context,
                             builder: (context) => AlertDialog(
@@ -70,13 +69,13 @@ class ProfileScreen extends ConsumerWidget {
                     ],
                   ),
 
-                  // 2. The Pinterest-Style Header
+                  // 2. The Profile Content
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0),
                       child: Column(
                         children: [
-                          // Avatar (Clean, no heavy borders)
+                          // Avatar
                           CircleAvatar(
                             radius: 50,
                             backgroundColor: theme.colorScheme.surfaceContainerHighest,
@@ -85,17 +84,15 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                           const SizedBox(height: 16),
                           
-                          // Display Name (Big & Bold)
+                          // Name & Handle
                           Text(
                             profile.displayName,
                             style: theme.textTheme.headlineMedium?.copyWith(
                               fontWeight: FontWeight.w700,
-                              color: theme.colorScheme.onSurface,
+                              fontSize: 22,
                             ),
                             textAlign: TextAlign.center,
                           ),
-                          
-                          // Username (Subtle)
                           Text(
                             '@${profile.username}',
                             style: theme.textTheme.bodyMedium?.copyWith(
@@ -105,7 +102,7 @@ class ProfileScreen extends ConsumerWidget {
                           
                           const SizedBox(height: 12),
 
-                          // Bio (Centralized)
+                          // Bio (Clean)
                           if (profile.bio != null)
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -118,9 +115,9 @@ class ProfileScreen extends ConsumerWidget {
                               ),
                             ),
 
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 16),
 
-                          // PINTEREST STYLE STATS (Inline Row)
+                          // Pinterest-Style Inline Stats
                           // "182 followers · 63 following · 714k views"
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -141,47 +138,64 @@ class ProfileScreen extends ConsumerWidget {
 
                           const SizedBox(height: 24),
 
-                          // PINTEREST ACTION ROW
-                          // [ Big Red "Edit/Hub" Button ]  [Share Icon]
+                          // PRIMARY ACTION: The "Creator Hub" (Monetization)
+                          // This replaces the boring "Edit Profile" bar.
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // The "Hero" Button
                               FilledButton(
                                 onPressed: () {
-                                  // This could open "Edit Profile" or "Monetization Hub"
+                                  // TODO: Navigate to Monetization Eligibility Page
+                                  // This is the Phase 3 Goal from your PDF
                                   context.push('/monetization');
                                 },
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: theme.colorScheme.primary, // Use primary color (Red/Purple)
-                                  foregroundColor: theme.colorScheme.onPrimary,
+                                  backgroundColor: const Color(0xFFE60023), // Pinterest/YouTube Red (Action color)
+                                  foregroundColor: Colors.white,
                                   elevation: 0,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30), // Pill shape
+                                    borderRadius: BorderRadius.circular(24),
                                   ),
                                 ),
                                 child: const Text(
-                                  'Creator Hub', // Pinterest calls it this, or "Edit Profile"
+                                  'Creator Hub', 
                                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                                 ),
                               ),
-                              
                               const SizedBox(width: 12),
                               
-                              // Share Button (Circular)
+                              // Share Button (Circle)
                               InkWell(
                                 onTap: () {
                                   Share.share('Check out my profile on XpreX: @${profile.username}');
                                 },
                                 borderRadius: BorderRadius.circular(30),
                                 child: Container(
-                                  padding: const EdgeInsets.all(12),
+                                  padding: const EdgeInsets.all(10),
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(color: theme.colorScheme.outlineVariant),
                                   ),
                                   child: Icon(Icons.share, size: 20, color: theme.colorScheme.onSurface),
+                                ),
+                              ),
+                              
+                              const SizedBox(width: 8),
+
+                              // Edit Button (Circle - deemphasized)
+                              InkWell(
+                                onTap: () {
+                                  // Open simple edit dialog or screen
+                                },
+                                borderRadius: BorderRadius.circular(30),
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: theme.colorScheme.outlineVariant),
+                                  ),
+                                  child: Icon(Icons.edit, size: 20, color: theme.colorScheme.onSurface),
                                 ),
                               ),
                             ],
@@ -192,13 +206,13 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
 
-                  // 3. Tab Bar (Clean, Simple Underline)
+                  // 3. Clean Tab Bar
                   SliverPersistentHeader(
                     delegate: _SliverAppBarDelegate(
                       TabBar(
                         labelColor: theme.colorScheme.onSurface,
                         unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                        indicatorColor: theme.colorScheme.primary,
+                        indicatorColor: theme.colorScheme.onSurface, // Minimalist black indicator
                         indicatorSize: TabBarIndicatorSize.label,
                         indicatorWeight: 3,
                         labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
@@ -229,9 +243,19 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildStat(String label, String value, ThemeData theme) {
+    return Column(
+      children: [
+        Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 4),
+        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      ],
+    );
+  }
 }
 
-// Reusable Grid Component (Preserves Tap-to-Play)
+// Reusable Grid with Tap-to-Play logic (Preserved from previous step)
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
@@ -264,7 +288,7 @@ class _VideoGrid extends StatelessWidget {
         }
 
         return GridView.builder(
-          padding: const EdgeInsets.all(2), // Tighter grid
+          padding: const EdgeInsets.all(2),
           itemCount: videos.length,
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 3,
@@ -277,7 +301,6 @@ class _VideoGrid extends StatelessWidget {
             return GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: () {
-                // Navigate to Player
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => VideoPlayerScreen(
@@ -288,7 +311,7 @@ class _VideoGrid extends StatelessWidget {
                 );
               },
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(4), // Slightly sharper corners
+                borderRadius: BorderRadius.circular(4),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -297,33 +320,35 @@ class _VideoGrid extends StatelessWidget {
                     else
                       Container(color: theme.colorScheme.surfaceContainerHighest),
                     
-                    // Subtle gradient for text visibility
+                    if (v.repostedByUsername != null) // Small indicator for reposts in grid
+                      Positioned(
+                        top: 4, left: 4,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                          child: const Icon(Icons.repeat, color: Colors.white, size: 10),
+                        ),
+                      ),
+
                     Align(
-                      alignment: Alignment.bottomCenter,
+                      alignment: Alignment.bottomLeft,
                       child: Container(
-                        height: 40,
-                        decoration: BoxDecoration(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(4.0),
+                        decoration: const BoxDecoration(
                            gradient: LinearGradient(
                              begin: Alignment.bottomCenter,
                              end: Alignment.topCenter,
-                             colors: [Colors.black.withOpacity(0.6), Colors.transparent],
+                             colors: [Colors.black54, Colors.transparent],
                            )
                         ),
-                      ),
-                    ),
-                    
-                    // View count / Title (Mini overlay)
-                    Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.all(4.0),
                         child: Row(
                           children: [
                             const Icon(Icons.play_arrow, color: Colors.white, size: 12),
                             const SizedBox(width: 2),
                             Expanded(
                               child: Text(
-                                '${v.playbackCount}', // Or v.title if preferred
+                                '${v.playbackCount}',
                                 style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -356,7 +381,7 @@ class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
     final theme = Theme.of(context);
     return Container(
-      color: theme.colorScheme.surface, 
+      color: theme.colorScheme.surface,
       child: _tabBar,
     );
   }
