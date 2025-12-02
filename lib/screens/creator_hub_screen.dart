@@ -199,7 +199,8 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
             if (_recentVideos.isEmpty)
               Container(
                 padding: const EdgeInsets.all(32),
-                alignment: Center(child: Text('No videos in the last 30 days', style: TextStyle(color: Colors.grey))),
+                alignment: Alignment.center, // --- FIXED: Was Center(...) ---
+                child: Text('No videos in the last 30 days', style: TextStyle(color: Colors.grey)),
               )
             else
               ListView.separated(
@@ -310,7 +311,7 @@ class _StatRow extends StatelessWidget {
             Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             if (trend) ...[
               const SizedBox(width: 4),
-              // Fake trend for MVP demo (or calculate if you want)
+              // Fake trend for MVP demo
               // const Icon(Icons.arrow_upward, size: 14, color: Colors.green),
             ]
           ],
