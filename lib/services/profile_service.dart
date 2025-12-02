@@ -13,7 +13,6 @@ class ProfileService {
           .select()
           .eq('auth_user_id', authUserId)
           .maybeSingle();
-
       if (response == null) return null;
       return UserProfile.fromJson(response);
     } catch (e) {
@@ -29,7 +28,6 @@ class ProfileService {
           .select()
           .eq('username', username)
           .maybeSingle();
-
       if (response == null) return null;
       return UserProfile.fromJson(response);
     } catch (e) {
@@ -45,7 +43,6 @@ class ProfileService {
           .select('username')
           .ilike('username', username)
           .maybeSingle();
-
       return response == null;
     } catch (e) {
       debugPrint('❌ Error checking username: $e');
@@ -73,13 +70,11 @@ class ProfileService {
         'created_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
       };
-
       final response = await _supabase
           .from('profiles')
           .insert(data)
           .select()
           .single();
-
       debugPrint('✅ Profile created for: $username');
       return UserProfile.fromJson(response);
     } catch (e) {
@@ -88,8 +83,6 @@ class ProfileService {
     }
   }
 
-  // Ensure a profile row exists for the given auth user id. If missing, create
-  // a minimal profile using a safe, likely-unique fallback username.
   Future<UserProfile> ensureProfileExists({
     required String authUserId,
     required String email,
@@ -100,28 +93,21 @@ class ProfileService {
         return existing;
       }
 
-      // Generate a friendly random-like handle not tied to email to avoid collisions
-      // Example: xp3f9a1 (prefix + 6 chars from user id)
       final suffix = authUserId.replaceAll('-', '').substring(0, 6);
       String candidate = 'xp$suffix';
 
-      // Best-effort availability check; if taken, fall back to user_<suffix>
       try {
         final available = await isUsernameAvailable(candidate);
         if (!available) {
-          // Fallback to another pattern
           candidate = 'user_$suffix';
         }
-      } catch (_) {
-        // Ignore and proceed
-      }
+      } catch (_) {}
 
       debugPrint('ℹ️ Creating missing profile for authUserId=$authUserId using username=$candidate');
       return await createProfile(
         authUserId: authUserId,
         email: email,
         username: candidate,
-        // Use the handle as the initial display name; users can edit later
         displayName: candidate,
         avatarUrl: null,
         bio: null,
@@ -145,21 +131,18 @@ class ProfileService {
       final data = <String, dynamic>{
         'updated_at': DateTime.now().toIso8601String(),
       };
-
       if (username != null) data['username'] = username;
       if (displayName != null) data['display_name'] = displayName;
       if (avatarUrl != null) data['avatar_url'] = avatarUrl;
       if (bio != null) data['bio'] = bio;
       if (isPremium != null) data['is_premium'] = isPremium;
       if (monetizationStatus != null) data['monetization_status'] = monetizationStatus;
-
       final response = await _supabase
           .from('profiles')
           .update(data)
           .eq('auth_user_id', authUserId)
           .select()
           .single();
-
       debugPrint('✅ Profile updated');
       return UserProfile.fromJson(response);
     } catch (e) {
@@ -188,7 +171,6 @@ class ProfileService {
 
       final now = DateTime.now();
       final accountAge = now.difference(profile.createdAt).inDays;
-
       final criteria = {
         'min_followers': profile.followersCount >= 1000,
         'min_video_views': profile.totalVideoViews >= 10000,
@@ -197,11 +179,9 @@ class ProfileService {
         'age_confirmed': true,
         'no_active_flags': true,
       };
-
       final metCount = criteria.values.where((v) => v).length;
       final totalCount = criteria.length;
       final progress = (metCount / totalCount * 100).round();
-
       final isEligible = metCount == totalCount;
 
       return {
@@ -247,7 +227,6 @@ class ProfileService {
       });
       debugPrint('✅ Followed user $followeeAuthUserId');
     } catch (e) {
-      // ignore unique violations gracefully
       debugPrint('❌ Follow failed: $e');
       rethrow;
     }
@@ -278,6 +257,56 @@ class ProfileService {
     } catch (e) {
       debugPrint('❌ Error getting follower count: $e');
       return 0;
+    }
+  }
+
+  // --- NEW LIST FETCHERS ---
+
+  Future<List<UserProfile>> getFollowersList(String userId) async {
+    try {
+      // 1. Get all follower IDs
+      final follows = await _supabase
+          .from('follows')
+          .select('follower_auth_user_id')
+          .eq('followee_auth_user_id', userId);
+      
+      final ids = (follows as List).map((e) => e['follower_auth_user_id']).toList();
+      if (ids.isEmpty) return [];
+
+      // 2. Fetch profiles for those IDs
+      final profiles = await _supabase
+          .from('profiles')
+          .select()
+          .inFilter('auth_user_id', ids);
+      
+      return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('❌ Error fetching followers list: $e');
+      return [];
+    }
+  }
+
+  Future<List<UserProfile>> getFollowingList(String userId) async {
+    try {
+      // 1. Get all followee IDs
+      final follows = await _supabase
+          .from('follows')
+          .select('followee_auth_user_id')
+          .eq('follower_auth_user_id', userId);
+      
+      final ids = (follows as List).map((e) => e['followee_auth_user_id']).toList();
+      if (ids.isEmpty) return [];
+
+      // 2. Fetch profiles
+      final profiles = await _supabase
+          .from('profiles')
+          .select()
+          .inFilter('auth_user_id', ids);
+      
+      return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
+    } catch (e) {
+      debugPrint('❌ Error fetching following list: $e');
+      return [];
     }
   }
 }
