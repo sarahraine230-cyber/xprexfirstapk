@@ -6,10 +6,13 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/services/storage_service.dart';
+import 'package:xprex/models/user_profile.dart'; // Needed to accept existing profile
 import 'package:xprex/theme.dart';
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
-  const ProfileSetupScreen({super.key});
+  final UserProfile? originalProfile; // Optional: If provided, we are in "Edit Mode"
+
+  const ProfileSetupScreen({super.key, this.originalProfile});
 
   @override
   ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
@@ -17,15 +20,29 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
 
 class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
-  final _displayNameController = TextEditingController();
-  final _bioController = TextEditingController();
+  late TextEditingController _usernameController;
+  late TextEditingController _displayNameController;
+  late TextEditingController _bioController;
   final _picker = ImagePicker();
   
   File? _avatarFile;
   bool _isLoading = false;
   bool _ageConfirmed = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill data if editing, or start empty if creating
+    _usernameController = TextEditingController(text: widget.originalProfile?.username ?? '');
+    _displayNameController = TextEditingController(text: widget.originalProfile?.displayName ?? '');
+    _bioController = TextEditingController(text: widget.originalProfile?.bio ?? '');
+    
+    // If editing, age is already confirmed implicitly
+    if (widget.originalProfile != null) {
+      _ageConfirmed = true;
+    }
+  }
 
   @override
   void dispose() {
@@ -38,7 +55,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   Future<void> _pickAvatar() async {
     if (kIsWeb) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image picker not supported in web preview. Please test on device.')),
+        const SnackBar(content: Text('Image picker not supported in web preview.')),
       );
       return;
     }
@@ -49,13 +66,11 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
         setState(() => _avatarFile = File(pickedFile.path));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error picking image: $e')),
-      );
+      debugPrint('Error picking image: $e');
     }
   }
 
-  Future<void> _handleSetup() async {
+  Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
     if (!_ageConfirmed) {
       setState(() => _errorMessage = 'You must confirm you are 18 or older');
@@ -71,35 +86,53 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       final authService = ref.read(authServiceProvider);
       final profileService = ref.read(profileServiceProvider);
       final storageService = StorageService();
-      
       final userId = authService.currentUserId!;
-      final userEmail = authService.currentUser!.email!;
+      final userEmail = authService.currentUser?.email ?? '';
 
-      final isAvailable = await profileService.isUsernameAvailable(_usernameController.text.trim());
-      if (!isAvailable) {
-        setState(() {
-          _errorMessage = 'Username already taken';
-          _isLoading = false;
-        });
-        return;
+      // Check username availability ONLY if it changed
+      final newUsername = _usernameController.text.trim();
+      if (widget.originalProfile?.username != newUsername) {
+        final isAvailable = await profileService.isUsernameAvailable(newUsername);
+        if (!isAvailable) {
+          setState(() {
+            _errorMessage = 'Username already taken';
+            _isLoading = false;
+          });
+          return;
+        }
       }
 
-      String? avatarUrl;
+      // Handle Avatar Upload
+      String? avatarUrl = widget.originalProfile?.avatarUrl;
       if (_avatarFile != null && !kIsWeb) {
         avatarUrl = await storageService.uploadAvatar(userId: userId, file: _avatarFile!);
       }
 
-      await profileService.createProfile(
-        authUserId: userId,
-        email: userEmail,
-        username: _usernameController.text.trim(),
-        displayName: _displayNameController.text.trim(),
-        avatarUrl: avatarUrl,
-        bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
-      );
+      if (widget.originalProfile == null) {
+        // --- CREATE MODE ---
+        await profileService.createProfile(
+          authUserId: userId,
+          email: userEmail,
+          username: newUsername,
+          displayName: _displayNameController.text.trim(),
+          avatarUrl: avatarUrl,
+          bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
+        );
+        if (mounted) context.go('/'); // Go to Feed after create
+      } else {
+        // --- UPDATE MODE ---
+        await profileService.updateProfile(
+          authUserId: userId,
+          username: newUsername,
+          displayName: _displayNameController.text.trim(),
+          avatarUrl: avatarUrl,
+          bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
+        );
+        // Refresh the provider so the Profile Screen updates immediately
+        ref.invalidate(currentUserProfileProvider);
+        if (mounted) Navigator.of(context).pop(); // Go back to Profile after edit
+      }
 
-      if (!mounted) return;
-      context.go('/');
     } catch (e) {
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -111,9 +144,23 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isEditing = widget.originalProfile != null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Set Up Your Profile')),
+      appBar: AppBar(
+        title: Text(isEditing ? 'Edit Profile' : 'Set Up Profile'),
+        centerTitle: true,
+        actions: [
+          // Pinterest Style "Done" Button
+          TextButton(
+            onPressed: _isLoading ? null : _saveProfile,
+            child: _isLoading 
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
+              : const Text('Done', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: SafeArea(
         child: SingleChildScrollView(
           padding: AppSpacing.paddingLg,
@@ -121,93 +168,125 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
             key: _formKey,
             child: Column(
               children: [
+                // Avatar Section
                 GestureDetector(
                   onTap: _pickAvatar,
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      border: Border.all(color: theme.colorScheme.primary, width: 2),
-                    ),
-                    child: _avatarFile != null
-                        ? ClipOval(child: Image.file(_avatarFile!, fit: BoxFit.cover))
-                        : Icon(Icons.add_a_photo, size: 40, color: theme.colorScheme.onSurfaceVariant),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 100,
+                        height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          image: _avatarFile != null
+                              ? DecorationImage(image: FileImage(_avatarFile!), fit: BoxFit.cover)
+                              : (widget.originalProfile?.avatarUrl != null
+                                  ? DecorationImage(image: NetworkImage(widget.originalProfile!.avatarUrl!), fit: BoxFit.cover)
+                                  : null),
+                        ),
+                        child: (_avatarFile == null && widget.originalProfile?.avatarUrl == null)
+                            ? Icon(Icons.add_a_photo, size: 32, color: theme.colorScheme.onSurfaceVariant)
+                            : null,
+                      ),
+                      const SizedBox(height: 8),
+                      // Pinterest style "Edit" label below image
+                      Text('Edit', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: _pickAvatar,
-                  icon: Icon(Icons.edit),
-                  label: Text('Choose Avatar'),
-                ),
+                
                 const SizedBox(height: 32),
-                TextFormField(
-                  controller: _usernameController,
-                  decoration: InputDecoration(
-                    labelText: 'Username',
-                    prefixIcon: Icon(Icons.alternate_email),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    helperText: 'Unique identifier for your profile',
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Username is required';
-                    if (value.length < 3) return 'Username must be at least 3 characters';
-                    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(value)) return 'Only letters, numbers, and underscores';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
+
+                // Fields
+                _buildPinterestField(
+                  label: 'Name',
                   controller: _displayNameController,
-                  decoration: InputDecoration(
-                    labelText: 'Display Name',
-                    prefixIcon: Icon(Icons.person_outline),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    helperText: 'Your public name',
-                  ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Display name is required';
+                  validator: (v) => (v == null || v.isEmpty) ? 'Name is required' : null,
+                ),
+                
+                const SizedBox(height: 16),
+                
+                _buildPinterestField(
+                  label: 'Username',
+                  controller: _usernameController,
+                  validator: (v) {
+                    if (v == null || v.isEmpty) return 'Username is required';
+                    if (v.length < 3) return 'Min 3 characters';
+                    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v)) return 'Alphanumeric only';
                     return null;
                   },
                 ),
+
                 const SizedBox(height: 16),
-                TextFormField(
+
+                _buildPinterestField(
+                  label: 'Bio',
                   controller: _bioController,
                   maxLines: 3,
-                  decoration: InputDecoration(
-                    labelText: 'Bio (optional)',
-                    prefixIcon: Icon(Icons.description_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                    helperText: 'Tell people about yourself',
-                  ),
+                  hint: 'Write a short bio...',
                 ),
+
                 const SizedBox(height: 24),
-                CheckboxListTile(
-                  value: _ageConfirmed,
-                  onChanged: (value) => setState(() => _ageConfirmed = value ?? false),
-                  title: Text('I confirm I am 18 years or older', style: theme.textTheme.bodyMedium),
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
+
+                // Only show age checkbox if creating a new profile
+                if (!isEditing) ...[
+                  CheckboxListTile(
+                    value: _ageConfirmed,
+                    onChanged: (value) => setState(() => _ageConfirmed = value ?? false),
+                    title: Text('I confirm I am 18 years or older', style: theme.textTheme.bodyMedium),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ],
+
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 16),
                   Text(_errorMessage!, style: TextStyle(color: theme.colorScheme.error)),
                 ],
-                const SizedBox(height: 32),
-                FilledButton(
-                  onPressed: _isLoading ? null : _handleSetup,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(double.infinity, 56),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                  ),
-                  child: _isLoading ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text('Continue'),
-                ),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  // Helper for cleaner UI
+  Widget _buildPinterestField({
+    required String label,
+    required TextEditingController controller,
+    String? Function(String?)? validator,
+    int maxLines = 1,
+    String? hint,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey)),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          maxLines: maxLines,
+          validator: validator,
+          decoration: InputDecoration(
+            hintText: hint,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.grey.shade300),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Colors.black87, width: 1.5),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
