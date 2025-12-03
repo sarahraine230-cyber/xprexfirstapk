@@ -113,7 +113,7 @@ create table if not exists public.reposts (
   unique(user_auth_id, video_id)
 );
 
--- USER INTERESTS (For Algorithm)
+-- USER INTERESTS
 create table if not exists public.user_interests (
   user_id uuid references auth.users(id) on delete cascade,
   tag text not null,
@@ -126,7 +126,7 @@ create table if not exists public.user_interests (
 -- 2. ANALYTICS FUNCTIONS (RPC)
 -- ==========================================
 
--- Function: Get 30-Day Stats for Creator Hub (Simple)
+-- Function: Get 30-Day Stats for Creator Hub
 create or replace function get_creator_stats(target_user_id uuid)
 returns json
 language plpgsql
@@ -144,11 +144,13 @@ begin
   select count(*) into total_followers from follows where followee_auth_user_id = target_user_id;
 
   select count(vv.id) into views_30d
-  from video_views vv join videos v on vv.video_id = v.id
+  from video_views vv
+  join videos v on vv.video_id = v.id
   where v.author_auth_user_id = target_user_id and vv.created_at > start_date;
 
   select count(distinct vv.viewer_id) into total_audience_30d
-  from video_views vv join videos v on vv.video_id = v.id
+  from video_views vv
+  join videos v on vv.video_id = v.id
   where v.author_auth_user_id = target_user_id and vv.created_at > start_date and vv.viewer_id is not null;
 
   with interactions as (
@@ -168,24 +170,21 @@ begin
 end;
 $$;
 
--- Function: Get Full Analytics Dashboard (Detailed w/ Trends)
+-- Function: Get Full Analytics Dashboard (Detailed with Trends)
 create or replace function get_analytics_dashboard(target_user_id uuid)
 returns json
 language plpgsql
 security definer
 as $$
 declare
-  now_ts timestamptz := now();
   current_start timestamptz := now() - interval '30 days';
   prev_start timestamptz := now() - interval '60 days';
-  
   curr_views int; prev_views int;
   curr_engagements int; prev_engagements int;
   curr_saves int; prev_saves int;
   curr_reposts int; prev_reposts int;
   curr_followers int; prev_followers int;
   curr_engaged_audience int; prev_engaged_audience int;
-  
   top_videos json;
 begin
   -- Views
@@ -204,55 +203,42 @@ begin
   select count(*) into curr_followers from follows where followee_auth_user_id = target_user_id and created_at >= current_start;
   select count(*) into prev_followers from follows where followee_auth_user_id = target_user_id and created_at >= prev_start and created_at < current_start;
 
-  -- Engagements (Total Actions)
+  -- Engagements
   with interactions as (
     select created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
     union all select created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
-    union all select created_at from shares sh join videos v on sh.video_id = v.id where v.author_auth_user_id = target_user_id
     union all select created_at from saved_videos sa join videos v on sa.video_id = v.id where v.author_auth_user_id = target_user_id
     union all select created_at from reposts re join videos v on re.video_id = v.id where v.author_auth_user_id = target_user_id
   )
-  select 
-    count(*) filter (where created_at >= current_start),
-    count(*) filter (where created_at >= prev_start and created_at < current_start)
-  into curr_engagements, prev_engagements
-  from interactions;
+  select count(*) filter (where created_at >= current_start), count(*) filter (where created_at >= prev_start and created_at < current_start)
+  into curr_engagements, prev_engagements from interactions;
 
-  -- Engaged Audience (Unique Users)
+  -- Engaged Audience
   with audience as (
-    select l.user_auth_id as uid, created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
-    union all select c.author_auth_user_id, created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
-    union all select s.user_auth_id, created_at from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id
-    union all select r.user_auth_id, created_at from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id
+    select l.user_auth_id as uid, l.created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select c.author_auth_user_id, c.created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select s.user_auth_id, s.created_at from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select r.user_auth_id, r.created_at from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id
   )
-  select 
-    count(distinct uid) filter (where created_at >= current_start),
-    count(distinct uid) filter (where created_at >= prev_start and created_at < current_start)
-  into curr_engaged_audience, prev_engaged_audience
-  from audience;
+  select count(distinct uid) filter (where created_at >= current_start), count(distinct uid) filter (where created_at >= prev_start and created_at < current_start)
+  into curr_engaged_audience, prev_engaged_audience from audience;
 
-  -- Top Videos (Last 30 Days by Views)
+  -- Top Videos
   select json_agg(t) into top_videos from (
-    select 
-      v.*, 
-      profiles.username as author_username, 
-      profiles.display_name as author_display_name, 
-      profiles.avatar_url as author_avatar_url
-    from videos v
-    join profiles on v.author_auth_user_id = profiles.auth_user_id
+    select v.*, profiles.username as author_username, profiles.display_name as author_display_name, profiles.avatar_url as author_avatar_url
+    from videos v join profiles on v.author_auth_user_id = profiles.auth_user_id
     where v.author_auth_user_id = target_user_id
-    order by v.playback_count desc
-    limit 5
+    order by v.playback_count desc limit 5
   ) t;
 
   return json_build_object(
     'metrics', json_build_object(
-      'views', json_build_object('value', curr_views, 'prev', prev_views),
-      'engagements', json_build_object('value', curr_engagements, 'prev', prev_engagements),
-      'saves', json_build_object('value', curr_saves, 'prev', prev_saves),
-      'reposts', json_build_object('value', curr_reposts, 'prev', prev_reposts),
-      'followers', json_build_object('value', curr_followers, 'prev', prev_followers),
-      'engaged_audience', json_build_object('value', curr_engaged_audience, 'prev', prev_engaged_audience)
+      'views', json_build_object('value', coalesce(curr_views, 0), 'prev', coalesce(prev_views, 0)),
+      'engagements', json_build_object('value', coalesce(curr_engagements, 0), 'prev', coalesce(prev_engagements, 0)),
+      'saves', json_build_object('value', coalesce(curr_saves, 0), 'prev', coalesce(prev_saves, 0)),
+      'reposts', json_build_object('value', coalesce(curr_reposts, 0), 'prev', coalesce(prev_reposts, 0)),
+      'followers', json_build_object('value', coalesce(curr_followers, 0), 'prev', coalesce(prev_followers, 0)),
+      'engaged_audience', json_build_object('value', coalesce(curr_engaged_audience, 0), 'prev', coalesce(prev_engaged_audience, 0))
     ),
     'top_videos', coalesce(top_videos, '[]'::json)
   );
@@ -266,31 +252,24 @@ $$;
 create or replace function update_video_view_count()
 returns trigger as $$
 begin
-  update public.videos
-  set playback_count = playback_count + 1
-  where id = new.video_id;
+  update public.videos set playback_count = playback_count + 1 where id = new.video_id;
   return new;
 end;
 $$ language plpgsql security definer;
 
 drop trigger if exists on_view_record on public.video_views;
-create trigger on_view_record
-after insert on public.video_views
-for each row execute function update_video_view_count();
+create trigger on_view_record after insert on public.video_views for each row execute function update_video_view_count();
 
 create or replace function learn_user_interests()
 returns trigger as $$
-declare
-  v_tags text[];
-  t text;
+declare v_tags text[]; t text;
 begin
   select tags into v_tags from videos where id = new.video_id;
   if v_tags is not null then
     foreach t in array v_tags loop
       insert into user_interests (user_id, tag, score, last_interaction)
       values (new.user_auth_id, t, 1, now())
-      on conflict (user_id, tag) 
-      do update set score = user_interests.score + 1, last_interaction = now();
+      on conflict (user_id, tag) do update set score = user_interests.score + 1, last_interaction = now();
     end loop;
   end if;
   return new;
@@ -298,6 +277,4 @@ end;
 $$ language plpgsql security definer;
 
 drop trigger if exists on_like_learn on public.likes;
-create trigger on_like_learn
-after insert on public.likes
-for each row execute function learn_user_interests();
+create trigger on_like_learn after insert on public.likes for each row execute function learn_user_interests();
