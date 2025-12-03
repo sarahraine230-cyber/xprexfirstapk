@@ -7,6 +7,7 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/screens/monetization_screen.dart';
+import 'package:xprex/screens/analytics_screen.dart'; // Import Analytics
 
 class CreatorHubScreen extends ConsumerStatefulWidget {
   const CreatorHubScreen({super.key});
@@ -162,7 +163,10 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   Center(
                     child: FilledButton.tonal(
                       onPressed: () {
-                        // TODO: Full Analytics Screen
+                        // --- NAVIGATE TO ANALYTICS SCREEN ---
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const AnalyticsScreen())
+                        );
                       }, 
                       child: const Text('See all analytics'),
                     ),
