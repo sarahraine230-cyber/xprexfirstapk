@@ -1,5 +1,5 @@
 -- XpreX Master Schema
--- Includes Tables, Indexes, and Automation Triggers
+-- Defines Tables, Indexes, and Automation Triggers
 
 -- Enable required extensions
 create extension if not exists pgcrypto;
@@ -49,7 +49,6 @@ create index if not exists idx_videos_created_at on public.videos (created_at de
 create index if not exists idx_videos_tags on public.videos using gin(tags);
 
 -- VIDEO VIEWS (Analytics)
--- Tracks individual views for unique reach calculation
 create table if not exists public.video_views (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -114,11 +113,20 @@ create table if not exists public.reposts (
   unique(user_auth_id, video_id)
 );
 
+-- USER INTERESTS (For Algorithm)
+create table if not exists public.user_interests (
+  user_id uuid references auth.users(id) on delete cascade,
+  tag text not null,
+  score int default 1,
+  last_interaction timestamptz default now(),
+  primary key (user_id, tag)
+);
+
 -- ==========================================
 -- 2. AUTOMATION & TRIGGERS
 -- ==========================================
 
--- Function: Automatically increment video playback_count when a view is recorded
+-- Trigger: Automatically increment playback_count on video_views insert
 create or replace function update_video_view_count()
 returns trigger as $$
 begin
@@ -129,8 +137,32 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- Trigger: Attach to video_views
 drop trigger if exists on_view_record on public.video_views;
 create trigger on_view_record
 after insert on public.video_views
 for each row execute function update_video_view_count();
+
+-- Trigger: Learn User Interests from Likes
+create or replace function learn_user_interests()
+returns trigger as $$
+declare
+  v_tags text[];
+  t text;
+begin
+  select tags into v_tags from videos where id = new.video_id;
+  if v_tags is not null then
+    foreach t in array v_tags loop
+      insert into user_interests (user_id, tag, score, last_interaction)
+      values (new.user_auth_id, t, 1, now())
+      on conflict (user_id, tag) 
+      do update set score = user_interests.score + 1, last_interaction = now();
+    end loop;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_like_learn on public.likes;
+create trigger on_like_learn
+after insert on public.likes
+for each row execute function learn_user_interests();
