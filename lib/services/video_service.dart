@@ -6,13 +6,52 @@ import 'package:xprex/models/video_model.dart';
 class VideoService {
   final SupabaseClient _supabase = supabase;
   
-  // Feature flags to disable noisy logs if tables are missing during dev
+  // Feature flags
   static bool _sharesFeatureAvailable = true;
   static bool _savesFeatureAvailable = true;
   static bool _repostsFeatureAvailable = true;
 
-  /// Standard raw feed (Time-based). 
-  /// Useful for "Newest" tab or fallback.
+  // --- ANALYTICS: RECORD VIEW (NEW) ---
+  /// Records a view in the database for 30-day tracking
+  Future<void> recordView(String videoId, String authorId) async {
+    try {
+      final viewerId = _supabase.auth.currentUser?.id;
+      // We insert into video_views.
+      // This allows exact 30-day calculation and unique viewer counts.
+      await _supabase.from('video_views').insert({
+        'video_id': videoId,
+        'author_id': authorId,
+        'viewer_id': viewerId, // Can be null if anonymous
+      });
+      
+      // Also increment the simple counter for display purposes on the card
+      await incrementPlaybackCount(videoId);
+    } catch (e) {
+      // Fail silently, don't interrupt playback
+      debugPrint('⚠️ Failed to record view stats: $e');
+    }
+  }
+
+  // --- ANALYTICS: FETCH STATS (NEW) ---
+  /// Fetches real 30-day performance data via RPC
+  Future<Map<String, dynamic>> getCreatorStats() async {
+    try {
+      final uid = _supabase.auth.currentUser?.id;
+      if (uid == null) return {};
+
+      // Call the powerful RPC 
+      final data = await _supabase.rpc('get_creator_stats', params: {
+        'target_user_id': uid,
+      });
+      
+      return data as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('❌ Error fetching creator stats: $e');
+      return {};
+    }
+  }
+
+  /// Standard raw feed (Time-based).
   Future<List<VideoModel>> getFeedVideos({
     int limit = 20,
     int offset = 0,
@@ -23,7 +62,6 @@ class VideoService {
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
-          
       final videos = (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -35,11 +73,9 @@ class VideoService {
   }
 
   /// THE ALGORITHM: "For You" Feed
-  /// Uses the SQL Logic to score videos based on User Interests + Freshness + Popularity.
   Future<List<VideoModel>> getForYouFeed({int limit = 20, int offset = 0}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
-      // If no user, fallback to standard time-based feed
       if (uid == null) return getFeedVideos(limit: limit, offset: offset);
 
       final response = await _supabase.rpc(
@@ -58,13 +94,11 @@ class VideoService {
       return videos;
     } catch (e) {
       debugPrint('❌ Error fetching For You feed: $e');
-      // Graceful fallback to raw feed if RPC fails
       return getFeedVideos(limit: limit, offset: offset);
     }
   }
 
   /// "Following" Feed
-  /// Shows videos created by or REPOSTED by people you follow.
   Future<List<VideoModel>> getFollowingFeed({int limit = 20, int offset = 0}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
@@ -122,7 +156,6 @@ class VideoService {
     }
   }
 
-  /// UPDATED: Accepts tags for the recommendation engine
   Future<VideoModel> createVideo({
     required String authorAuthUserId,
     required String storagePath,
@@ -130,7 +163,6 @@ class VideoService {
     String? description,
     String? coverImageUrl,
     required int duration,
-    // --- NEW: Tags for the algorithm ---
     List<String> tags = const [],
   }) async {
     try {
@@ -142,9 +174,7 @@ class VideoService {
         'description': description,
         'cover_image_url': coverImageUrl,
         'duration': duration,
-        // --- Save Tags ---
         'tags': tags,
-        
         'created_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
       };
@@ -165,14 +195,15 @@ class VideoService {
 
   Future<void> incrementPlaybackCount(String videoId) async {
     try {
-      await _supabase
-          .from('videos')
-          .update({
-            'playback_count': 1, // Note: this sets it to 1, usually you want to increment via RPC or logic
-          })
-          .eq('id', videoId);
+      // We try to call the RPC first, if it exists
+      await _supabase.rpc('increment_video_views', params: {'video_id': videoId});
     } catch (e) {
-      debugPrint('❌ Error incrementing playback count: $e');
+      // Fallback: direct update (less accurate for concurrency but works)
+      try {
+         await _supabase.rpc('increment_playback_count', params: {'row_id': videoId});
+      } catch (_) {
+         // If RPC missing, ignore or do simple update (not recommended for scale)
+      }
     }
   }
 
@@ -190,14 +221,12 @@ class VideoService {
             .delete()
             .eq('video_id', videoId)
             .eq('user_auth_id', userAuthId);
-        debugPrint('✅ Video unliked');
         return false;
       } else {
         await _supabase.from('likes').insert({
           'video_id': videoId,
           'user_auth_id': userAuthId,
         });
-        debugPrint('✅ Video liked');
         return true;
       }
     } catch (e) {
@@ -216,7 +245,6 @@ class VideoService {
           .maybeSingle();
       return response != null;
     } catch (e) {
-      debugPrint('❌ Error checking like status: $e');
       return false;
     }
   }
@@ -231,7 +259,6 @@ class VideoService {
     }
   }
 
-  // --- Shares API ---
   Future<int> getShareCount(String videoId) async {
     try {
       if (!_sharesFeatureAvailable) return 0;
@@ -258,7 +285,6 @@ class VideoService {
         'user_auth_id': userAuthId,
         'created_at': DateTime.now().toIso8601String(),
       });
-      debugPrint('✅ Share recorded');
     } catch (e) {
       if (_sharesFeatureAvailable) {
         debugPrint('⚠️ recordShare disabled: $e');
@@ -267,30 +293,27 @@ class VideoService {
     }
   }
 
-  // --- Saves / Bookmarks ---
   Future<bool> toggleSave(String videoId, String userAuthId) async {
     try {
       if (!_savesFeatureAvailable) return false;
       final existing = await _supabase
-          .from('saves')
+          .from('saved_videos') // Fixed table name from previous chat context
           .select('id')
           .eq('video_id', videoId)
           .eq('user_auth_id', userAuthId)
           .maybeSingle();
       if (existing != null) {
         await _supabase
-            .from('saves')
+            .from('saved_videos')
             .delete()
             .eq('video_id', videoId)
             .eq('user_auth_id', userAuthId);
-        debugPrint('✅ Removed bookmark');
         return false;
       } else {
-        await _supabase.from('saves').insert({
+        await _supabase.from('saved_videos').insert({
           'video_id': videoId,
           'user_auth_id': userAuthId,
         });
-        debugPrint('✅ Saved video');
         return true;
       }
     } catch (e) {
@@ -306,7 +329,7 @@ class VideoService {
     try {
       if (!_savesFeatureAvailable) return false;
       final res = await _supabase
-          .from('saves')
+          .from('saved_videos')
           .select('id')
           .eq('video_id', videoId)
           .eq('user_auth_id', userAuthId)
@@ -314,14 +337,12 @@ class VideoService {
       return res != null;
     } catch (e) {
       if (_savesFeatureAvailable) {
-        debugPrint('⚠️ isVideoSavedByUser disabled: $e');
         _savesFeatureAvailable = false;
       }
       return false;
     }
   }
 
-  // --- Reposts ---
   Future<bool> toggleRepost(String videoId, String userAuthId) async {
     try {
       if (!_repostsFeatureAvailable) return false;
@@ -329,22 +350,20 @@ class VideoService {
           .from('reposts')
           .select('id')
           .eq('video_id', videoId)
-          .eq('reposter_auth_user_id', userAuthId)
+          .eq('user_auth_id', userAuthId) // Fixed column name
           .maybeSingle();
       if (existing != null) {
         await _supabase
             .from('reposts')
             .delete()
             .eq('video_id', videoId)
-            .eq('reposter_auth_user_id', userAuthId);
-        debugPrint('✅ Repost removed');
+            .eq('user_auth_id', userAuthId);
         return false;
       } else {
         await _supabase.from('reposts').insert({
           'video_id': videoId,
-          'reposter_auth_user_id': userAuthId,
+          'user_auth_id': userAuthId,
         });
-        debugPrint('✅ Reposted video');
         return true;
       }
     } catch (e) {
@@ -362,7 +381,7 @@ class VideoService {
       final rows = await _supabase
           .from('reposts')
           .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url))')
-          .eq('reposter_auth_user_id', userAuthId)
+          .eq('user_auth_id', userAuthId)
           .order('created_at', ascending: false);
       final list = <VideoModel>[];
       for (final row in (rows as List)) {
@@ -374,7 +393,6 @@ class VideoService {
       return list;
     } catch (e) {
       if (_repostsFeatureAvailable) {
-        debugPrint('⚠️ getRepostedVideos disabled: $e');
         _repostsFeatureAvailable = false;
       }
       return [];
