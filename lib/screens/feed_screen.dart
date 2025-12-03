@@ -242,6 +242,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         ..setLooping(true);
       await _controller!.initialize();
       
+      // --- CRITICAL: RECORD VIEW ---
+      if (widget.video.authorAuthUserId.isNotEmpty) {
+        _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
+      }
+      
       final uid = supabase.auth.currentUser?.id;
       if (uid != null) {
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
@@ -483,7 +488,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
-          // --- UPDATED BOTTOM LEFT SECTION WITH REPOST BADGE ---
+          // --- UPDATED BOTTOM LEFT SECTION ---
           Positioned(
             bottom: 80,
             left: 16,
@@ -491,13 +496,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 1. THE REPOST BADGE (Conditional)
                 if (widget.video.repostedByUsername != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2), // Glass effect
+                      color: Colors.white.withValues(alpha: 0.2), // Semi-transparent glass
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
@@ -517,7 +521,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     ),
                   ),
 
-                // 2. AUTHOR INFO ROW
                 Row(
                   children: [
                     GestureDetector(
