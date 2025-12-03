@@ -1,8 +1,12 @@
--- XpreX core schema
--- Updated: Added video_views table for Analytics
+-- XpreX Master Schema
+-- Includes Tables, Indexes, and Automation Triggers
 
 -- Enable required extensions
 create extension if not exists pgcrypto;
+
+-- ==========================================
+-- 1. TABLES & INDEXES
+-- ==========================================
 
 -- PROFILES
 create table if not exists public.profiles (
@@ -45,6 +49,7 @@ create index if not exists idx_videos_created_at on public.videos (created_at de
 create index if not exists idx_videos_tags on public.videos using gin(tags);
 
 -- VIDEO VIEWS (Analytics)
+-- Tracks individual views for unique reach calculation
 create table if not exists public.video_views (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -108,3 +113,24 @@ create table if not exists public.reposts (
   created_at timestamptz not null default now(),
   unique(user_auth_id, video_id)
 );
+
+-- ==========================================
+-- 2. AUTOMATION & TRIGGERS
+-- ==========================================
+
+-- Function: Automatically increment video playback_count when a view is recorded
+create or replace function update_video_view_count()
+returns trigger as $$
+begin
+  update public.videos
+  set playback_count = playback_count + 1
+  where id = new.video_id;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+-- Trigger: Attach to video_views
+drop trigger if exists on_view_record on public.video_views;
+create trigger on_view_record
+after insert on public.video_views
+for each row execute function update_video_view_count();
