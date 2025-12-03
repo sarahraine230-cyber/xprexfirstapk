@@ -6,44 +6,31 @@ import 'package:xprex/models/video_model.dart';
 class VideoService {
   final SupabaseClient _supabase = supabase;
   
-  // Feature flags
   static bool _sharesFeatureAvailable = true;
   static bool _savesFeatureAvailable = true;
   static bool _repostsFeatureAvailable = true;
 
-  // --- ANALYTICS: RECORD VIEW (NEW) ---
-  /// Records a view in the database for 30-day tracking
+  // --- ANALYTICS: RECORD VIEW ---
   Future<void> recordView(String videoId, String authorId) async {
     try {
       final viewerId = _supabase.auth.currentUser?.id;
-      // We insert into video_views.
-      // This allows exact 30-day calculation and unique viewer counts.
       await _supabase.from('video_views').insert({
         'video_id': videoId,
         'author_id': authorId,
-        'viewer_id': viewerId, // Can be null if anonymous
+        'viewer_id': viewerId, 
       });
-      
-      // Also increment the simple counter for display purposes on the card
       await incrementPlaybackCount(videoId);
     } catch (e) {
-      // Fail silently, don't interrupt playback
       debugPrint('⚠️ Failed to record view stats: $e');
     }
   }
 
-  // --- ANALYTICS: FETCH STATS (NEW) ---
-  /// Fetches real 30-day performance data via RPC
+  // --- ANALYTICS: CREATOR STATS (Hub) ---
   Future<Map<String, dynamic>> getCreatorStats() async {
     try {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return {};
-
-      // Call the powerful RPC 
-      final data = await _supabase.rpc('get_creator_stats', params: {
-        'target_user_id': uid,
-      });
-      
+      final data = await _supabase.rpc('get_creator_stats', params: {'target_user_id': uid});
       return data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('❌ Error fetching creator stats: $e');
@@ -51,11 +38,20 @@ class VideoService {
     }
   }
 
-  /// Standard raw feed (Time-based).
-  Future<List<VideoModel>> getFeedVideos({
-    int limit = 20,
-    int offset = 0,
-  }) async {
+  // --- ANALYTICS: FULL DASHBOARD (New Screen) ---
+  Future<Map<String, dynamic>> getAnalyticsDashboard() async {
+    try {
+      final uid = _supabase.auth.currentUser?.id;
+      if (uid == null) return {};
+      final data = await _supabase.rpc('get_analytics_dashboard', params: {'target_user_id': uid});
+      return data as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('❌ Error fetching analytics dashboard: $e');
+      return {};
+    }
+  }
+
+  Future<List<VideoModel>> getFeedVideos({int limit = 20, int offset = 0}) async {
     try {
       final response = await _supabase
           .from('videos')
@@ -72,7 +68,6 @@ class VideoService {
     }
   }
 
-  /// THE ALGORITHM: "For You" Feed
   Future<List<VideoModel>> getForYouFeed({int limit = 20, int offset = 0}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
@@ -80,17 +75,12 @@ class VideoService {
 
       final response = await _supabase.rpc(
         'get_for_you_feed',
-        params: {
-          'viewer_id': uid,
-          'limit_val': limit,
-          'offset_val': offset,
-        },
+        params: {'viewer_id': uid, 'limit_val': limit, 'offset_val': offset},
       );
 
       final videos = (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
-      
       return videos;
     } catch (e) {
       debugPrint('❌ Error fetching For You feed: $e');
@@ -98,7 +88,6 @@ class VideoService {
     }
   }
 
-  /// "Following" Feed
   Future<List<VideoModel>> getFollowingFeed({int limit = 20, int offset = 0}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
@@ -106,18 +95,12 @@ class VideoService {
 
       final response = await _supabase.rpc(
         'get_following_feed',
-        params: {
-          'viewer_id': uid,
-          'limit_val': limit,
-          'offset_val': offset,
-        },
+        params: {'viewer_id': uid, 'limit_val': limit, 'offset_val': offset},
       );
 
-      final videos = (response as List)
+      return (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
-
-      return videos;
     } catch (e) {
       debugPrint('❌ Error fetching following feed: $e');
       return [];
@@ -131,10 +114,9 @@ class VideoService {
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', authUserId)
           .order('created_at', ascending: false);
-      final videos = (response as List)
+      return (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
-      return videos;
     } catch (e) {
       debugPrint('❌ Error fetching user videos: $e');
       rethrow;
@@ -195,38 +177,22 @@ class VideoService {
 
   Future<void> incrementPlaybackCount(String videoId) async {
     try {
-      // We try to call the RPC first, if it exists
       await _supabase.rpc('increment_video_views', params: {'video_id': videoId});
     } catch (e) {
-      // Fallback: direct update (less accurate for concurrency but works)
       try {
          await _supabase.rpc('increment_playback_count', params: {'row_id': videoId});
-      } catch (_) {
-         // If RPC missing, ignore or do simple update (not recommended for scale)
-      }
+      } catch (_) {}
     }
   }
 
   Future<bool> toggleLike(String videoId, String userAuthId) async {
     try {
-      final existing = await _supabase
-          .from('likes')
-          .select()
-          .eq('video_id', videoId)
-          .eq('user_auth_id', userAuthId)
-          .maybeSingle();
+      final existing = await _supabase.from('likes').select().eq('video_id', videoId).eq('user_auth_id', userAuthId).maybeSingle();
       if (existing != null) {
-        await _supabase
-            .from('likes')
-            .delete()
-            .eq('video_id', videoId)
-            .eq('user_auth_id', userAuthId);
+        await _supabase.from('likes').delete().eq('video_id', videoId).eq('user_auth_id', userAuthId);
         return false;
       } else {
-        await _supabase.from('likes').insert({
-          'video_id': videoId,
-          'user_auth_id': userAuthId,
-        });
+        await _supabase.from('likes').insert({'video_id': videoId, 'user_auth_id': userAuthId});
         return true;
       }
     } catch (e) {
@@ -237,12 +203,7 @@ class VideoService {
 
   Future<bool> isVideoLikedByUser(String videoId, String userAuthId) async {
     try {
-      final response = await _supabase
-          .from('likes')
-          .select()
-          .eq('video_id', videoId)
-          .eq('user_auth_id', userAuthId)
-          .maybeSingle();
+      final response = await _supabase.from('likes').select().eq('video_id', videoId).eq('user_auth_id', userAuthId).maybeSingle();
       return response != null;
     } catch (e) {
       return false;
@@ -262,15 +223,11 @@ class VideoService {
   Future<int> getShareCount(String videoId) async {
     try {
       if (!_sharesFeatureAvailable) return 0;
-      final response = await _supabase
-          .from('shares')
-          .select('id')
-          .eq('video_id', videoId);
+      final response = await _supabase.from('shares').select('id').eq('video_id', videoId);
       if (response is List) return response.length;
       return 0;
     } catch (e) {
       if (_sharesFeatureAvailable) {
-        debugPrint('⚠️ getShareCount disabled: $e');
         _sharesFeatureAvailable = false;
       }
       return 0;
@@ -287,7 +244,6 @@ class VideoService {
       });
     } catch (e) {
       if (_sharesFeatureAvailable) {
-        debugPrint('⚠️ recordShare disabled: $e');
         _sharesFeatureAvailable = false;
       }
     }
@@ -296,29 +252,16 @@ class VideoService {
   Future<bool> toggleSave(String videoId, String userAuthId) async {
     try {
       if (!_savesFeatureAvailable) return false;
-      final existing = await _supabase
-          .from('saved_videos') // Fixed table name from previous chat context
-          .select('id')
-          .eq('video_id', videoId)
-          .eq('user_auth_id', userAuthId)
-          .maybeSingle();
+      final existing = await _supabase.from('saved_videos').select('id').eq('video_id', videoId).eq('user_auth_id', userAuthId).maybeSingle();
       if (existing != null) {
-        await _supabase
-            .from('saved_videos')
-            .delete()
-            .eq('video_id', videoId)
-            .eq('user_auth_id', userAuthId);
+        await _supabase.from('saved_videos').delete().eq('video_id', videoId).eq('user_auth_id', userAuthId);
         return false;
       } else {
-        await _supabase.from('saved_videos').insert({
-          'video_id': videoId,
-          'user_auth_id': userAuthId,
-        });
+        await _supabase.from('saved_videos').insert({'video_id': videoId, 'user_auth_id': userAuthId});
         return true;
       }
     } catch (e) {
       if (_savesFeatureAvailable) {
-        debugPrint('❌ toggleSave failed: $e');
         _savesFeatureAvailable = false;
       }
       rethrow;
@@ -328,12 +271,7 @@ class VideoService {
   Future<bool> isVideoSavedByUser(String videoId, String userAuthId) async {
     try {
       if (!_savesFeatureAvailable) return false;
-      final res = await _supabase
-          .from('saved_videos')
-          .select('id')
-          .eq('video_id', videoId)
-          .eq('user_auth_id', userAuthId)
-          .maybeSingle();
+      final res = await _supabase.from('saved_videos').select('id').eq('video_id', videoId).eq('user_auth_id', userAuthId).maybeSingle();
       return res != null;
     } catch (e) {
       if (_savesFeatureAvailable) {
@@ -346,29 +284,16 @@ class VideoService {
   Future<bool> toggleRepost(String videoId, String userAuthId) async {
     try {
       if (!_repostsFeatureAvailable) return false;
-      final existing = await _supabase
-          .from('reposts')
-          .select('id')
-          .eq('video_id', videoId)
-          .eq('user_auth_id', userAuthId) // Fixed column name
-          .maybeSingle();
+      final existing = await _supabase.from('reposts').select('id').eq('video_id', videoId).eq('user_auth_id', userAuthId).maybeSingle();
       if (existing != null) {
-        await _supabase
-            .from('reposts')
-            .delete()
-            .eq('video_id', videoId)
-            .eq('user_auth_id', userAuthId);
+        await _supabase.from('reposts').delete().eq('video_id', videoId).eq('user_auth_id', userAuthId);
         return false;
       } else {
-        await _supabase.from('reposts').insert({
-          'video_id': videoId,
-          'user_auth_id': userAuthId,
-        });
+        await _supabase.from('reposts').insert({'video_id': videoId, 'user_auth_id': userAuthId});
         return true;
       }
     } catch (e) {
       if (_repostsFeatureAvailable) {
-        debugPrint('❌ toggleRepost failed: $e');
         _repostsFeatureAvailable = false;
       }
       rethrow;
