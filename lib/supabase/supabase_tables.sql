@@ -1,5 +1,5 @@
 -- XpreX Master Schema
--- Defines Tables, Indexes, and Automation Triggers
+-- Defines Tables, Indexes, Functions, and Automation Triggers
 
 -- Enable required extensions
 create extension if not exists pgcrypto;
@@ -49,6 +49,7 @@ create index if not exists idx_videos_created_at on public.videos (created_at de
 create index if not exists idx_videos_tags on public.videos using gin(tags);
 
 -- VIDEO VIEWS (Analytics)
+-- Tracks individual views for 30-day reporting
 create table if not exists public.video_views (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -123,10 +124,65 @@ create table if not exists public.user_interests (
 );
 
 -- ==========================================
--- 2. AUTOMATION & TRIGGERS
+-- 2. ANALYTICS FUNCTIONS (RPC)
 -- ==========================================
 
--- Trigger: Automatically increment playback_count on video_views insert
+-- Function: Get 30-Day Stats for Creator Hub
+create or replace function get_creator_stats(target_user_id uuid)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  total_followers int;
+  views_30d int;
+  total_audience_30d int;
+  engaged_audience_30d int;
+  start_date timestamptz;
+begin
+  start_date := now() - interval '30 days';
+
+  -- Followers
+  select count(*) into total_followers from follows where followee_auth_user_id = target_user_id;
+
+  -- Views (30d) - Joined with Videos to ensure ownership match
+  select count(vv.id) into views_30d
+  from video_views vv
+  join videos v on vv.video_id = v.id
+  where v.author_auth_user_id = target_user_id and vv.created_at > start_date;
+
+  -- Total Audience (Unique Viewers 30d)
+  select count(distinct vv.viewer_id) into total_audience_30d
+  from video_views vv
+  join videos v on vv.video_id = v.id
+  where v.author_auth_user_id = target_user_id and vv.created_at > start_date and vv.viewer_id is not null;
+
+  -- Engaged Audience (Unique Interactors 30d)
+  with interactions as (
+    select l.user_auth_id as uid from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id and l.created_at > start_date
+    union all
+    select c.author_auth_user_id as uid from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id and c.created_at > start_date
+    union all
+    select s.user_auth_id as uid from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at > start_date
+    union all
+    select r.user_auth_id as uid from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at > start_date
+  )
+  select count(distinct uid) into engaged_audience_30d from interactions;
+
+  return json_build_object(
+    'followers', total_followers,
+    'views_30d', coalesce(views_30d, 0),
+    'total_audience', coalesce(total_audience_30d, 0),
+    'engaged_audience', coalesce(engaged_audience_30d, 0)
+  );
+end;
+$$;
+
+-- ==========================================
+-- 3. AUTOMATION TRIGGERS
+-- ==========================================
+
+-- Auto-increment playback_count on view
 create or replace function update_video_view_count()
 returns trigger as $$
 begin
@@ -142,7 +198,7 @@ create trigger on_view_record
 after insert on public.video_views
 for each row execute function update_video_view_count();
 
--- Trigger: Learn User Interests from Likes
+-- Learn tags from likes
 create or replace function learn_user_interests()
 returns trigger as $$
 declare
