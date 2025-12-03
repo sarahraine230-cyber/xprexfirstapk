@@ -5,8 +5,8 @@ import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/screens/upload_screen.dart'; // Direct link to creation
-import 'package:xprex/screens/monetization_screen.dart'; // Direct link to money
+import 'package:xprex/screens/upload_screen.dart';
+import 'package:xprex/screens/monetization_screen.dart';
 
 class CreatorHubScreen extends ConsumerStatefulWidget {
   const CreatorHubScreen({super.key});
@@ -19,7 +19,7 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
   final _videoService = VideoService();
   bool _isLoading = true;
   
-  // Stats
+  // Real Stats from DB
   int _followersCount = 0;
   int _views30d = 0;
   int _totalAudience30d = 0;
@@ -34,33 +34,25 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
 
   Future<void> _loadHubData() async {
     final userId = ref.read(authServiceProvider).currentUserId;
-    final profileService = ref.read(profileServiceProvider);
-    
     if (userId == null) return;
 
     try {
-      final profile = await profileService.getProfileByAuthId(userId);
-      final allVideos = await _videoService.getUserVideos(userId);
+      // 1. Fetch Real Stats (30 Days)
+      final stats = await _videoService.getCreatorStats();
       
+      // 2. Fetch Recent Videos List (Client side filter for display)
+      final allVideos = await _videoService.getUserVideos(userId);
       final now = DateTime.now();
       final cutoff = now.subtract(const Duration(days: 30));
-      
       final recentList = allVideos.where((v) => v.createdAt.isAfter(cutoff)).toList();
-      
-      int v30 = 0;
-      int engaged = 0;
-      
-      for (var v in recentList) {
-        v30 += v.playbackCount;
-        engaged += (v.likesCount + v.commentsCount + v.savesCount + v.repostsCount);
-      }
 
       if (mounted) {
         setState(() {
-          _followersCount = profile?.followersCount ?? 0;
-          _views30d = v30;
-          _totalAudience30d = v30 + (engaged ~/ 2); 
-          _engagedAudience30d = engaged;
+          _followersCount = stats['followers'] as int? ?? 0;
+          _views30d = stats['views_30d'] as int? ?? 0;
+          _totalAudience30d = stats['total_audience'] as int? ?? 0;
+          _engagedAudience30d = stats['engaged_audience'] as int? ?? 0;
+          
           _recentVideos = recentList.take(6).toList();
           _isLoading = false;
         });
@@ -83,7 +75,6 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
     }
 
     return Scaffold(
-      // Uses the global theme background (White in Light, Dark Grey in Dark)
       backgroundColor: theme.scaffoldBackgroundColor, 
       appBar: AppBar(
         title: const Text('Creator Hub', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -95,7 +86,7 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // --- TOP ACTIONS ROW ---
+            // --- TOP ACTIONS ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -134,7 +125,6 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                // Adaptive surface color (Off-white in Light, Dark Grey in Dark)
                 color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(24),
                 border: Border.all(
@@ -222,7 +212,7 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   final v = _recentVideos[index];
                   return Container(
                     decoration: BoxDecoration(
-                      color: theme.colorScheme.surface, // Clean card background
+                      color: theme.colorScheme.surface, 
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
                     ),
@@ -274,7 +264,7 @@ class _HubTopButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-  final ThemeData theme; // Pass theme down
+  final ThemeData theme;
 
   const _HubTopButton({
     required this.icon, 
@@ -293,7 +283,7 @@ class _HubTopButton extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              // Adaptive Color: Uses Surface Container (Greyish in Light, Darker Grey in Dark)
+              // Adaptive Color
               color: theme.colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(20),
             ),
@@ -304,7 +294,7 @@ class _HubTopButton extends StatelessWidget {
             label, 
             style: theme.textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w600,
-              color: theme.colorScheme.onSurface, // Ensures text is visible in dark mode
+              color: theme.colorScheme.onSurface,
             )
           ),
         ],
@@ -353,8 +343,6 @@ class _StatRow extends StatelessWidget {
             ),
             if (trend) ...[
               const SizedBox(width: 4),
-              // Using Success/Green color usually, but sticking to theme primary/secondary to be safe
-              // or hardcoded green if you want a specific "Up" indicator
               const Icon(Icons.arrow_upward, size: 14, color: Colors.green),
             ]
           ],
