@@ -38,12 +38,18 @@ class VideoService {
     }
   }
 
-  // --- ANALYTICS: FULL DASHBOARD (New Screen) ---
-  Future<Map<String, dynamic>> getAnalyticsDashboard() async {
+  // --- ANALYTICS: FULL DASHBOARD (Dynamic Date Range) ---
+  // UPDATED: Now accepts 'days' to pass to the database
+  Future<Map<String, dynamic>> getAnalyticsDashboard({int days = 30}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return {};
-      final data = await _supabase.rpc('get_analytics_dashboard', params: {'target_user_id': uid});
+      
+      final data = await _supabase.rpc('get_analytics_dashboard', params: {
+        'target_user_id': uid,
+        'days_range': days, // Pass the days to the SQL function
+      });
+      
       return data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('❌ Error fetching analytics dashboard: $e');
