@@ -126,7 +126,7 @@ create table if not exists public.user_interests (
 -- 2. ANALYTICS FUNCTIONS (RPC)
 -- ==========================================
 
--- Function: Get 30-Day Stats for Creator Hub
+-- Function: Get 30-Day Stats for Creator Hub (Simple)
 create or replace function get_creator_stats(target_user_id uuid)
 returns json
 language plpgsql
@@ -144,8 +144,7 @@ begin
   select count(*) into total_followers from follows where followee_auth_user_id = target_user_id;
 
   select count(vv.id) into views_30d
-  from video_views vv
-  join videos v on vv.video_id = v.id
+  from video_views vv join videos v on vv.video_id = v.id
   where v.author_auth_user_id = target_user_id and vv.created_at > start_date;
 
   select count(distinct vv.viewer_id) into total_audience_30d
@@ -170,15 +169,18 @@ begin
 end;
 $$;
 
--- Function: Get Full Analytics Dashboard (Detailed with Trends)
-create or replace function get_analytics_dashboard(target_user_id uuid)
+-- Function: Get Full Analytics Dashboard (Dynamic Date Range)
+-- UPDATED: Now accepts 'days_range' parameter
+create or replace function get_analytics_dashboard(target_user_id uuid, days_range int default 30)
 returns json
 language plpgsql
 security definer
 as $$
 declare
-  current_start timestamptz := now() - interval '30 days';
-  prev_start timestamptz := now() - interval '60 days';
+  -- DYNAMIC DATE CALCULATION
+  current_start timestamptz := now() - make_interval(days := days_range);
+  prev_start timestamptz := now() - make_interval(days := days_range * 2);
+  
   curr_views int; prev_views int;
   curr_engagements int; prev_engagements int;
   curr_saves int; prev_saves int;
