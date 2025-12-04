@@ -16,6 +16,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   bool _isLoading = true;
   Map<String, dynamic>? _data;
   List<VideoModel> _topVideos = [];
+  
+  // --- STATE: Selected Date Range ---
+  int _selectedDays = 30; // Default to 30 days
 
   @override
   void initState() {
@@ -24,9 +27,11 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _loadAnalytics() async {
-    final result = await _videoService.getAnalyticsDashboard();
+    setState(() => _isLoading = true); // Show loading when switching filters
     
-    // Parse Top Videos
+    // Pass the selected days to the service
+    final result = await _videoService.getAnalyticsDashboard(days: _selectedDays);
+    
     List<VideoModel> videos = [];
     if (result['top_videos'] != null) {
       videos = (result['top_videos'] as List)
@@ -43,27 +48,59 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     }
   }
 
+  // --- FILTER MODAL ---
+  void _showFilterModal(ThemeData theme) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Date range', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 24),
+              _buildFilterOption(theme, 'Last 7 days', 7),
+              _buildFilterOption(theme, 'Last 30 days', 30),
+              _buildFilterOption(theme, 'Last 90 days', 90),
+              const SizedBox(height: 24),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterOption(ThemeData theme, String label, int days) {
+    final isSelected = _selectedDays == days;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text(label, style: const TextStyle(fontSize: 16)),
+      trailing: isSelected 
+          ? Icon(Icons.check_circle, color: theme.colorScheme.primary) 
+          : const Icon(Icons.circle_outlined, color: Colors.grey),
+      onTap: () {
+        setState(() => _selectedDays = days); // Update state
+        Navigator.pop(context); // Close modal
+        _loadAnalytics(); // Refresh data
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    // Date Range Logic
+    // Date Range Logic (Dynamic based on _selectedDays)
     final now = DateTime.now();
-    final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+    final startDate = now.subtract(Duration(days: _selectedDays));
     final dateFormat = DateFormat('M/d/yy');
-    final dateRange = '${dateFormat.format(thirtyDaysAgo)} - ${dateFormat.format(now)}';
-
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Analytics')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    // Safe Data Accessor
-    Map<String, dynamic> getMetric(String key) {
-      return _data?[key] ?? {'value': 0, 'prev': 0};
-    }
+    final dateRange = '${dateFormat.format(startDate)} - ${dateFormat.format(now)}';
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -73,126 +110,136 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          IconButton(icon: const Icon(Icons.tune), onPressed: () {}), // Filter icon (dummy)
+          // Filter Icon links to the modal
+          IconButton(
+            icon: const Icon(Icons.tune), 
+            onPressed: () => _showFilterModal(theme),
+          ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // --- HEADER ---
-            Text('Last 30 days', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text(dateRange, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-            
-            const SizedBox(height: 32),
-
-            // --- OVERALL PERFORMANCE ---
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Overall performance', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 16),
-
-            Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
-              ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  _AnalyticsRow(
-                    label: 'Video Views', 
-                    data: getMetric('views'), 
-                    theme: theme, 
-                    isFirst: true
-                  ),
-                  _AnalyticsRow(
-                    label: 'Engagements', 
-                    data: getMetric('engagements'), 
-                    theme: theme
-                  ),
-                  _AnalyticsRow(
-                    label: 'Saves', 
-                    data: getMetric('saves'), 
-                    theme: theme
-                  ),
-                  _AnalyticsRow(
-                    label: 'Reposts', 
-                    data: getMetric('reposts'), 
-                    theme: theme
-                  ),
-                  _AnalyticsRow(
-                    label: 'New Followers', 
-                    data: getMetric('followers'), 
-                    theme: theme
-                  ),
-                  _AnalyticsRow(
-                    label: 'Engaged Audience', 
-                    data: getMetric('engaged_audience'), 
-                    theme: theme, 
-                    isLast: true
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 16),
-            Text(
-              'Percent changes are compared to 30 days before the date range above.',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              textAlign: TextAlign.center,
-            ),
-
-            const SizedBox(height: 40),
-
-            // --- TOP VIDEOS ---
-            Align(
-              alignment: Alignment.center,
-              child: Column(
-                children: [
-                  Text('Top Videos', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  // --- HEADER ---
+                  Text('Last $_selectedDays days', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text('Sorted by views', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  Text(dateRange, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  
+                  const SizedBox(height: 32),
+
+                  // --- OVERALL PERFORMANCE ---
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('Overall performance', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Container(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
+                    ),
+                    child: Column(
+                      children: [
+                        _AnalyticsRow(
+                          label: 'Video Views', 
+                          data: getMetric('views'), 
+                          theme: theme, 
+                          isFirst: true
+                        ),
+                        _AnalyticsRow(
+                          label: 'Engagements', 
+                          data: getMetric('engagements'), 
+                          theme: theme
+                        ),
+                        _AnalyticsRow(
+                          label: 'Saves', 
+                          data: getMetric('saves'), 
+                          theme: theme
+                        ),
+                        _AnalyticsRow(
+                          label: 'Reposts', 
+                          data: getMetric('reposts'), 
+                          theme: theme
+                        ),
+                        _AnalyticsRow(
+                          label: 'New Followers', 
+                          data: getMetric('followers'), 
+                          theme: theme
+                        ),
+                        _AnalyticsRow(
+                          label: 'Engaged Audience', 
+                          data: getMetric('engaged_audience'), 
+                          theme: theme, 
+                          isLast: true
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                  Text(
+                    'Percent changes are compared to $_selectedDays days before the date range above.',
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    textAlign: TextAlign.center,
+                  ),
+
+                  const SizedBox(height: 40),
+
+                  // --- TOP VIDEOS ---
+                  Align(
+                    alignment: Alignment.center,
+                    child: Column(
+                      children: [
+                        Text('Top Videos', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 4),
+                        Text('Sorted by views', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (_topVideos.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(32.0),
+                      child: Text('No videos data yet', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _topVideos.length,
+                      separatorBuilder: (_,__) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final v = _topVideos[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: v.coverImageUrl != null 
+                              ? Image.network(v.coverImageUrl!, width: 50, height: 50, fit: BoxFit.cover)
+                              : Container(width: 50, height: 50, color: theme.colorScheme.surfaceContainerHighest),
+                          ),
+                          title: Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          subtitle: Text('${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views'),
+                          trailing: const Icon(Icons.chevron_right),
+                        );
+                      },
+                    ),
+                    
+                  const SizedBox(height: 40),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
-
-            if (_topVideos.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(32.0),
-                child: Text('No videos data yet', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-              )
-            else
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _topVideos.length,
-                separatorBuilder: (_,__) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final v = _topVideos[index];
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: v.coverImageUrl != null 
-                        ? Image.network(v.coverImageUrl!, width: 50, height: 50, fit: BoxFit.cover)
-                        : Container(width: 50, height: 50, color: theme.colorScheme.surfaceContainerHighest),
-                    ),
-                    title: Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views'),
-                    trailing: const Icon(Icons.chevron_right),
-                  );
-                },
-              ),
-              
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
     );
+  }
+
+  Map<String, dynamic> getMetric(String key) {
+    return _data?[key] ?? {'value': 0, 'prev': 0};
   }
 
   String _formatNum(int num) {
@@ -227,14 +274,14 @@ class _AnalyticsRow extends StatelessWidget {
     if (prev > 0) {
       percentChange = ((value - prev) / prev) * 100;
     } else if (value > 0) {
-      percentChange = 100; // New growth from 0
+      percentChange = 100;
     }
 
     Color changeColor = Colors.grey;
     String changeText = '0%';
     
     if (percentChange > 0) {
-      changeColor = Colors.green; // Pinterest uses green for growth? Or maybe just bold text. Standard UI: Green = Good.
+      changeColor = Colors.green;
       changeText = '+${percentChange.toStringAsFixed(0)}%';
     } else if (percentChange < 0) {
       changeColor = Colors.red;
