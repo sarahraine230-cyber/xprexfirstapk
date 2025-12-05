@@ -7,7 +7,8 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/screens/monetization_screen.dart';
-import 'package:xprex/screens/analytics_screen.dart'; // Import Analytics
+import 'package:xprex/screens/analytics_screen.dart';
+import 'package:xprex/screens/pulse_screen.dart'; // Import Pulse
 
 class CreatorHubScreen extends ConsumerStatefulWidget {
   const CreatorHubScreen({super.key});
@@ -104,9 +105,8 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   label: 'Pulse', 
                   theme: theme,
                   onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Pulse (Notifications) coming soon!'))
-                    );
+                    // --- UPDATED: NAVIGATE TO PULSE ---
+                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PulseScreen()));
                   }
                 ),
                 _HubTopButton(
@@ -163,7 +163,6 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   Center(
                     child: FilledButton.tonal(
                       onPressed: () {
-                        // --- NAVIGATE TO ANALYTICS SCREEN ---
                         Navigator.of(context).push(
                           MaterialPageRoute(builder: (_) => const AnalyticsScreen())
                         );
