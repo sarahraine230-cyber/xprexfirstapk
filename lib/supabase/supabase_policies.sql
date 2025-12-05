@@ -1,63 +1,350 @@
--- XpreX Master Policies
--- Security definitions for all tables
+-- XpreX Master Schema
+-- Defines Tables, Indexes, Functions, and Automation Triggers
 
--- Enable Row Level Security
-alter table public.profiles enable row level security;
-alter table public.videos enable row level security;
-alter table public.comments enable row level security;
-alter table public.likes enable row level security;
-alter table public.follows enable row level security;
-alter table public.shares enable row level security;
-alter table public.saved_videos enable row level security;
-alter table public.reposts enable row level security;
-alter table public.video_views enable row level security;
-alter table public.user_interests enable row level security;
+-- Enable required extensions
+create extension if not exists pgcrypto;
+
+-- ==========================================
+-- 1. TABLES & INDEXES
+-- ==========================================
 
 -- PROFILES
-create policy profiles_select_all on public.profiles for select using (true);
-create policy profiles_insert_own on public.profiles for insert with check (auth.uid() = auth_user_id);
-create policy profiles_update_own on public.profiles for update using (auth.uid() = auth_user_id) with check (auth.uid() = auth_user_id);
+create table if not exists public.profiles (
+  id uuid primary key default gen_random_uuid(),
+  auth_user_id uuid not null unique references auth.users(id) on delete cascade,
+  email text not null,
+  username text not null unique,
+  display_name text not null,
+  avatar_url text,
+  bio text,
+  followers_count int not null default 0,
+  total_video_views int not null default 0,
+  is_premium boolean not null default false,
+  monetization_status text not null default 'locked',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_profiles_username on public.profiles (username);
 
 -- VIDEOS
-create policy videos_select_all on public.videos for select using (true);
-create policy videos_insert_own on public.videos for insert with check (auth.uid() = author_auth_user_id);
-create policy videos_update_own on public.videos for update using (auth.uid() = author_auth_user_id) with check (auth.uid() = author_auth_user_id);
-create policy videos_delete_own on public.videos for delete using (auth.uid() = author_auth_user_id);
+create table if not exists public.videos (
+  id uuid primary key default gen_random_uuid(),
+  author_auth_user_id uuid not null references auth.users(id) on delete cascade,
+  storage_path text not null,
+  cover_image_url text,
+  title text not null,
+  description text,
+  duration int not null,
+  playback_count int not null default 0,
+  likes_count int not null default 0,
+  comments_count int not null default 0,
+  saves_count int not null default 0,
+  reposts_count int not null default 0,
+  tags text[] default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_videos_author on public.videos (author_auth_user_id);
+create index if not exists idx_videos_created_at on public.videos (created_at desc);
+create index if not exists idx_videos_tags on public.videos using gin(tags);
 
--- VIDEO VIEWS (Allow insert by anyone, select only by author)
-create policy "Public can record views" on public.video_views for insert with check (true);
-create policy "Creators can view their own analytics" on public.video_views for select using (auth.uid() = author_id);
+-- VIDEO VIEWS (Analytics)
+create table if not exists public.video_views (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  viewer_id uuid references auth.users(id) on delete set null,
+  author_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz default now()
+);
+create index if not exists idx_video_views_author_time on public.video_views (author_id, created_at);
 
 -- COMMENTS
-create policy comments_select_all on public.comments for select using (true);
-create policy comments_insert_own on public.comments for insert with check (auth.uid() = author_auth_user_id);
-create policy comments_delete_own on public.comments for delete using (auth.uid() = author_auth_user_id);
+create table if not exists public.comments (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  author_auth_user_id uuid not null references auth.users(id) on delete cascade,
+  text text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists idx_comments_video on public.comments (video_id, created_at desc);
 
 -- LIKES
-create policy likes_select_all on public.likes for select using (true);
-create policy likes_insert_own on public.likes for insert with check (auth.uid() = user_auth_id);
-create policy likes_delete_own on public.likes for delete using (auth.uid() = user_auth_id);
+create table if not exists public.likes (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  user_auth_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (video_id, user_auth_id)
+);
 
 -- FOLLOWS
-create policy follows_select_all on public.follows for select using (true);
-create policy follows_insert_own on public.follows for insert with check (auth.uid() = follower_auth_user_id);
-create policy follows_delete_own on public.follows for delete using (auth.uid() = follower_auth_user_id);
-
--- SAVED VIDEOS
-create policy saved_select_own on public.saved_videos for select using (auth.uid() = user_auth_id);
-create policy saved_insert_own on public.saved_videos for insert with check (auth.uid() = user_auth_id);
-create policy saved_delete_own on public.saved_videos for delete using (auth.uid() = user_auth_id);
-
--- REPOSTS
-create policy reposts_select_all on public.reposts for select using (true);
-create policy reposts_insert_own on public.reposts for insert with check (auth.uid() = user_auth_id);
-create policy reposts_delete_own on public.reposts for delete using (auth.uid() = user_auth_id);
+create table if not exists public.follows (
+  id uuid primary key default gen_random_uuid(),
+  follower_auth_user_id uuid not null references auth.users(id) on delete cascade,
+  followee_auth_user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (follower_auth_user_id, followee_auth_user_id)
+);
 
 -- SHARES
-create policy shares_select_all on public.shares for select using (true);
-create policy shares_insert_own on public.shares for insert with check (auth.uid() = user_auth_id);
+create table if not exists public.shares (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  user_auth_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
 
--- USER INTERESTS
-create policy interests_select_own on public.user_interests for select using (auth.uid() = user_id);
-create policy interests_insert_own on public.user_interests for insert with check (auth.uid() = user_id);
-create policy interests_update_own on public.user_interests for update using (auth.uid() = user_id);
+-- SAVED VIDEOS
+create table if not exists public.saved_videos (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  user_auth_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique(user_auth_id, video_id)
+);
+
+-- REPOSTS
+create table if not exists public.reposts (
+  id uuid primary key default gen_random_uuid(),
+  video_id uuid not null references public.videos(id) on delete cascade,
+  user_auth_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique(user_auth_id, video_id)
+);
+
+-- USER INTERESTS (For Algorithm)
+create table if not exists public.user_interests (
+  user_id uuid references auth.users(id) on delete cascade,
+  tag text not null,
+  score int default 1,
+  last_interaction timestamptz default now(),
+  primary key (user_id, tag)
+);
+
+-- NOTIFICATIONS (Pulse)
+-- Updated: Links to public.profiles instead of auth.users for easier joins
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references public.profiles(auth_user_id) on delete cascade,
+  actor_id uuid not null references public.profiles(auth_user_id) on delete cascade,
+  video_id uuid references public.videos(id) on delete cascade,
+  type text not null check (type in ('like', 'comment', 'follow', 'repost')),
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+create index if not exists idx_notifications_recipient on public.notifications(recipient_id, created_at desc);
+
+
+-- ==========================================
+-- 2. ANALYTICS FUNCTIONS (RPC)
+-- ==========================================
+
+-- Function: Get 30-Day Stats for Creator Hub
+create or replace function get_creator_stats(target_user_id uuid)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  total_followers int;
+  views_30d int;
+  total_audience_30d int;
+  engaged_audience_30d int;
+  start_date timestamptz;
+begin
+  start_date := now() - interval '30 days';
+
+  select count(*) into total_followers from follows where followee_auth_user_id = target_user_id;
+
+  select count(vv.id) into views_30d
+  from video_views vv join videos v on vv.video_id = v.id
+  where v.author_auth_user_id = target_user_id and vv.created_at > start_date;
+
+  select count(distinct vv.viewer_id) into total_audience_30d
+  from video_views vv
+  join videos v on vv.video_id = v.id
+  where v.author_auth_user_id = target_user_id and vv.created_at > start_date and vv.viewer_id is not null;
+
+  with interactions as (
+    select l.user_auth_id as uid from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id and l.created_at > start_date
+    union all select c.author_auth_user_id from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id and c.created_at > start_date
+    union all select s.user_auth_id from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at > start_date
+    union all select r.user_auth_id from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at > start_date
+  )
+  select count(distinct uid) into engaged_audience_30d from interactions;
+
+  return json_build_object(
+    'followers', total_followers,
+    'views_30d', coalesce(views_30d, 0),
+    'total_audience', coalesce(total_audience_30d, 0),
+    'engaged_audience', coalesce(engaged_audience_30d, 0)
+  );
+end;
+$$;
+
+-- Function: Get Full Analytics Dashboard
+create or replace function get_analytics_dashboard(target_user_id uuid, days_range int default 30)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  current_start timestamptz := now() - make_interval(days := days_range);
+  prev_start timestamptz := now() - make_interval(days := days_range * 2);
+  
+  curr_views int; prev_views int;
+  curr_engagements int; prev_engagements int;
+  curr_saves int; prev_saves int;
+  curr_reposts int; prev_reposts int;
+  curr_followers int; prev_followers int;
+  curr_engaged_audience int; prev_engaged_audience int;
+  top_videos json;
+begin
+  select count(vv.id) into curr_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= current_start;
+  select count(vv.id) into prev_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= prev_start and vv.created_at < current_start;
+
+  select count(s.id) into curr_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= current_start;
+  select count(s.id) into prev_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= prev_start and s.created_at < current_start;
+
+  select count(r.id) into curr_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= current_start;
+  select count(r.id) into prev_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= prev_start and r.created_at < current_start;
+
+  select count(*) into curr_followers from follows where followee_auth_user_id = target_user_id and created_at >= current_start;
+  select count(*) into prev_followers from follows where followee_auth_user_id = target_user_id and created_at >= prev_start and created_at < current_start;
+
+  with interactions as (
+    select created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select created_at from saved_videos sa join videos v on sa.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select created_at from reposts re join videos v on re.video_id = v.id where v.author_auth_user_id = target_user_id
+  )
+  select count(*) filter (where created_at >= current_start), count(*) filter (where created_at >= prev_start and created_at < current_start)
+  into curr_engagements, prev_engagements from interactions;
+
+  with audience as (
+    select l.user_auth_id as uid, l.created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select c.author_auth_user_id, c.created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select s.user_auth_id, s.created_at from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id
+    union all select r.user_auth_id, r.created_at from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id
+  )
+  select count(distinct uid) filter (where created_at >= current_start), count(distinct uid) filter (where created_at >= prev_start and created_at < current_start)
+  into curr_engaged_audience, prev_engaged_audience from audience;
+
+  select json_agg(t) into top_videos from (
+    select v.*, profiles.username as author_username, profiles.display_name as author_display_name, profiles.avatar_url as author_avatar_url
+    from videos v join profiles on v.author_auth_user_id = profiles.auth_user_id
+    where v.author_auth_user_id = target_user_id
+    order by v.playback_count desc limit 5
+  ) t;
+
+  return json_build_object(
+    'metrics', json_build_object(
+      'views', json_build_object('value', coalesce(curr_views, 0), 'prev', coalesce(prev_views, 0)),
+      'engagements', json_build_object('value', coalesce(curr_engagements, 0), 'prev', coalesce(prev_engagements, 0)),
+      'saves', json_build_object('value', coalesce(curr_saves, 0), 'prev', coalesce(prev_saves, 0)),
+      'reposts', json_build_object('value', coalesce(curr_reposts, 0), 'prev', coalesce(prev_reposts, 0)),
+      'followers', json_build_object('value', coalesce(curr_followers, 0), 'prev', coalesce(prev_followers, 0)),
+      'engaged_audience', json_build_object('value', coalesce(curr_engaged_audience, 0), 'prev', coalesce(prev_engaged_audience, 0))
+    ),
+    'top_videos', coalesce(top_videos, '[]'::json)
+  );
+end;
+$$;
+
+-- ==========================================
+-- 3. AUTOMATION TRIGGERS
+-- ==========================================
+
+create or replace function update_video_view_count()
+returns trigger as $$
+begin
+  update public.videos set playback_count = playback_count + 1 where id = new.video_id;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_view_record on public.video_views;
+create trigger on_view_record after insert on public.video_views for each row execute function update_video_view_count();
+
+create or replace function learn_user_interests()
+returns trigger as $$
+declare v_tags text[]; t text;
+begin
+  select tags into v_tags from videos where id = new.video_id;
+  if v_tags is not null then
+    foreach t in array v_tags loop
+      insert into user_interests (user_id, tag, score, last_interaction)
+      values (new.user_auth_id, t, 1, now())
+      on conflict (user_id, tag) do update set score = user_interests.score + 1, last_interaction = now();
+    end loop;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_like_learn on public.likes;
+create trigger on_like_learn after insert on public.likes for each row execute function learn_user_interests();
+
+-- NOTIFICATION TRIGGERS
+-- A. Like
+create or replace function notify_on_like() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.user_auth_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.user_auth_id, new.video_id, 'like');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_like_notify on public.likes;
+create trigger on_like_notify after insert on public.likes for each row execute function notify_on_like();
+
+-- B. Comment
+create or replace function notify_on_comment() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.author_auth_user_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.author_auth_user_id, new.video_id, 'comment');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_comment_notify on public.comments;
+create trigger on_comment_notify after insert on public.comments for each row execute function notify_on_comment();
+
+-- C. Repost
+create or replace function notify_on_repost() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.user_auth_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.user_auth_id, new.video_id, 'repost');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_repost_notify on public.reposts;
+create trigger on_repost_notify after insert on public.reposts for each row execute function notify_on_repost();
+
+-- D. Follow
+create or replace function notify_on_follow() returns trigger as $$
+begin
+  if new.follower_auth_user_id != new.followee_auth_user_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (new.followee_auth_user_id, new.follower_auth_user_id, null, 'follow');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_follow_notify on public.follows;
+create trigger on_follow_notify after insert on public.follows for each row execute function notify_on_follow();
