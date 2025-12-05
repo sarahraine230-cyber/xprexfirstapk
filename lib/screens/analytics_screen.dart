@@ -27,7 +27,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 
   Future<void> _loadAnalytics() async {
-    setState(() => _isLoading = true); // Show loading when switching filters
+    setState(() => _isLoading = true);
     
     // Pass the selected days to the service
     final result = await _videoService.getAnalyticsDashboard(days: _selectedDays);
@@ -96,11 +96,23 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
-    // Date Range Logic (Dynamic based on _selectedDays)
+    // Date Range Logic
     final now = DateTime.now();
     final startDate = now.subtract(Duration(days: _selectedDays));
     final dateFormat = DateFormat('M/d/yy');
     final dateRange = '${dateFormat.format(startDate)} - ${dateFormat.format(now)}';
+
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Analytics')),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    // Safe Data Accessor
+    Map<String, dynamic> getMetric(String key) {
+      return _data?[key] ?? {'value': 0, 'prev': 0};
+    }
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -110,136 +122,129 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          // Filter Icon links to the modal
           IconButton(
             icon: const Icon(Icons.tune), 
             onPressed: () => _showFilterModal(theme),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // --- HEADER ---
+            Text('Last $_selectedDays days', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            Text(dateRange, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+            
+            const SizedBox(height: 32),
+
+            // --- OVERALL PERFORMANCE ---
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Overall performance', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            const SizedBox(height: 16),
+
+            Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
+              ),
               child: Column(
                 children: [
-                  // --- HEADER ---
-                  Text('Last $_selectedDays days', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(dateRange, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  
-                  const SizedBox(height: 32),
-
-                  // --- OVERALL PERFORMANCE ---
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('Overall performance', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  _AnalyticsRow(
+                    label: 'Video Views', 
+                    data: getMetric('views'), 
+                    theme: theme, 
+                    isFirst: true
                   ),
-                  const SizedBox(height: 16),
-
-                  Container(
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: theme.colorScheme.outline.withValues(alpha: 0.1)),
-                    ),
-                    child: Column(
-                      children: [
-                        _AnalyticsRow(
-                          label: 'Video Views', 
-                          data: getMetric('views'), 
-                          theme: theme, 
-                          isFirst: true
-                        ),
-                        _AnalyticsRow(
-                          label: 'Engagements', 
-                          data: getMetric('engagements'), 
-                          theme: theme
-                        ),
-                        _AnalyticsRow(
-                          label: 'Saves', 
-                          data: getMetric('saves'), 
-                          theme: theme
-                        ),
-                        _AnalyticsRow(
-                          label: 'Reposts', 
-                          data: getMetric('reposts'), 
-                          theme: theme
-                        ),
-                        _AnalyticsRow(
-                          label: 'New Followers', 
-                          data: getMetric('followers'), 
-                          theme: theme
-                        ),
-                        _AnalyticsRow(
-                          label: 'Engaged Audience', 
-                          data: getMetric('engaged_audience'), 
-                          theme: theme, 
-                          isLast: true
-                        ),
-                      ],
-                    ),
+                  _AnalyticsRow(
+                    label: 'Engagements', 
+                    data: getMetric('engagements'), 
+                    theme: theme
                   ),
-
-                  const SizedBox(height: 16),
-                  Text(
-                    'Percent changes are compared to $_selectedDays days before the date range above.',
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                    textAlign: TextAlign.center,
+                  _AnalyticsRow(
+                    label: 'Saves', 
+                    data: getMetric('saves'), 
+                    theme: theme
                   ),
-
-                  const SizedBox(height: 40),
-
-                  // --- TOP VIDEOS ---
-                  Align(
-                    alignment: Alignment.center,
-                    child: Column(
-                      children: [
-                        Text('Top Videos', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 4),
-                        Text('Sorted by views', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                      ],
-                    ),
+                  _AnalyticsRow(
+                    label: 'Reposts', 
+                    data: getMetric('reposts'), 
+                    theme: theme
                   ),
-                  const SizedBox(height: 16),
-
-                  if (_topVideos.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(32.0),
-                      child: Text('No videos data yet', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-                    )
-                  else
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _topVideos.length,
-                      separatorBuilder: (_,__) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final v = _topVideos[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: v.coverImageUrl != null 
-                              ? Image.network(v.coverImageUrl!, width: 50, height: 50, fit: BoxFit.cover)
-                              : Container(width: 50, height: 50, color: theme.colorScheme.surfaceContainerHighest),
-                          ),
-                          title: Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views'),
-                          trailing: const Icon(Icons.chevron_right),
-                        );
-                      },
-                    ),
-                    
-                  const SizedBox(height: 40),
+                  _AnalyticsRow(
+                    label: 'New Followers', 
+                    data: getMetric('followers'), 
+                    theme: theme
+                  ),
+                  _AnalyticsRow(
+                    label: 'Engaged Audience', 
+                    data: getMetric('engaged_audience'), 
+                    theme: theme, 
+                    isLast: true
+                  ),
                 ],
               ),
             ),
-    );
-  }
 
-  Map<String, dynamic> getMetric(String key) {
-    return _data?[key] ?? {'value': 0, 'prev': 0};
+            const SizedBox(height: 16),
+            Text(
+              'Percent changes are compared to $_selectedDays days before the date range above.',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              textAlign: TextAlign.center,
+            ),
+
+            const SizedBox(height: 40),
+
+            // --- TOP VIDEOS ---
+            Align(
+              alignment: Alignment.center,
+              child: Column(
+                children: [
+                  Text('Top Videos', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text('Sorted by views', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            if (_topVideos.isEmpty)
+              Padding(
+                padding: const EdgeInsets.all(32.0),
+                child: Text('No videos data yet', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _topVideos.length,
+                separatorBuilder: (_,__) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final v = _topVideos[index];
+                  return ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: v.coverImageUrl != null 
+                        ? Image.network(v.coverImageUrl!, width: 50, height: 50, fit: BoxFit.cover)
+                        : Container(width: 50, height: 50, color: theme.colorScheme.surfaceContainerHighest),
+                    ),
+                    title: Text(v.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${v.createdAt.day}/${v.createdAt.month} • ${_formatNum(v.playbackCount)} views'),
+                    trailing: const Icon(Icons.chevron_right),
+                  );
+                },
+              ),
+              
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
   }
 
   String _formatNum(int num) {
@@ -249,6 +254,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   }
 }
 
+// --- SMART ROW WITH TREND INDICATOR ---
 class _AnalyticsRow extends StatelessWidget {
   final String label;
   final Map<String, dynamic> data;
@@ -269,23 +275,32 @@ class _AnalyticsRow extends StatelessWidget {
     final int value = data['value'] ?? 0;
     final int prev = data['prev'] ?? 0;
     
-    // Calculate Change
+    // 1. Calculate Math
     double percentChange = 0;
     if (prev > 0) {
       percentChange = ((value - prev) / prev) * 100;
     } else if (value > 0) {
-      percentChange = 100;
+      percentChange = 100; // Growth from zero
     }
 
-    Color changeColor = Colors.grey;
+    // 2. Determine Logic (Color, Text, Icon)
+    Color changeColor = theme.colorScheme.onSurfaceVariant; // Default Grey
     String changeText = '0%';
+    IconData? changeIcon;
     
     if (percentChange > 0) {
-      changeColor = Colors.green;
-      changeText = '+${percentChange.toStringAsFixed(0)}%';
+      // GROWTH: Green
+      changeColor = Colors.green.shade600; 
+      changeText = '${percentChange.abs().toStringAsFixed(0)}%';
+      changeIcon = Icons.arrow_upward;
     } else if (percentChange < 0) {
-      changeColor = Colors.red;
-      changeText = '${percentChange.toStringAsFixed(0)}%';
+      // DECLINE: Red
+      changeColor = theme.colorScheme.error;
+      changeText = '${percentChange.abs().toStringAsFixed(0)}%';
+      changeIcon = Icons.arrow_downward;
+    } else {
+      // NEUTRAL: Grey/Hyphen
+      changeText = '-';
     }
 
     return Container(
@@ -295,23 +310,37 @@ class _AnalyticsRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
       child: Row(
         children: [
+          // Label
           Expanded(
-            flex: 3,
+            flex: 4,
             child: Text(label, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500)),
           ),
+          
+          // Trend Indicator (Center)
           Expanded(
             flex: 2,
-            child: Text(
-              changeText, 
-              style: TextStyle(color: changeColor, fontWeight: FontWeight.bold, fontSize: 14),
-              textAlign: TextAlign.right,
-            ),
+            child: percentChange != 0 
+              ? Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      changeText, 
+                      style: TextStyle(color: changeColor, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(changeIcon, size: 12, color: changeColor),
+                  ],
+                )
+              : Center(child: Text('-', style: TextStyle(color: theme.colorScheme.onSurfaceVariant))),
           ),
+
+          // Value (Right)
           Expanded(
             flex: 2,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                const SizedBox(width: 12),
                 Text(
                   _formatNum(value), 
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
