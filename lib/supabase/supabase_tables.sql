@@ -122,11 +122,24 @@ create table if not exists public.user_interests (
   primary key (user_id, tag)
 );
 
+-- NOTIFICATIONS (Pulse)
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  recipient_id uuid not null references auth.users(id) on delete cascade,
+  actor_id uuid not null references auth.users(id) on delete cascade,
+  video_id uuid references public.videos(id) on delete cascade,
+  type text not null check (type in ('like', 'comment', 'follow', 'repost')),
+  is_read boolean default false,
+  created_at timestamptz default now()
+);
+create index if not exists idx_notifications_recipient on public.notifications(recipient_id, created_at desc);
+
+
 -- ==========================================
 -- 2. ANALYTICS FUNCTIONS (RPC)
 -- ==========================================
 
--- Function: Get 30-Day Stats for Creator Hub (Simple)
+-- Function: Get 30-Day Stats for Creator Hub
 create or replace function get_creator_stats(target_user_id uuid)
 returns json
 language plpgsql
@@ -169,15 +182,13 @@ begin
 end;
 $$;
 
--- Function: Get Full Analytics Dashboard (Dynamic Date Range)
--- UPDATED: Now accepts 'days_range' parameter
+-- Function: Get Full Analytics Dashboard
 create or replace function get_analytics_dashboard(target_user_id uuid, days_range int default 30)
 returns json
 language plpgsql
 security definer
 as $$
 declare
-  -- DYNAMIC DATE CALCULATION
   current_start timestamptz := now() - make_interval(days := days_range);
   prev_start timestamptz := now() - make_interval(days := days_range * 2);
   
@@ -189,23 +200,18 @@ declare
   curr_engaged_audience int; prev_engaged_audience int;
   top_videos json;
 begin
-  -- Views
-  select count(*) into curr_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= current_start;
-  select count(*) into prev_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= prev_start and vv.created_at < current_start;
+  select count(vv.id) into curr_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= current_start;
+  select count(vv.id) into prev_views from video_views vv join videos v on vv.video_id = v.id where v.author_auth_user_id = target_user_id and vv.created_at >= prev_start and vv.created_at < current_start;
 
-  -- Saves
-  select count(*) into curr_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= current_start;
-  select count(*) into prev_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= prev_start and s.created_at < current_start;
+  select count(s.id) into curr_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= current_start;
+  select count(s.id) into prev_saves from saved_videos s join videos v on s.video_id = v.id where v.author_auth_user_id = target_user_id and s.created_at >= prev_start and s.created_at < current_start;
 
-  -- Reposts
-  select count(*) into curr_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= current_start;
-  select count(*) into prev_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= prev_start and r.created_at < current_start;
+  select count(r.id) into curr_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= current_start;
+  select count(r.id) into prev_reposts from reposts r join videos v on r.video_id = v.id where v.author_auth_user_id = target_user_id and r.created_at >= prev_start and r.created_at < current_start;
 
-  -- Followers
   select count(*) into curr_followers from follows where followee_auth_user_id = target_user_id and created_at >= current_start;
   select count(*) into prev_followers from follows where followee_auth_user_id = target_user_id and created_at >= prev_start and created_at < current_start;
 
-  -- Engagements
   with interactions as (
     select created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
     union all select created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
@@ -215,7 +221,6 @@ begin
   select count(*) filter (where created_at >= current_start), count(*) filter (where created_at >= prev_start and created_at < current_start)
   into curr_engagements, prev_engagements from interactions;
 
-  -- Engaged Audience
   with audience as (
     select l.user_auth_id as uid, l.created_at from likes l join videos v on l.video_id = v.id where v.author_auth_user_id = target_user_id
     union all select c.author_auth_user_id, c.created_at from comments c join videos v on c.video_id = v.id where v.author_auth_user_id = target_user_id
@@ -225,7 +230,6 @@ begin
   select count(distinct uid) filter (where created_at >= current_start), count(distinct uid) filter (where created_at >= prev_start and created_at < current_start)
   into curr_engaged_audience, prev_engaged_audience from audience;
 
-  -- Top Videos
   select json_agg(t) into top_videos from (
     select v.*, profiles.username as author_username, profiles.display_name as author_display_name, profiles.avatar_url as author_avatar_url
     from videos v join profiles on v.author_auth_user_id = profiles.auth_user_id
@@ -251,8 +255,8 @@ $$;
 -- 3. AUTOMATION TRIGGERS
 -- ==========================================
 
-create or replace function update_video_view_count()
-returns trigger as $$
+-- Video View Count
+create or replace function update_video_view_count() returns trigger as $$
 begin
   update public.videos set playback_count = playback_count + 1 where id = new.video_id;
   return new;
@@ -262,8 +266,8 @@ $$ language plpgsql security definer;
 drop trigger if exists on_view_record on public.video_views;
 create trigger on_view_record after insert on public.video_views for each row execute function update_video_view_count();
 
-create or replace function learn_user_interests()
-returns trigger as $$
+-- User Interest Learning
+create or replace function learn_user_interests() returns trigger as $$
 declare v_tags text[]; t text;
 begin
   select tags into v_tags from videos where id = new.video_id;
@@ -280,3 +284,67 @@ $$ language plpgsql security definer;
 
 drop trigger if exists on_like_learn on public.likes;
 create trigger on_like_learn after insert on public.likes for each row execute function learn_user_interests();
+
+-- NOTIFICATION TRIGGERS
+
+-- A. Like
+create or replace function notify_on_like() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.user_auth_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.user_auth_id, new.video_id, 'like');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_like_notify on public.likes;
+create trigger on_like_notify after insert on public.likes for each row execute function notify_on_like();
+
+-- B. Comment
+create or replace function notify_on_comment() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.author_auth_user_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.author_auth_user_id, new.video_id, 'comment');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_comment_notify on public.comments;
+create trigger on_comment_notify after insert on public.comments for each row execute function notify_on_comment();
+
+-- C. Repost
+create or replace function notify_on_repost() returns trigger as $$
+declare video_owner_id uuid;
+begin
+  select author_auth_user_id into video_owner_id from public.videos where id = new.video_id;
+  if video_owner_id != new.user_auth_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (video_owner_id, new.user_auth_id, new.video_id, 'repost');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_repost_notify on public.reposts;
+create trigger on_repost_notify after insert on public.reposts for each row execute function notify_on_repost();
+
+-- D. Follow
+create or replace function notify_on_follow() returns trigger as $$
+begin
+  if new.follower_auth_user_id != new.followee_auth_user_id then
+    insert into public.notifications (recipient_id, actor_id, video_id, type)
+    values (new.followee_auth_user_id, new.follower_auth_user_id, null, 'follow');
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_follow_notify on public.follows;
+create trigger on_follow_notify after insert on public.follows for each row execute function notify_on_follow();
