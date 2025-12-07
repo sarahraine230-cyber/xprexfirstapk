@@ -15,7 +15,7 @@ class CommentService {
           .from('comments')
           .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('video_id', videoId)
-          .is_('parent_id', null) // FILTER: Root comments only
+          .filter('parent_id', 'is', null) // FIX: Replaced .is_() with .filter()
           .order('created_at', ascending: false);
 
       final comments = (response as List)
@@ -189,24 +189,29 @@ class CommentService {
   // --- Fallback Method (preserved from previous version, updated for hierarchy) ---
   Future<List<CommentModel>> _fallbackFetchComments(String id, {required bool isRoot}) async {
      debugPrint('ℹ️ Falling back to 2-step comments fetch');
-     // 1) Fetch raw comments
-     var query = _supabase.from('comments').select('*');
      
+     // FIX: Changed logic to avoid Type Assignment error
+     final builder = _supabase.from('comments').select('*');
+     
+     final List<dynamic> rows;
      if (isRoot) {
-       query = query.eq('video_id', id).is_('parent_id', null).order('created_at', ascending: false);
+       // FIX: Replaced .is_() with .filter() and handled chaining cleanly
+       rows = await builder
+           .eq('video_id', id)
+           .filter('parent_id', 'is', null) 
+           .order('created_at', ascending: false);
      } else {
-       query = query.eq('parent_id', id).order('created_at', ascending: true);
+       rows = await builder
+           .eq('parent_id', id)
+           .order('created_at', ascending: true);
      }
      
-     final rows = await query;
-     if (rows is! List) return [];
-
       // 2) Fetch author profiles in batch
       final authorIds = <String>{};
       for (final r in rows) {
         final m = (r as Map<String, dynamic>);
         final aid = m['author_auth_user_id'];
-        if (id is String) authorIds.add(id);
+        if (aid is String) authorIds.add(aid);
       }
 
       Map<String, Map<String, dynamic>> profilesByAuthId = {};
