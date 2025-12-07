@@ -212,7 +212,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _repostCount = 0;
   
   bool _loading = true;
-
   @override
   void initState() {
     super.initState();
@@ -241,7 +240,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
         ..setLooping(true);
       await _controller!.initialize();
-      
       // --- CRITICAL: RECORD VIEW ---
       if (widget.video.authorAuthUserId.isNotEmpty) {
         _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
@@ -638,7 +636,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     ),
                     SizedBox(height: smallGap),
                     _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
-                    
                     SizedBox(height: groupGap),
                     _NeonRailButton(
                       icon: Icons.repeat,
@@ -804,6 +801,7 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
   }
 }
 
+// --- UPDATED COMMENT SHEET FOR THREADING ---
 class _CommentsSheet extends StatefulWidget {
   final String videoId;
   final VoidCallback? onNewComment;
@@ -817,6 +815,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   final _inputCtrl = TextEditingController();
   late Future<List<CommentModel>> _loader;
   bool _posting = false;
+  
+  // REPLY STATE
+  CommentModel? _replyingTo; // The comment we are replying to
 
   @override
   void initState() {
@@ -844,9 +845,24 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
     setState(() => _posting = true);
     try {
-      await _svc.createComment(videoId: widget.videoId, authorAuthUserId: uid, text: text);
+      // Logic for nesting: If replying to a reply, set parent as the original parent
+      String? parentId;
+      if (_replyingTo != null) {
+        // If the comment we reply to HAS a parent, we use that (same level sibling)
+        // If it DOES NOT have a parent, we use its ID (it is the root)
+        parentId = _replyingTo!.parentId ?? _replyingTo!.id;
+      }
+
+      await _svc.createComment(
+        videoId: widget.videoId, 
+        authorAuthUserId: uid, 
+        text: text,
+        parentId: parentId,
+      );
+      
       _inputCtrl.clear();
       setState(() {
+        _replyingTo = null; // Reset reply mode
         _loader = _svc.getCommentsByVideo(widget.videoId);
         _posting = false;
       });
@@ -927,38 +943,44 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       itemCount: items.length,
                       itemBuilder: (context, i) {
-                        final c = items[i];
-                        final name = (c.authorDisplayName != null && c.authorDisplayName!.trim().isNotEmpty)
-                            ? c.authorDisplayName!
-                            : (c.authorUsername != null ? '@${c.authorUsername}' : '');
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            CircleAvatar(
-                              radius: 16,
-                              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                              backgroundImage: (c.authorAvatarUrl != null && c.authorAvatarUrl!.isNotEmpty) ? NetworkImage(c.authorAvatarUrl!) : null,
-                              child: (c.authorAvatarUrl == null || c.authorAvatarUrl!.isEmpty) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) : null,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(name, style: theme.textTheme.titleSmall),
-                                  const SizedBox(height: 4),
-                                  Text(c.text, style: theme.textTheme.bodyMedium),
-                                ],
-                              ),
-                            ),
-                          ],
+                        return _CommentRow(
+                          comment: items[i], 
+                          onReplyTap: (c) {
+                             setState(() {
+                               _replyingTo = c;
+                             });
+                             // Focus the input? (Not strict requirement but good UX)
+                          },
                         );
                       },
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      separatorBuilder: (_, __) => const SizedBox(height: 16),
                     );
                   },
                 ),
               ),
+              
+              // --- REPLY INDICATOR ---
+              if (_replyingTo != null)
+                Container(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Replying to @${_replyingTo!.authorUsername ?? "user"}', 
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        onPressed: () => setState(() => _replyingTo = null),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      )
+                    ],
+                  ),
+                ),
+
               SafeArea(
                 top: false,
                 child: Padding(
@@ -969,7 +991,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                       child: TextField(
                         controller: _inputCtrl,
                         decoration: InputDecoration(
-                          hintText: 'Add a comment',
+                          hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         ),
@@ -991,6 +1013,281 @@ class _CommentsSheetState extends State<_CommentsSheet> {
           );
       },
       ),
+    );
+  }
+}
+
+// --- NEW WIDGET: INDIVIDUAL COMMENT ROW WITH REPLIES ---
+class _CommentRow extends StatefulWidget {
+  final CommentModel comment;
+  final Function(CommentModel) onReplyTap;
+  const _CommentRow({required this.comment, required this.onReplyTap});
+
+  @override
+  State<_CommentRow> createState() => _CommentRowState();
+}
+
+class _CommentRowState extends State<_CommentRow> {
+  bool _repliesVisible = false;
+  bool _loadingReplies = false;
+  final _svc = CommentService();
+
+  // Optimistic Like State
+  late bool _isLiked;
+  late int _likesCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _isLiked = widget.comment.isLiked;
+    _likesCount = widget.comment.likesCount;
+  }
+
+  void _toggleLike() async {
+    // Optimistic Update
+    setState(() {
+      _isLiked = !_isLiked;
+      _likesCount += _isLiked ? 1 : -1;
+    });
+
+    try {
+      await _svc.toggleCommentLike(widget.comment.id);
+    } catch (e) {
+      // Revert if failed
+      if (mounted) {
+         setState(() {
+          _isLiked = !_isLiked;
+          _likesCount += _isLiked ? 1 : -1;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchReplies() async {
+    if (widget.comment.replies.isNotEmpty) {
+      setState(() => _repliesVisible = !_repliesVisible);
+      return;
+    }
+
+    setState(() {
+      _loadingReplies = true;
+      _repliesVisible = true;
+    });
+
+    try {
+      final replies = await _svc.getReplies(widget.comment.id);
+      if (mounted) {
+        setState(() {
+          widget.comment.replies = replies;
+          _loadingReplies = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading replies: $e');
+      if (mounted) setState(() => _loadingReplies = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final c = widget.comment;
+    final name = (c.authorDisplayName?.trim().isNotEmpty == true)
+        ? c.authorDisplayName!
+        : (c.authorUsername != null ? '@${c.authorUsername}' : 'User');
+    
+    return Column(
+      children: [
+        // PARENT COMMENT
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              backgroundImage: (c.authorAvatarUrl?.isNotEmpty == true) 
+                  ? NetworkImage(c.authorAvatarUrl!) 
+                  : null,
+              child: (c.authorAvatarUrl?.isEmpty ?? true) 
+                  ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) 
+                  : null,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(name, style: theme.textTheme.titleSmall?.copyWith(fontSize: 13, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 2),
+                  Text(c.text, style: theme.textTheme.bodyMedium),
+                  const SizedBox(height: 4),
+                  
+                  // Action Row
+                  Row(
+                    children: [
+                      // Timestamp (placeholder logic or use library like timeago)
+                      Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)), 
+                      const SizedBox(width: 16),
+                      GestureDetector(
+                        onTap: () => widget.onReplyTap(c),
+                        child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+
+                  // View Replies Button
+                  if (c.replyCount > 0) ...[
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _fetchReplies,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(width: 24, height: 1, color: theme.colorScheme.onSurfaceVariant),
+                          const SizedBox(width: 8),
+                          Text(
+                            _repliesVisible && c.replies.isNotEmpty ? 'Hide replies' : 'View ${c.replyCount} replies',
+                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                          if (_loadingReplies)
+                             const Padding(
+                               padding: EdgeInsets.only(left: 8.0),
+                               child: SizedBox(width: 8, height: 8, child: CircularProgressIndicator(strokeWidth: 2)),
+                             )
+                        ],
+                      ),
+                    ),
+                  ]
+                ],
+              ),
+            ),
+            
+            // Like Button Column
+            Column(
+              children: [
+                GestureDetector(
+                  onTap: _toggleLike,
+                  child: Icon(
+                    _isLiked ? Icons.favorite : Icons.favorite_border,
+                    size: 16,
+                    color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (_likesCount > 0)
+                  Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            )
+          ],
+        ),
+
+        // REPLIES LIST (Nested)
+        if (_repliesVisible && c.replies.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(left: 42.0, top: 12),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: c.replies.length,
+              separatorBuilder: (_,__) => const SizedBox(height: 12),
+              itemBuilder: (ctx, i) {
+                 final r = c.replies[i];
+                 return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
+              },
+            ),
+          )
+      ],
+    );
+  }
+}
+
+// SIMPLIFIED ROW FOR REPLIES (Recursive structure avoided for strict 1-level)
+class _ReplyRow extends StatefulWidget {
+  final CommentModel reply;
+  final Function(CommentModel) onReplyTap;
+  const _ReplyRow({required this.reply, required this.onReplyTap});
+
+  @override
+  State<_ReplyRow> createState() => _ReplyRowState();
+}
+
+class _ReplyRowState extends State<_ReplyRow> {
+  final _svc = CommentService();
+  late bool _isLiked;
+  late int _likesCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _isLiked = widget.reply.isLiked;
+    _likesCount = widget.reply.likesCount;
+  }
+
+  void _toggleLike() async {
+    setState(() {
+      _isLiked = !_isLiked;
+      _likesCount += _isLiked ? 1 : -1;
+    });
+    try {
+      await _svc.toggleCommentLike(widget.reply.id);
+    } catch (e) {
+       if (mounted) setState(() { _isLiked = !_isLiked; _likesCount += _isLiked ? 1 : -1; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final r = widget.reply;
+    final name = (r.authorDisplayName?.trim().isNotEmpty == true)
+        ? r.authorDisplayName!
+        : (r.authorUsername != null ? '@${r.authorUsername}' : 'User');
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CircleAvatar(
+          radius: 12,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+          backgroundImage: (r.authorAvatarUrl?.isNotEmpty == true) ? NetworkImage(r.authorAvatarUrl!) : null,
+          child: (r.authorAvatarUrl?.isEmpty ?? true) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 14) : null,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name, style: theme.textTheme.titleSmall?.copyWith(fontSize: 12, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(r.text, style: theme.textTheme.bodyMedium),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)), 
+                  const SizedBox(width: 16),
+                  GestureDetector(
+                    onTap: () => widget.onReplyTap(r),
+                    child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        Column(
+          children: [
+            GestureDetector(
+              onTap: _toggleLike,
+              child: Icon(
+                _isLiked ? Icons.favorite : Icons.favorite_border,
+                size: 14,
+                color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (_likesCount > 0)
+              Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
+          ],
+        )
+      ],
     );
   }
 }
