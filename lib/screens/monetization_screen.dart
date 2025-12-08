@@ -12,76 +12,79 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
-  Map<String, dynamic>? _eligibilityData;
+  Map<String, dynamic>? _profileData;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadEligibility();
+    _loadProfileData();
   }
 
-  Future<void> _loadEligibility() async {
+  Future<void> _loadProfileData() async {
     final authService = ref.read(authServiceProvider);
     final profileService = ref.read(profileServiceProvider);
-    
     try {
+      // We fetch the profile to check 'is_premium' status and existing metrics
+      // Assuming getMonetizationEligibility returns user profile mix
       final data = await profileService.getMonetizationEligibility(authService.currentUserId!);
-      setState(() {
-        _eligibilityData = data;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading eligibility: $e')),
-        );
+        setState(() {
+          _profileData = data;
+          _isLoading = false;
+        });
       }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+      debugPrint('Error loading profile: $e');
     }
   }
 
-  Future<void> _enablePremium() async {
+  Future<void> _purchasePremium() async {
+    // Simulating purchase flow
+    setState(() => _isLoading = true);
     final profileService = ref.read(profileServiceProvider);
     final authService = ref.read(authServiceProvider);
     
     try {
+      await Future.delayed(const Duration(seconds: 2)); // Mock payment delay
+      
       await profileService.updateProfile(
         authUserId: authService.currentUserId!,
         isPremium: true,
         monetizationStatus: 'active',
       );
-
-      if (!mounted) return;
       
+      // Refresh local state to switch view to Dashboard
+      await _loadProfileData();
+      
+      if (!mounted) return;
       showDialog(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Success!'),
-          content: const Text('Premium membership activated. You can now monetize your content!'),
+        builder: (ctx) => AlertDialog(
+          title: const Text('Welcome to the Elite 🚀'),
+          content: const Text('Your premium benefits are now active. Enjoy your ad credits and reach boost!'),
           actions: [
             FilledButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                context.pop();
-              },
-              child: const Text('Great!'),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Let\'s Go'),
             ),
           ],
         ),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Purchase failed: $e')));
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
+    
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Monetization')),
@@ -89,109 +92,365 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       );
     }
 
-    final eligible = _eligibilityData?['eligible'] ?? false;
-    final progress = _eligibilityData?['progress'] ?? 0;
-    final criteria = _eligibilityData?['criteria'] as Map<String, dynamic>?;
+    // Check Premium Status
+    // Adapting based on your previous data structure logic
+    // If exact field is different in your Supabase, update 'is_premium' key
+    final isPremium = _profileData?['is_premium'] == true;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Monetization')),
-      body: SingleChildScrollView(
-        padding: AppSpacing.paddingLg,
-        child: Column(
-          children: [
-            SizedBox(
-              height: 200,
-              width: 200,
+      appBar: AppBar(
+        title: Text(isPremium ? 'Creator Hub' : 'Premium'),
+        centerTitle: true,
+      ),
+      body: isPremium ? _buildPremiumDashboard(theme) : _buildSalesPage(theme),
+    );
+  }
+
+  // ===========================================================================
+  // 1. SALES PAGE (For Free Users)
+  // ===========================================================================
+  Widget _buildSalesPage(ThemeData theme) {
+    final neon = theme.extension<NeonAccentTheme>();
+
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // --- HEADER ---
+                const SizedBox(height: 16),
+                Text(
+                  'Xprex Your\nInfluence.',
+                  style: theme.textTheme.displayMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
+                    letterSpacing: -1.0,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "Don't just create content. Build an empire. Get the tools you need to dominate the feed.",
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    height: 1.5,
+                  ),
+                ),
+                
+                const SizedBox(height: 48),
+
+                // --- VALUE PROPS ---
+                _buildBenefitRow(
+                  theme: theme,
+                  icon: Icons.campaign_rounded,
+                  iconColor: neon?.cyan ?? Colors.cyan,
+                  title: 'Monthly Ad Credits',
+                  desc: 'Get ₦2,000 every month to promote your brand directly on the timeline.',
+                ),
+                _buildBenefitRow(
+                  theme: theme,
+                  icon: Icons.rocket_launch_rounded,
+                  iconColor: neon?.purple ?? Colors.purple,
+                  title: '1.5x Reach Boost',
+                  desc: 'Dominate the algorithm. Your content gets priority placement in For You.',
+                ),
+                _buildBenefitRow(
+                  theme: theme,
+                  icon: Icons.verified,
+                  iconColor: neon?.blue ?? Colors.blue,
+                  title: 'Verification Badge',
+                  desc: 'Instant credibility. Stand out in comments and search results.',
+                ),
+                _buildBenefitRow(
+                  theme: theme,
+                  icon: Icons.monetization_on_rounded,
+                  iconColor: Colors.greenAccent,
+                  title: 'Revenue Pool Access',
+                  desc: 'Unlock the Creator Revenue Sharing program and get paid to post.',
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // --- STICKY FOOTER ---
+        Container(
+          padding: const EdgeInsets.all(24.0),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+          ),
+          child: Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                  onPressed: _purchasePremium,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.onSurface, // Inverted high contrast
+                    foregroundColor: theme.colorScheme.surface,
+                  ),
+                  child: const Text(
+                    'Join the Elite • ₦7,000/mo',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              GestureDetector(
+                onTap: () {
+                  // Show the old checklist in a bottom sheet strictly for info
+                  _showRequirementsSheet(context, theme);
+                },
+                child: Text(
+                  'Learn more about monetization requirements',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBenefitRow({
+    required ThemeData theme,
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String desc,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 32.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: iconColor, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(desc, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ===========================================================================
+  // 2. DASHBOARD VIEW (For Premium Users)
+  // ===========================================================================
+  Widget _buildPremiumDashboard(ThemeData theme) {
+    // Mocking data based on what might be in _profileData or fetching real time
+    // We assume _profileData contains these or defaults to 0
+    final earnings = _profileData?['earnings_balance'] ?? 0.0;
+    final adCredits = 2000; // Hardcoded benefit for example
+    final progress = _profileData?['progress'] ?? 0;
+    final views = _profileData?['video_views'] ?? 0;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Earnings Card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Estimated Earnings',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '₦${earnings.toStringAsFixed(2)}',
+                  style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'Next Payout: Dec 30',
+                    style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          Row(
+            children: [
+              // Ad Credits Card
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.campaign, color: theme.colorScheme.secondary, size: 32),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Ad Credits',
+                        style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '₦$adCredits',
+                        style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Views Progress Card
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.bar_chart, color: theme.colorScheme.tertiary, size: 32),
+                      const SizedBox(height: 12),
+                      Text(
+                        '30d Views',
+                        style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '$views',
+                        style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 32),
+          
+          Text('Monetization Progress', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 16),
+          // Reusing the circular indicator from previous file logic
+          Center(
+            child: SizedBox(
+              height: 160,
+              width: 160,
               child: Stack(
                 children: [
-                  Center(
-                    child: SizedBox(
-                      height: 180,
-                      width: 180,
-                      child: CircularProgressIndicator(
-                        value: progress / 100,
-                        strokeWidth: 12,
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                        color: theme.colorScheme.primary,
-                      ),
+                  SizedBox.expand(
+                    child: CircularProgressIndicator(
+                      value: progress / 100,
+                      strokeWidth: 12,
+                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                      color: theme.colorScheme.primary,
+                      strokeCap: StrokeCap.round,
                     ),
                   ),
                   Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text('$progress%', style: theme.textTheme.displayMedium?.copyWith(fontWeight: FontWeight.bold)),
-                        Text('Complete', style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                        Text('$progress%', style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold)),
+                        Text('Qualified', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                       ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 32),
-            Text('Eligibility Checklist', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 16),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Info Sheet for Requirement details (Hidden from main view)
+  void _showRequirementsSheet(BuildContext context, ThemeData theme) {
+    final criteria = _profileData?['criteria'] as Map<String, dynamic>?;
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Eligibility Requirements', style: theme.textTheme.headlineSmall),
+            const SizedBox(height: 24),
             if (criteria != null) ...[
-              _buildCriteriaItem('1,000+ Followers', criteria['min_followers'] ?? false, '${_eligibilityData!['followers']} followers', theme),
-              _buildCriteriaItem('10,000+ Video Views', criteria['min_video_views'] ?? false, '${_eligibilityData!['video_views']} views', theme),
-              _buildCriteriaItem('Account Age 30+ Days', criteria['min_account_age'] ?? false, '${_eligibilityData!['account_age_days']} days', theme),
-              _buildCriteriaItem('Email Verified', criteria['email_verified'] ?? false, '', theme),
-              _buildCriteriaItem('18+ Confirmed', criteria['age_confirmed'] ?? false, '', theme),
-              _buildCriteriaItem('No Active Flags', criteria['no_active_flags'] ?? false, '', theme),
-            ],
-            const SizedBox(height: 32),
-            if (eligible) ...[
-              Container(
-                padding: AppSpacing.paddingLg,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.star, size: 64, color: theme.colorScheme.onPrimaryContainer),
-                    const SizedBox(height: 16),
-                    Text('You\'re Eligible!', style: theme.textTheme.headlineMedium?.copyWith(color: theme.colorScheme.onPrimaryContainer)),
-                    const SizedBox(height: 8),
-                    Text('Start earning from your content today', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onPrimaryContainer), textAlign: TextAlign.center),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _enablePremium,
-                style: FilledButton.styleFrom(minimumSize: const Size(double.infinity, 56)),
-                child: const Text('Enable Premium'),
-              ),
-            ] else ...[
-              Container(
-                padding: AppSpacing.paddingLg,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.info_outline, size: 48, color: theme.colorScheme.onSurfaceVariant),
-                    const SizedBox(height: 16),
-                    Text('Keep Creating!', style: theme.textTheme.titleLarge),
-                    const SizedBox(height: 8),
-                    Text('Complete all criteria to unlock monetization', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant), textAlign: TextAlign.center),
-                  ],
-                ),
-              ),
-            ],
+               _buildReqItem('1,000+ Followers', criteria['min_followers'] ?? false, theme),
+               _buildReqItem('10,000+ Video Views', criteria['min_video_views'] ?? false, theme),
+               _buildReqItem('Account Age 30+ Days', criteria['min_account_age'] ?? false, theme),
+               _buildReqItem('Email Verified', criteria['email_verified'] ?? false, theme),
+            ] else 
+              const Text('Loading criteria...'),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildCriteriaItem(String title, bool met, String subtitle, ThemeData theme) {
-    return ListTile(
-      leading: Icon(met ? Icons.check_circle : Icons.radio_button_unchecked, color: met ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant),
-      title: Text(title),
-      subtitle: subtitle.isNotEmpty ? Text(subtitle) : null,
+  Widget _buildReqItem(String text, bool met, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Row(
+        children: [
+          Icon(
+            met ? Icons.check_circle : Icons.circle_outlined,
+            color: met ? Colors.green : theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 12),
+          Text(text, style: theme.textTheme.bodyLarge),
+        ],
+      ),
     );
   }
 }
