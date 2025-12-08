@@ -801,7 +801,7 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
   }
 }
 
-// --- UPDATED COMMENT SHEET FOR THREADING ---
+// --- UPDATED COMMENT SHEET: PHYSICS, TYPOGRAPHY, & EMOJIS ---
 class _CommentsSheet extends StatefulWidget {
   final String videoId;
   final VoidCallback? onNewComment;
@@ -817,7 +817,10 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   bool _posting = false;
   
   // REPLY STATE
-  CommentModel? _replyingTo; // The comment we are replying to
+  CommentModel? _replyingTo; 
+
+  // EMOJI BAR
+  final List<String> _quickEmojis = ['🔥', '😂', '😍', '👏', '😢', '😮', '💯', '🙏'];
 
   @override
   void initState() {
@@ -848,8 +851,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       // Logic for nesting: If replying to a reply, set parent as the original parent
       String? parentId;
       if (_replyingTo != null) {
-        // If the comment we reply to HAS a parent, we use that (same level sibling)
-        // If it DOES NOT have a parent, we use its ID (it is the root)
         parentId = _replyingTo!.parentId ?? _replyingTo!.id;
       }
 
@@ -884,140 +885,183 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
   }
 
+  void _insertEmoji(String emoji) {
+    _inputCtrl.text += emoji;
+    _inputCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _inputCtrl.text.length));
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final viewInsets = MediaQuery.of(context).viewInsets.bottom;
+    
     return AnimatedPadding(
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
       padding: EdgeInsets.only(bottom: viewInsets),
       child: DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (context, scrollController) {
-        return Container(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
+        // --- 1. PHYSICS UPDATE: HALF SHEET BY DEFAULT ---
+        initialChildSize: 0.55, 
+        minChildSize: 0.40,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+              ),
             ),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              Container(width: 40, height: 4, decoration: BoxDecoration(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.chat_bubble_outline, color: theme.colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text('Comments', style: theme.textTheme.titleLarge),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: Icon(Icons.close, color: theme.colorScheme.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: FutureBuilder<List<CommentModel>>(
-                  future: _loader,
-                  builder: (context, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final items = snap.data ?? const <CommentModel>[];
-                    if (items.isEmpty) {
-                      return Center(
-                        child: Text('Be the first to comment', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                      );
-                    }
-                    return ListView.separated(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      itemCount: items.length,
-                      itemBuilder: (context, i) {
-                        return _CommentRow(
-                          comment: items[i], 
-                          onReplyTap: (c) {
-                             setState(() {
-                               _replyingTo = c;
-                             });
-                             // Focus the input? (Not strict requirement but good UX)
-                          },
-                        );
-                      },
-                      separatorBuilder: (_, __) => const SizedBox(height: 16),
-                    );
-                  },
-                ),
-              ),
-              
-              // --- REPLY INDICATOR ---
-              if (_replyingTo != null)
-                Container(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
                   child: Row(
                     children: [
-                      Text(
-                        'Replying to @${_replyingTo!.authorUsername ?? "user"}', 
-                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)
-                      ),
+                      // Updated Header style
+                      Text('Comments', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      if (_commentsCount > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 8.0),
+                          child: Text(_commentsCount.toString(), style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        ),
                       const Spacer(),
                       IconButton(
-                        icon: const Icon(Icons.close, size: 16),
-                        onPressed: () => setState(() => _replyingTo = null),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      )
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: Icon(Icons.close, color: theme.colorScheme.onSurfaceVariant),
+                      ),
                     ],
                   ),
                 ),
-
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
-                  child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _inputCtrl,
-                        decoration: InputDecoration(
-                          hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton.icon(
-                      onPressed: _posting ? null : _post,
-                      icon: const Icon(Icons.send),
-                      label: const Text('Send'),
-                      style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24))),
-                    ),
-                  ],
+                Divider(height: 1, color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                Expanded(
+                  child: FutureBuilder<List<CommentModel>>(
+                    future: _loader,
+                    builder: (context, snap) {
+                      if (snap.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final items = snap.data ?? const <CommentModel>[];
+                      if (items.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text('No comments yet', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text('Start the conversation.', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                            ],
+                          ),
+                        );
+                      }
+                      return ListView.separated(
+                        controller: scrollController,
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        itemCount: items.length,
+                        itemBuilder: (context, i) {
+                          return _CommentRow(
+                            comment: items[i], 
+                            onReplyTap: (c) {
+                               setState(() {
+                                 _replyingTo = c;
+                               });
+                            },
+                          );
+                        },
+                        separatorBuilder: (_, __) => const SizedBox(height: 20),
+                      );
+                    },
                   ),
                 ),
-              ),
-            ],
-          ),
+                
+                // --- REPLY INDICATOR ---
+                if (_replyingTo != null)
+                  Container(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Replying to @${_replyingTo!.authorUsername ?? "user"}', 
+                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 16),
+                          onPressed: () => setState(() => _replyingTo = null),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        )
+                      ],
+                    ),
+                  ),
+
+                // --- 3. THE "EXTRA MILE" EMOJI BAR ---
+                Container(
+                  height: 44,
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
+                  ),
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _quickEmojis.length,
+                    separatorBuilder: (_,__) => const SizedBox(width: 16),
+                    itemBuilder: (ctx, i) {
+                      return GestureDetector(
+                        onTap: () => _insertEmoji(_quickEmojis[i]),
+                        child: Center(child: Text(_quickEmojis[i], style: const TextStyle(fontSize: 22))),
+                      );
+                    },
+                  ),
+                ),
+
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
+                    child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18, // Show current user avatar placeholder
+                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                        child: Icon(Icons.person, size: 20, color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: _inputCtrl,
+                          decoration: InputDecoration(
+                            hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
+                            hintStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      IconButton(
+                         onPressed: _posting ? null : _post,
+                         icon: Icon(Icons.arrow_upward, color: _posting ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary),
+                      )
+                    ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           );
-      },
+        },
       ),
     );
   }
 }
 
-// --- NEW WIDGET: INDIVIDUAL COMMENT ROW WITH REPLIES ---
+// --- UPDATED WIDGET: HIGH FIDELITY ROW ---
 class _CommentRow extends StatefulWidget {
   final CommentModel comment;
   final Function(CommentModel) onReplyTap;
@@ -1032,7 +1076,6 @@ class _CommentRowState extends State<_CommentRow> {
   bool _loadingReplies = false;
   final _svc = CommentService();
 
-  // Optimistic Like State
   late bool _isLiked;
   late int _likesCount;
 
@@ -1044,7 +1087,6 @@ class _CommentRowState extends State<_CommentRow> {
   }
 
   void _toggleLike() async {
-    // Optimistic Update
     setState(() {
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
@@ -1053,7 +1095,6 @@ class _CommentRowState extends State<_CommentRow> {
     try {
       await _svc.toggleCommentLike(widget.comment.id);
     } catch (e) {
-      // Revert if failed
       if (mounted) {
          setState(() {
           _isLiked = !_isLiked;
@@ -1096,63 +1137,63 @@ class _CommentRowState extends State<_CommentRow> {
         ? c.authorDisplayName!
         : (c.authorUsername != null ? '@${c.authorUsername}' : 'User');
     
+    // --- 2. TYPOGRAPHY UPDATES ---
     return Column(
       children: [
-        // PARENT COMMENT
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // LARGER AVATAR
             CircleAvatar(
-              radius: 16,
+              radius: 20, 
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
               backgroundImage: (c.authorAvatarUrl?.isNotEmpty == true) 
                   ? NetworkImage(c.authorAvatarUrl!) 
                   : null,
               child: (c.authorAvatarUrl?.isEmpty ?? true) 
-                  ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) 
+                  ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 24) 
                   : null,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(name, style: theme.textTheme.titleSmall?.copyWith(fontSize: 13, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 2),
-                  Text(c.text, style: theme.textTheme.bodyMedium),
-                  const SizedBox(height: 4),
-                  
-                  // Action Row
                   Row(
                     children: [
-                      // Timestamp (placeholder logic or use library like timeago)
-                      Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)), 
-                      const SizedBox(width: 16),
-                      GestureDetector(
-                        onTap: () => widget.onReplyTap(c),
-                        child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
-                      ),
+                      // BOLDER USERNAME
+                      Text(name, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 13.5)),
+                      const SizedBox(width: 6),
+                      Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                     ],
                   ),
+                  const SizedBox(height: 2),
+                  // LARGER COMMENT TEXT
+                  Text(c.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15, height: 1.3)),
+                  const SizedBox(height: 6),
+                  
+                  GestureDetector(
+                    onTap: () => widget.onReplyTap(c),
+                    child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                  ),
 
-                  // View Replies Button
                   if (c.replyCount > 0) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     GestureDetector(
                       onTap: _fetchReplies,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Container(width: 24, height: 1, color: theme.colorScheme.onSurfaceVariant),
-                          const SizedBox(width: 8),
+                          Container(width: 30, height: 1, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
+                          const SizedBox(width: 12),
                           Text(
                             _repliesVisible && c.replies.isNotEmpty ? 'Hide replies' : 'View ${c.replyCount} replies',
-                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
                           ),
                           if (_loadingReplies)
                              const Padding(
                                padding: EdgeInsets.only(left: 8.0),
-                               child: SizedBox(width: 8, height: 8, child: CircularProgressIndicator(strokeWidth: 2)),
+                               child: SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)),
                              )
                         ],
                       ),
@@ -1162,20 +1203,22 @@ class _CommentRowState extends State<_CommentRow> {
               ),
             ),
             
-            // Like Button Column
-            Column(
-              children: [
-                GestureDetector(
-                  onTap: _toggleLike,
-                  child: Icon(
-                    _isLiked ? Icons.favorite : Icons.favorite_border,
-                    size: 16,
-                    color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+              child: Column(
+                children: [
+                  GestureDetector(
+                    onTap: _toggleLike,
+                    child: Icon(
+                      _isLiked ? Icons.favorite : Icons.favorite_border,
+                      size: 18, // Slightly larger icon
+                      color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                if (_likesCount > 0)
-                  Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-              ],
+                  if (_likesCount > 0)
+                    Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ),
             )
           ],
         ),
@@ -1183,12 +1226,12 @@ class _CommentRowState extends State<_CommentRow> {
         // REPLIES LIST (Nested)
         if (_repliesVisible && c.replies.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(left: 42.0, top: 12),
+            padding: const EdgeInsets.only(left: 52.0, top: 16),
             child: ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: c.replies.length,
-              separatorBuilder: (_,__) => const SizedBox(height: 12),
+              separatorBuilder: (_,__) => const SizedBox(height: 16),
               itemBuilder: (ctx, i) {
                  final r = c.replies[i];
                  return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
@@ -1200,7 +1243,6 @@ class _CommentRowState extends State<_CommentRow> {
   }
 }
 
-// SIMPLIFIED ROW FOR REPLIES (Recursive structure avoided for strict 1-level)
 class _ReplyRow extends StatefulWidget {
   final CommentModel reply;
   final Function(CommentModel) onReplyTap;
@@ -1246,46 +1288,49 @@ class _ReplyRowState extends State<_ReplyRow> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         CircleAvatar(
-          radius: 12,
+          radius: 16,
           backgroundColor: theme.colorScheme.surfaceContainerHighest,
           backgroundImage: (r.authorAvatarUrl?.isNotEmpty == true) ? NetworkImage(r.authorAvatarUrl!) : null,
-          child: (r.authorAvatarUrl?.isEmpty ?? true) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 14) : null,
+          child: (r.authorAvatarUrl?.isEmpty ?? true) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) : null,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(name, style: theme.textTheme.titleSmall?.copyWith(fontSize: 12, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 2),
-              Text(r.text, style: theme.textTheme.bodyMedium),
-              const SizedBox(height: 4),
               Row(
                 children: [
-                  Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)), 
-                  const SizedBox(width: 16),
-                  GestureDetector(
-                    onTap: () => widget.onReplyTap(r),
-                    child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.bold)),
-                  ),
+                  Text(name, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(width: 6),
+                  Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                 ],
+              ),
+              const SizedBox(height: 2),
+              Text(r.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14.5, height: 1.3)),
+              const SizedBox(height: 6),
+              GestureDetector(
+                onTap: () => widget.onReplyTap(r),
+                child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
               ),
             ],
           ),
         ),
-        Column(
-          children: [
-            GestureDetector(
-              onTap: _toggleLike,
-              child: Icon(
-                _isLiked ? Icons.favorite : Icons.favorite_border,
-                size: 14,
-                color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+        Padding(
+          padding: const EdgeInsets.only(top: 8.0, left: 8.0),
+          child: Column(
+            children: [
+              GestureDetector(
+                onTap: _toggleLike,
+                child: Icon(
+                  _isLiked ? Icons.favorite : Icons.favorite_border,
+                  size: 16,
+                  color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-            ),
-            if (_likesCount > 0)
-              Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
-          ],
+              if (_likesCount > 0)
+                Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ),
         )
       ],
     );
