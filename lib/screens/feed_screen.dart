@@ -676,6 +676,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       builder: (ctx) {
         return _CommentsSheet(
           videoId: widget.video.id,
+          // FIX: Pass the initial count from the parent widget
+          initialCount: _commentsCount,
           onNewComment: () {
             setState(() => _commentsCount += 1);
           },
@@ -804,8 +806,13 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
 // --- UPDATED COMMENT SHEET: PHYSICS, TYPOGRAPHY, & EMOJIS ---
 class _CommentsSheet extends StatefulWidget {
   final String videoId;
+  final int initialCount; // FIX: Added parameter to receive count
   final VoidCallback? onNewComment;
-  const _CommentsSheet({required this.videoId, this.onNewComment});
+  const _CommentsSheet({
+    required this.videoId, 
+    required this.initialCount, 
+    this.onNewComment
+  });
   @override
   State<_CommentsSheet> createState() => _CommentsSheetState();
 }
@@ -816,6 +823,9 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   late Future<List<CommentModel>> _loader;
   bool _posting = false;
   
+  // FIX: Added local state for count
+  late int _commentsCount;
+  
   // REPLY STATE
   CommentModel? _replyingTo; 
 
@@ -825,6 +835,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   @override
   void initState() {
     super.initState();
+    _commentsCount = widget.initialCount; // FIX: Initialize from widget prop
     _loader = _svc.getCommentsByVideo(widget.videoId);
   }
 
@@ -865,6 +876,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       setState(() {
         _replyingTo = null; // Reset reply mode
         _loader = _svc.getCommentsByVideo(widget.videoId);
+        _commentsCount++; // FIX: Increment local count
         _posting = false;
       });
       if (mounted) {
