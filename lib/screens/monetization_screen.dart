@@ -37,6 +37,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     final authService = ref.read(authServiceProvider);
     final profileService = ref.read(profileServiceProvider);
     try {
+      // Use the service to check status
+      // We assume getMonetizationEligibility returns user profile mix
       final data = await profileService.getMonetizationEligibility(authService.currentUserId!);
       if (mounted) {
         setState(() {
@@ -63,8 +65,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
   /// Launches Paystack Payment Gateway
   Future<void> _purchasePremium() async {
-    final authService = ref.read(authServiceProvider);
-    final email = authService.currentUserEmail;
+    // FIX: Access email directly from Supabase client instead of AuthService wrapper
+    // This fixes the 'getter currentUserEmail not defined' error
+    final email = supabase.auth.currentUser?.email;
 
     if (email == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,6 +110,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     } catch (e) {
       debugPrint('❌ Payment Error: $e');
       if (mounted) {
+        // This usually happens if the plugin isn't initialized or keys are wrong
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Payment Error: $e')),
         );
