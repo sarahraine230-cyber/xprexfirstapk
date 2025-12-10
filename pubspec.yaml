@@ -37,12 +37,14 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # Payments
-  flutter_paystack: ^1.0.7
+  # --- THE FIX: Git Dependency ---
+  # We use a fixed version of Paystack that supports Flutter 3+
+  flutter_paystack:
+    git:
+      url: https://github.com/definitely-not-god/flutter_paystack.git
+      ref: master
 
-# --- THE ROBUST FIX ---
-# We force all packages to use the modern versions required by Supabase/XpreX
-# This resolves the conflict between Paystack (old) and Supabase (new)
+# We keep the overrides just in case the fork has slight version mismatches
 dependency_overrides:
   intl: 0.20.2
   http: ^1.0.0
