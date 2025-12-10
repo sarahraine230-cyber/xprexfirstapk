@@ -1,6 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_paystack/flutter_paystack.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:xprex/config/supabase_config.dart'; // To access supabase client
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 
@@ -12,12 +16,20 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
+  // PAYSTACK CONFIGURATION
+  // We use the Test Public Key you provided. 
+  // IMPORTANT: Never put the Secret Key in the mobile app code.
+  final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
+  final _paystackPlugin = PaystackPlugin();
+
   Map<String, dynamic>? _profileData;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+    // Initialize Paystack SDK
+    _paystackPlugin.initialize(publicKey: _paystackPublicKey);
     _loadProfileData();
   }
 
@@ -25,10 +37,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     final authService = ref.read(authServiceProvider);
     final profileService = ref.read(profileServiceProvider);
     try {
-      // We fetch the profile to check 'is_premium' status and existing metrics
-      // Assuming getMonetizationEligibility returns user profile mix
       final data = await profileService.getMonetizationEligibility(authService.currentUserId!);
-      
       if (mounted) {
         setState(() {
           _profileData = data;
@@ -41,42 +50,107 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     }
   }
 
+  /// Generates a unique reference for the transaction
+  String _getReference() {
+    String platform;
+    if (Platform.isIOS) {
+      platform = 'iOS';
+    } else {
+      platform = 'Android';
+    }
+    return 'ChargedFrom${platform}_${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  /// Launches Paystack Payment Gateway
   Future<void> _purchasePremium() async {
-    // Simulating purchase flow
-    setState(() => _isLoading = true);
-    final profileService = ref.read(profileServiceProvider);
     final authService = ref.read(authServiceProvider);
+    final email = authService.currentUserEmail;
+
+    if (email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: No email found for this user.')),
+      );
+      return;
+    }
+
+    try {
+      // 1. Prepare the Charge
+      // Amount is in kobo (Currency lowest unit). 7000 Naira = 7000 * 100 kobo.
+      Charge charge = Charge()
+        ..amount = 7000 * 100
+        ..status = 'native'
+        ..reference = _getReference()
+        ..email = email
+        ..currency = 'NGN';
+
+      // 2. Checkout
+      CheckoutResponse response = await _paystackPlugin.checkout(
+        context,
+        method: CheckoutMethod.card, // Standard for Nigeria
+        charge: charge,
+        fullscreen: true,
+        logo: const Icon(Icons.verified, size: 24, color: Colors.purple),
+      );
+
+      // 3. Handle Response
+      if (response.status == true) {
+        // Payment successful on Paystack side
+        debugPrint('✅ Paystack payment success: ${response.reference}');
+        await _confirmPurchaseOnBackend(response.reference!);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Payment cancelled or failed.')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Payment Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Payment Error: $e')),
+        );
+      }
+    }
+  }
+
+  /// Tells Supabase: "Here is the receipt, upgrade this user."
+  Future<void> _confirmPurchaseOnBackend(String reference) async {
+    setState(() => _isLoading = true);
     
     try {
-      await Future.delayed(const Duration(seconds: 2)); // Mock payment delay
-      
-      await profileService.updateProfile(
-        authUserId: authService.currentUserId!,
-        isPremium: true,
-        monetizationStatus: 'active',
-      );
-      
-      // Refresh local state to switch view to Dashboard
+      // We call the secure RPC function we created in Phase 1
+      await supabase.rpc('confirm_premium_purchase', params: {
+        'payment_reference': reference,
+        'payment_amount': 7000,
+      });
+
+      // Refresh the profile data so the UI switches to "Dashboard" mode
       await _loadProfileData();
-      
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Welcome to the Elite 🚀'),
-          content: const Text('Your premium benefits are now active. Enjoy your ad credits and reach boost!'),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Let\'s Go'),
-            ),
-          ],
-        ),
-      );
+
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Welcome to the Elite 🚀'),
+            content: const Text('Payment verified! Your premium features, ad credits, and boost are now active.'),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Let\'s Go'),
+              ),
+            ],
+          ),
+        );
+      }
     } catch (e) {
+      debugPrint('❌ Backend Verification Failed: $e');
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Purchase failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Verification failed: $e. Please contact support with Ref: $reference')),
+        );
       }
     }
   }
@@ -92,9 +166,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       );
     }
 
-    // Check Premium Status
-    // Adapting based on your previous data structure logic
-    // If exact field is different in your Supabase, update 'is_premium' key
+    // Check Premium Status from the loaded profile data
     final isPremium = _profileData?['is_premium'] == true;
 
     return Scaffold(
