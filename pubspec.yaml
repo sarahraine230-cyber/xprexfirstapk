@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  
   # UI & Icons
   cupertino_icons: ^1.0.8
   google_fonts: ^6.1.0
@@ -36,8 +37,13 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # Payments (Added to fix build error)
+  # Payments
   flutter_paystack: ^1.0.7
+
+# --- THE FIX FOR BUILD ERRORS ---
+# We force flutter_paystack to use your newer version of intl
+dependency_overrides:
+  intl: 0.20.2
 
 dev_dependencies:
   flutter_test:
