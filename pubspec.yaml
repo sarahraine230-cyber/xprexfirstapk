@@ -40,10 +40,12 @@ dependencies:
   # Payments
   flutter_paystack: ^1.0.7
 
-# --- THE FIX FOR BUILD ERRORS ---
-# We force flutter_paystack to use your newer version of intl
+# --- THE ROBUST FIX ---
+# We force all packages to use the modern versions required by Supabase/XpreX
+# This resolves the conflict between Paystack (old) and Supabase (new)
 dependency_overrides:
   intl: 0.20.2
+  http: ^1.0.0
 
 dev_dependencies:
   flutter_test:
