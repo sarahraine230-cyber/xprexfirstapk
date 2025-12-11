@@ -37,14 +37,14 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # --- THE VERIFIED PUBLIC FIX ---
-  # This fork is confirmed Public and contains the Flutter 3.x fixes
+  # --- THE FIX: The Golden Fork ---
+  # This specific fork fixes the headline6 error AND is compatible with modern Android
   flutter_paystack:
     git:
-      url: https://github.com/infostrategytech/flutter_paystack.git
-      ref: master
+      url: https://github.com/781flyingdutchman/flutter_paystack.git
 
 # --- SAFETY NET ---
+# Forces the packages to play nicely together
 dependency_overrides:
   intl: 0.20.2
   http: ^1.0.0
