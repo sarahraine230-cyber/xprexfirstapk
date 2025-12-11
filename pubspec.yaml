@@ -37,16 +37,14 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # --- THE BOSS BATTLE FIX ---
-  # We use the digib3 fork which specifically removed 'headline6'
-  # This makes it compatible with modern Flutter.
+  # --- THE VERIFIED PUBLIC FIX ---
+  # This fork is confirmed Public and contains the Flutter 3.x fixes
   flutter_paystack:
     git:
-      url: https://github.com/digib3/flutter_paystack.git
-      ref: main
+      url: https://github.com/infostrategytech/flutter_paystack.git
+      ref: master
 
 # --- SAFETY NET ---
-# We force all packages to use the modern versions required by Supabase
 dependency_overrides:
   intl: 0.20.2
   http: ^1.0.0
