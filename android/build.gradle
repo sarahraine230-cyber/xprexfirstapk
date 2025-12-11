@@ -1,6 +1,6 @@
 buildscript {
-    // Keep these aligned with settings.gradle plugins block
-    ext.kotlin_version = '2.2.10'
+    // FIX: Downgraded from the non-existent '2.2.10' to the stable '1.9.24'
+    ext.kotlin_version = '1.9.24'
     repositories {
         google()
         mavenCentral()
@@ -38,7 +38,7 @@ subprojects { project ->
         }
     }
 }
- 
+
 // Ensure every Java compile task (app + all plugins) targets Java 17.
 // This fixes: Inconsistent JVM-target compatibility detected for tasks
 // 'compileDebugJavaWithJavac' (11) and 'compileDebugKotlin' (17)
@@ -62,7 +62,8 @@ subprojects { project ->
                     }
                 }
             } catch (Throwable ignored) {
-                // Some plugin versions may not expose android DSL here; JavaCompile fallback above still applies
+                // Some plugin versions may not expose android DSL here;
+                // JavaCompile fallback above still applies
             }
         }
     }
