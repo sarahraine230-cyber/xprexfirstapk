@@ -17,8 +17,6 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // PAYSTACK CONFIGURATION
-  // We use the Test Public Key you provided. 
-  // IMPORTANT: Never put the Secret Key in the mobile app code.
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
   final _paystackPlugin = PaystackPlugin();
 
@@ -28,7 +26,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   @override
   void initState() {
     super.initState();
-    // Initialize Paystack SDK
     _paystackPlugin.initialize(publicKey: _paystackPublicKey);
     _loadProfileData();
   }
@@ -37,8 +34,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     final authService = ref.read(authServiceProvider);
     final profileService = ref.read(profileServiceProvider);
     try {
-      // Use the service to check status
-      // We assume getMonetizationEligibility returns user profile mix
       final data = await profileService.getMonetizationEligibility(authService.currentUserId!);
       if (mounted) {
         setState(() {
@@ -52,7 +47,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     }
   }
 
-  /// Generates a unique reference for the transaction
   String _getReference() {
     String platform;
     if (Platform.isIOS) {
@@ -63,10 +57,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     return 'ChargedFrom${platform}_${DateTime.now().millisecondsSinceEpoch}';
   }
 
-  /// Launches Paystack Payment Gateway
   Future<void> _purchasePremium() async {
-    // FIX: Access email directly from Supabase client instead of AuthService wrapper
-    // This fixes the 'getter currentUserEmail not defined' error
     final email = supabase.auth.currentUser?.email;
 
     if (email == null) {
@@ -78,18 +69,17 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
     try {
       // 1. Prepare the Charge
-      // Amount is in kobo (Currency lowest unit). 7000 Naira = 7000 * 100 kobo.
       Charge charge = Charge()
-        ..amount = 7000 * 100
-        ..status = 'native'
+        ..amount = 7000 * 100 // Amount in kobo
         ..reference = _getReference()
         ..email = email
         ..currency = 'NGN';
+        // REMOVED: ..status = 'native' (This caused the build error)
 
       // 2. Checkout
       CheckoutResponse response = await _paystackPlugin.checkout(
         context,
-        method: CheckoutMethod.card, // Standard for Nigeria
+        method: CheckoutMethod.card,
         charge: charge,
         fullscreen: true,
         logo: const Icon(Icons.verified, size: 24, color: Colors.purple),
@@ -97,7 +87,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
       // 3. Handle Response
       if (response.status == true) {
-        // Payment successful on Paystack side
         debugPrint('✅ Paystack payment success: ${response.reference}');
         await _confirmPurchaseOnBackend(response.reference!);
       } else {
@@ -110,7 +99,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     } catch (e) {
       debugPrint('❌ Payment Error: $e');
       if (mounted) {
-        // This usually happens if the plugin isn't initialized or keys are wrong
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Payment Error: $e')),
         );
@@ -118,18 +106,15 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     }
   }
 
-  /// Tells Supabase: "Here is the receipt, upgrade this user."
   Future<void> _confirmPurchaseOnBackend(String reference) async {
     setState(() => _isLoading = true);
     
     try {
-      // We call the secure RPC function we created in Phase 1
       await supabase.rpc('confirm_premium_purchase', params: {
         'payment_reference': reference,
         'payment_amount': 7000,
       });
 
-      // Refresh the profile data so the UI switches to "Dashboard" mode
       await _loadProfileData();
 
       if (mounted) {
@@ -170,7 +155,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       );
     }
 
-    // Check Premium Status from the loaded profile data
     final isPremium = _profileData?['is_premium'] == true;
 
     return Scaffold(
@@ -196,7 +180,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // --- HEADER ---
                 const SizedBox(height: 16),
                 Text(
                   'Xprex Your\nInfluence.',
@@ -217,7 +200,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 
                 const SizedBox(height: 48),
 
-                // --- VALUE PROPS ---
                 _buildBenefitRow(
                   theme: theme,
                   icon: Icons.campaign_rounded,
@@ -251,7 +233,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
         ),
 
-        // --- STICKY FOOTER ---
         Container(
           padding: const EdgeInsets.all(24.0),
           decoration: BoxDecoration(
@@ -266,7 +247,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 child: FilledButton(
                   onPressed: _purchasePremium,
                   style: FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.onSurface, // Inverted high contrast
+                    backgroundColor: theme.colorScheme.onSurface,
                     foregroundColor: theme.colorScheme.surface,
                   ),
                   child: const Text(
@@ -278,7 +259,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               const SizedBox(height: 16),
               GestureDetector(
                 onTap: () {
-                  // Show the old checklist in a bottom sheet strictly for info
                   _showRequirementsSheet(context, theme);
                 },
                 child: Text(
@@ -332,14 +312,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // ===========================================================================
-  // 2. DASHBOARD VIEW (For Premium Users)
-  // ===========================================================================
   Widget _buildPremiumDashboard(ThemeData theme) {
-    // Mocking data based on what might be in _profileData or fetching real time
-    // We assume _profileData contains these or defaults to 0
     final earnings = _profileData?['earnings_balance'] ?? 0.0;
-    final adCredits = 2000; // Hardcoded benefit for example
+    final adCredits = 2000;
     final progress = _profileData?['progress'] ?? 0;
     final views = _profileData?['video_views'] ?? 0;
 
@@ -348,7 +323,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Earnings Card
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(24),
@@ -392,7 +366,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
           Row(
             children: [
-              // Ad Credits Card
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(20),
@@ -419,7 +392,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 ),
               ),
               const SizedBox(width: 16),
-              // Views Progress Card
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.all(20),
@@ -452,7 +424,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           
           Text('Monetization Progress', style: theme.textTheme.titleLarge),
           const SizedBox(height: 16),
-          // Reusing the circular indicator from previous file logic
           Center(
             child: SizedBox(
               height: 160,
@@ -486,7 +457,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // Info Sheet for Requirement details (Hidden from main view)
   void _showRequirementsSheet(BuildContext context, ThemeData theme) {
     final criteria = _profileData?['criteria'] as Map<String, dynamic>?;
     
