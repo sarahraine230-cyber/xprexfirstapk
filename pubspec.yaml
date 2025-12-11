@@ -37,17 +37,12 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # --- THE WORKING REPO ---
-  # This one downloaded successfully before.
-  flutter_paystack:
-    git:
-      url: https://github.com/infostrategytech/flutter_paystack.git
-      ref: master
+  # --- THE FIX: Official WebView ---
+  # Replaces the broken flutter_paystack
+  webview_flutter: ^4.7.0
 
-# --- SAFETY NET ---
-dependency_overrides:
-  intl: 0.20.2
-  http: ^1.0.0
+# No overrides needed anymore! 
+# We removed the conflicting package.
 
 dev_dependencies:
   flutter_test:
