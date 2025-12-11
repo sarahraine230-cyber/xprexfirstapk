@@ -76,7 +76,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         ..reference = _getReference()
         ..email = email
         ..currency = 'NGN';
-        // REMOVED: ..status = 'native' (This caused the build failure)
+        // REMOVED: ..status = 'native' (This was causing the build failure)
 
       // 2. Checkout
       CheckoutResponse response = await _paystackPlugin.checkout(
