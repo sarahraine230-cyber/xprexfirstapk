@@ -106,7 +106,13 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             title: const Text('Welcome to the Elite 🚀'),
             content: const Text('Payment verified! Your premium features, ad credits, and boost are now active.'),
             actions: [
-              FilledButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Let\'s Go')),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  context.push('/verify'); // START THE SEQUENCE
+                },
+                child: const Text('Let\'s Go'),
+              ),
             ],
           ),
         );
