@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/config/supabase_config.dart'; // Ensure you have this
@@ -43,7 +44,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
         fileOptions: const FileOptions(upsert: true),
       );
 
-      // 2. Get Public URL (or just save path if bucket is private)
+      // 2. Get Public URL
       final imageUrl = supabase.storage.from('verifications').getPublicUrl(path);
 
       // 3. Create Request Record in Database
@@ -54,22 +55,9 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
       });
 
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Request Sent'),
-            content: const Text('We have received your verification request. Our team will review it within 24-48 hours.'),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop(); // Close Dialog
-                  Navigator.of(context).pop(); // Go Back
-                },
-                child: const Text('Done'),
-              )
-            ],
-          ),
-        );
+        // --- THE NEXT STEP IN THE SEQUENCE ---
+        // Instead of just showing success, we move them to Bank Setup
+        context.push('/setup/bank');
       }
     } catch (e) {
       if (mounted) {
@@ -91,6 +79,11 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(
+              'Step 1 of 2: Identity',
+              style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary),
+            ),
+            const SizedBox(height: 8),
             Text(
               'Get Verified',
               style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -147,7 +140,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
                 onPressed: (_imageFile == null || _isUploading) ? null : _submitRequest,
                 child: _isUploading 
                     ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('Submit Request'),
+                    : const Text('Next: Bank Details'),
               ),
             ),
           ],
