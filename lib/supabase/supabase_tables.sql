@@ -1,5 +1,5 @@
 -- XpreX Master Schema
--- Current State: Full Feature Set (Feed Algorithm, Payments, Verification, Analytics)
+-- Current State: Full Feature Set (Feed Algorithm, Payments, Verification, Bank Accounts, Analytics)
 
 -- Enable required extensions
 create extension if not exists pgcrypto;
@@ -20,7 +20,7 @@ create table if not exists public.profiles (
   followers_count int not null default 0,
   total_video_views int not null default 0,
   is_premium boolean not null default false,
-  is_verified boolean not null default false, -- Added for Verification Badge
+  is_verified boolean not null default false,
   monetization_status text not null default 'locked',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -62,7 +62,7 @@ create table if not exists public.payments (
 alter table public.payments enable row level security;
 create policy "Users can view own payments" on public.payments for select using (auth.uid() = user_id);
 
--- VERIFICATION REQUESTS (For Phase 3)
+-- VERIFICATION REQUESTS
 create table if not exists public.verification_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -74,6 +74,20 @@ alter table public.verification_requests enable row level security;
 create policy "Users can insert own requests" on public.verification_requests for insert with check (auth.uid() = user_id);
 create policy "Users can view own requests" on public.verification_requests for select using (auth.uid() = user_id);
 
+-- CREATOR BANK ACCOUNTS (New: For Payouts)
+create table if not exists public.creator_bank_accounts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  bank_name text not null,
+  account_number text not null,
+  account_name text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(user_id)
+);
+alter table public.creator_bank_accounts enable row level security;
+create policy "Users can manage own bank account" on public.creator_bank_accounts for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- VIDEO VIEWS (Analytics)
 create table if not exists public.video_views (
   id uuid primary key default gen_random_uuid(),
@@ -84,13 +98,13 @@ create table if not exists public.video_views (
 );
 create index if not exists idx_video_views_author_time on public.video_views (author_id, created_at);
 
--- COMMENTS (Threaded)
+-- COMMENTS
 create table if not exists public.comments (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
   author_auth_user_id uuid not null references auth.users(id) on delete cascade,
   text text not null,
-  parent_id uuid references public.comments(id) on delete cascade, -- NULL = Root Comment
+  parent_id uuid references public.comments(id) on delete cascade,
   reply_count int not null default 0,
   likes_count int not null default 0,
   created_at timestamptz not null default now(),
@@ -108,7 +122,7 @@ create table if not exists public.comment_likes (
   unique (comment_id, user_auth_id)
 );
 
--- LIKES (Video Likes)
+-- LIKES
 create table if not exists public.likes (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -126,15 +140,13 @@ create table if not exists public.follows (
   unique (follower_auth_user_id, followee_auth_user_id)
 );
 
--- SHARES
+-- SHARES, SAVED, REPOSTS
 create table if not exists public.shares (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
   user_auth_id uuid not null references auth.users(id) on delete cascade,
   created_at timestamptz not null default now()
 );
-
--- SAVED VIDEOS
 create table if not exists public.saved_videos (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -142,8 +154,6 @@ create table if not exists public.saved_videos (
   created_at timestamptz not null default now(),
   unique(user_auth_id, video_id)
 );
-
--- REPOSTS
 create table if not exists public.reposts (
   id uuid primary key default gen_random_uuid(),
   video_id uuid not null references public.videos(id) on delete cascade,
@@ -161,7 +171,7 @@ create table if not exists public.user_interests (
   primary key (user_id, tag)
 );
 
--- NOTIFICATIONS (Pulse)
+-- NOTIFICATIONS
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   recipient_id uuid not null references public.profiles(auth_user_id) on delete cascade,
@@ -302,20 +312,14 @@ begin
   join public.profiles p on v.author_auth_user_id = p.auth_user_id
   left join public.user_interests ui on viewer_id = ui.user_id and ui.tag = any(v.tags)
   where 
-    v.created_at > (now() - interval '7 days') -- Only recent videos
+    v.created_at > (now() - interval '7 days')
   order by
     (
-      -- 1. BASE SCORE (Engagement)
       (v.likes_count * 2) + (v.comments_count * 3) + (v.saves_count * 4) + (v.reposts_count * 5)
-      
-      -- 2. RECENCY DECAY
       / (extract(epoch from (now() - v.created_at)) / 3600 + 2)^1.5
     ) 
-    * -- 3. PERSONALIZATION MULTIPLIER
-    (case when ui.score is not null then (1.0 + (ui.score * 0.1)) else 1.0 end)
-    * -- 4. PREMIUM BOOST (The 1.5x Multiplier)
-    (case when p.is_premium then 1.5 else 1.0 end)
-    
+    * (case when ui.score is not null then (1.0 + (ui.score * 0.1)) else 1.0 end)
+    * (case when p.is_premium then 1.5 else 1.0 end)
     DESC
   limit limit_count;
 end;
