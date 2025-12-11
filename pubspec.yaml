@@ -37,13 +37,13 @@ dependencies:
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # --- THE FIX: Public Git Dependency ---
-  # We use the InspireUI fork which is public (fixes Auth error)
-  # [span_0](start_span)and updated for modern Flutter (fixes headline6 error)[span_0](end_span)
+  # --- THE BOSS BATTLE FIX ---
+  # We use the digib3 fork which specifically removed 'headline6'
+  # This makes it compatible with modern Flutter.
   flutter_paystack:
     git:
-      url: https://github.com/inspireui/flutter_paystack.git
-      ref: master
+      url: https://github.com/digib3/flutter_paystack.git
+      ref: main
 
 # --- SAFETY NET ---
 # We force all packages to use the modern versions required by Supabase
