@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_paystack/flutter_paystack.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:xprex/config/supabase_config.dart'; // To access supabase client
+import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 
@@ -17,6 +17,7 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // PAYSTACK CONFIGURATION
+  // Test Public Key
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
   final _paystackPlugin = PaystackPlugin();
 
@@ -58,6 +59,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   Future<void> _purchasePremium() async {
+    // Direct access to email to avoid getter error
     final email = supabase.auth.currentUser?.email;
 
     if (email == null) {
@@ -74,7 +76,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         ..reference = _getReference()
         ..email = email
         ..currency = 'NGN';
-        // REMOVED: ..status = 'native' (This caused the build error)
+        // REMOVED: ..status = 'native' (This caused the build failure)
 
       // 2. Checkout
       CheckoutResponse response = await _paystackPlugin.checkout(
@@ -166,9 +168,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // ===========================================================================
-  // 1. SALES PAGE (For Free Users)
-  // ===========================================================================
   Widget _buildSalesPage(ThemeData theme) {
     final neon = theme.extension<NeonAccentTheme>();
 
