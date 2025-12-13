@@ -36,6 +36,10 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // PAYSTACK CONFIG (Test Key)
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
+  
+  // UI State for the Dashboard Filter
+  String _selectedPeriod = 'Dec 2025';
+  final List<String> _periods = ['Dec 2025', 'Nov 2025', 'Oct 2025'];
 
   @override
   Widget build(BuildContext context) {
@@ -75,14 +79,11 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   // ===========================================================================
-  // 1. PROFESSIONAL DASHBOARD (Medium-Inspired)
+  // 1. PROFESSIONAL DASHBOARD (Medium-Inspired Layout)
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
     final earnings = profileData['earnings_balance'] ?? 0.0;
     final isVerified = profileData['is_verified'] == true;
-    
-    // Ad credits are now just a stat, not a loud button
-    // We treat "Ad Credits" as a balance available.
     final adCredits = 2000; 
 
     return SingleChildScrollView(
@@ -90,12 +91,12 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- 1. STATUS CARD (Like Medium's "Status: Enrolled") ---
+          // --- 1. STATUS CARD ---
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              borderRadius: BorderRadius.circular(8), // Sharper corners for pro feel
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
             ),
             child: Row(
@@ -133,28 +134,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           
           const SizedBox(height: 32),
 
-          // --- 2. EARNINGS SUMMARY (The "Statement" Look) ---
-          Text('Overview', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Text(
-            'This page displays earnings accrued in the selected period. Payouts are processed on the 30th.',
-            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 24),
-
-          // Big Number
-          Text('Total earnings', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-          const SizedBox(height: 4),
-          Text(
-            '₦${earnings.toStringAsFixed(2)}', 
-            style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: -1),
-          ),
-          
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 24),
-
-          // --- 3. PAYOUT SETTINGS & TOOLS (The "Accordion" feel) ---
+          // --- 2. TOOLS SECTION (Moved Top) ---
           _buildSettingsTile(
             theme, 
             title: 'Payout settings', 
@@ -176,17 +156,108 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             title: 'Quick links', 
             subtitle: 'Program Terms, Support, FAQs',
             icon: Icons.link,
-            onTap: () {}, // Link to docs later
+            onTap: () {}, 
           ),
 
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 24),
 
-          // --- 4. EARNINGS BY VIDEO (Mocked for "Earnings by Story" feel) ---
-          Text('Earnings by video', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          // --- 3. OVERVIEW & FILTERS ---
+          Text('Overview', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(
+            'This page only displays earnings that have accrued in the selected time period. Daily earnings may take up to 48 hours to be finalized — the amounts displayed here may be updated during this time.',
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.4),
+          ),
+          const SizedBox(height: 20),
+
+          // Month Filter Dropdown
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+              borderRadius: BorderRadius.circular(50),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedPeriod,
+                items: _periods.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+                onChanged: (val) {
+                  if (val != null) setState(() => _selectedPeriod = val);
+                },
+                style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                icon: const Icon(Icons.keyboard_arrow_down),
+                isDense: true,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // Earnings Summary
+          Text('Earnings summary', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(
+            '$_selectedPeriod (UTC)', 
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+          ),
           const SizedBox(height: 16),
-          // Mock Data to simulate the feel
+          
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Video earnings', style: theme.textTheme.bodyLarge),
+              Text('₦${earnings.toStringAsFixed(2)}', style: theme.textTheme.bodyLarge),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Divider(height: 1),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Total earnings', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text('₦${earnings.toStringAsFixed(2)}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+          
+          // Disclaimer
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              'We’ll typically send payouts by the 5th business day of the following month. After payouts have been sent, it may take an additional 2-3 business days for the funds to appear in your bank. Earnings are non-binding.',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+          const Divider(),
+          const SizedBox(height: 24),
+
+          // --- 4. EARNINGS BY VIDEO ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Earnings by video', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              TextButton(onPressed: (){}, child: const Text('View all')),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$_selectedPeriod (UTC) · Updated daily', 
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+          ),
+          const SizedBox(height: 16),
+
+          // Mock Data 
           _buildVideoEarningRow(theme, "12 Brutal Truths About Narcissists", "₦4,200.50", "Dec 4, 2025"),
           _buildVideoEarningRow(theme, "Why Nice Guys Finish Last", "₦1,850.00", "Dec 10, 2025"),
           _buildVideoEarningRow(theme, "Day in the Life: Lagos Tech", "₦920.00", "Dec 12, 2025"),
@@ -206,6 +277,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const SizedBox(height: 8),
           _buildPayoutRow(theme, "Nov 1 - Nov 30", "₦0.00", "Paid"),
           _buildPayoutRow(theme, "Oct 1 - Oct 31", "₦0.00", "Paid"),
+          
+          const SizedBox(height: 40),
         ],
       ),
     );
@@ -288,7 +361,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   // ===========================================================================
-  // 2. SALES PAGE UI (Unchanged Logic, just ensuring it's here)
+  // 2. SALES PAGE UI (Unchanged)
   // ===========================================================================
   Widget _buildSalesPage(ThemeData theme) {
     final neon = theme.extension<NeonAccentTheme>();
@@ -418,7 +491,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // --- PAYMENT LOGIC PRESERVED ---
+  // --- PAYMENT LOGIC ---
   void _startPayment() {
     final email = supabase.auth.currentUser?.email;
     if (email == null) {
