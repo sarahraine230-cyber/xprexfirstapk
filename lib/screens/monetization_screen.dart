@@ -11,7 +11,6 @@ import 'package:xprex/theme.dart';
 
 // --- REACTIVE PROVIDER ---
 // This listens to the database in real-time. 
-// If 'is_premium' changes, the UI updates instantly.
 final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
@@ -20,8 +19,6 @@ final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynam
     return Stream.value({});
   }
 
-  // We stream the profile row. 
-  // If you manually edit Supabase, this updates the app immediately.
   return Supabase.instance.client
       .from('profiles')
       .stream(primaryKey: ['id'])
@@ -47,16 +44,16 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // Dynamic Title based on state
         title: profileAsync.when(
           data: (data) => Text(
-            (data['is_premium'] == true) ? 'Creator Hub' : 'Premium',
+            (data['is_premium'] == true) ? 'Partner Program' : 'Premium',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           loading: () => const Text('Loading...'),
           error: (_, __) => const Text('Monetization'),
         ),
         centerTitle: true,
+        scrolledUnderElevation: 0,
       ),
       body: profileAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -66,11 +63,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
           final isPremium = profileData['is_premium'] == true;
 
-          // REACTIVE SWITCH:
-          // If is_premium is true, we ALWAYS show the Dashboard.
-          // If false, we show the Sales Page.
+          // REACTIVE SWITCH
           if (isPremium) {
-            return _buildPremiumDashboard(theme, profileData);
+            return _buildProfessionalDashboard(theme, profileData);
           } else {
             return _buildSalesPage(theme);
           }
@@ -79,102 +74,224 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // --- THE ROBUST WEBVIEW PAYMENT LOGIC ---
-  void _startPayment() {
-    final email = supabase.auth.currentUser?.email;
-    if (email == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email found')));
-      return;
-    }
+  // ===========================================================================
+  // 1. PROFESSIONAL DASHBOARD (Medium-Inspired)
+  // ===========================================================================
+  Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
+    final earnings = profileData['earnings_balance'] ?? 0.0;
+    final isVerified = profileData['is_verified'] == true;
+    
+    // Ad credits are now just a stat, not a loud button
+    // We treat "Ad Credits" as a balance available.
+    final adCredits = 2000; 
 
-    final amount = 7000 * 100; // Kobo
-    final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // --- 1. STATUS CARD (Like Medium's "Status: Enrolled") ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8), // Sharper corners for pro feel
+              border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Partner Status', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.circle, 
+                          size: 10, 
+                          color: isVerified ? Colors.green : Colors.amber
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isVerified ? 'Active & Enrolled' : 'Verification Pending',
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                if (!isVerified)
+                  TextButton(
+                    onPressed: () => context.push('/verify'),
+                    child: const Text('Complete Setup'),
+                  ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 32),
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      enableDrag: false,
-      backgroundColor: Colors.white,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.85,
-        decoration: const BoxDecoration(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          child: _PaystackWebView(
-            apiKey: _paystackPublicKey,
-            email: email,
-            amount: amount.toString(),
-            reference: ref,
-            onSuccess: (ref) {
-              Navigator.pop(context); // Close sheet
-              _confirmPurchaseOnBackend(ref); // Verify
-            },
-            onCancel: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
+          // --- 2. EARNINGS SUMMARY (The "Statement" Look) ---
+          Text('Overview', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(
+            'This page displays earnings accrued in the selected period. Payouts are processed on the 30th.',
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 24),
+
+          // Big Number
+          Text('Total earnings', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(height: 4),
+          Text(
+            '₦${earnings.toStringAsFixed(2)}', 
+            style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold, letterSpacing: -1),
+          ),
+          
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 24),
+
+          // --- 3. PAYOUT SETTINGS & TOOLS (The "Accordion" feel) ---
+          _buildSettingsTile(
+            theme, 
+            title: 'Payout settings', 
+            subtitle: isVerified ? 'Bank account connected' : 'Connect bank account',
+            icon: Icons.account_balance,
+            onTap: () => context.push('/setup/bank'),
+          ),
+          _buildSettingsTile(
+            theme, 
+            title: 'Ad Credit Manager', 
+            subtitle: 'Balance: ₦$adCredits',
+            icon: Icons.campaign_outlined,
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ad Manager coming soon')));
             },
           ),
-        ),
+           _buildSettingsTile(
+            theme, 
+            title: 'Quick links', 
+            subtitle: 'Program Terms, Support, FAQs',
+            icon: Icons.link,
+            onTap: () {}, // Link to docs later
+          ),
+
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 24),
+
+          // --- 4. EARNINGS BY VIDEO (Mocked for "Earnings by Story" feel) ---
+          Text('Earnings by video', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          // Mock Data to simulate the feel
+          _buildVideoEarningRow(theme, "12 Brutal Truths About Narcissists", "₦4,200.50", "Dec 4, 2025"),
+          _buildVideoEarningRow(theme, "Why Nice Guys Finish Last", "₦1,850.00", "Dec 10, 2025"),
+          _buildVideoEarningRow(theme, "Day in the Life: Lagos Tech", "₦920.00", "Dec 12, 2025"),
+
+          const SizedBox(height: 24),
+          const Divider(),
+          const SizedBox(height: 24),
+
+           // --- 5. PAYOUT HISTORY ---
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Payout History', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+              TextButton(onPressed: (){}, child: const Text('View all')),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _buildPayoutRow(theme, "Nov 1 - Nov 30", "₦0.00", "Paid"),
+          _buildPayoutRow(theme, "Oct 1 - Oct 31", "₦0.00", "Paid"),
+        ],
       ),
     );
   }
 
-  Future<void> _confirmPurchaseOnBackend(String reference) async {
-    // We show a loader dialog while verifying
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      await supabase.rpc('confirm_premium_purchase', params: {
-        'payment_reference': reference,
-        'payment_amount': 7000,
-      });
-      
-      if (!mounted) return;
-      Navigator.pop(context); // Close loader
-
-      // Success Dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Welcome to the Elite 🚀'),
-          content: const Text('Payment verified! Let\'s set up your profile for payouts.'),
-          actions: [
-            FilledButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                // CRITICAL: Navigate to the Sequence
-                context.push('/verify');
-              },
-              child: const Text('Let\'s Go'),
-            ),
-          ],
+  Widget _buildSettingsTile(ThemeData theme, {required String title, required String subtitle, required IconData icon, required VoidCallback onTap}) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      onTap: onTap,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(8),
         ),
-      );
-      // Note: We don't need to manually refresh the UI here. 
-      // The 'monetizationProfileProvider' stream will automatically fire 
-      // when the 'confirm_premium_purchase' function updates the database.
-      
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close loader
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification failed: $e')));
-      }
-    }
+        child: Icon(icon, color: theme.colorScheme.onSurface),
+      ),
+      title: Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+      subtitle: Text(subtitle, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      trailing: Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant),
+    );
+  }
+
+  Widget _buildVideoEarningRow(ThemeData theme, String title, String amount, String date) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 4,
+            height: 40,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600), maxLines: 2, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 4),
+                Text(date, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Text(amount, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPayoutRow(ThemeData theme, String period, String amount, String status) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(period, style: theme.textTheme.bodyLarge),
+          Row(
+            children: [
+              Text(amount, style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(status, style: theme.textTheme.bodySmall),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   // ===========================================================================
-  // 1. SALES PAGE UI
+  // 2. SALES PAGE UI (Unchanged Logic, just ensuring it's here)
   // ===========================================================================
   Widget _buildSalesPage(ThemeData theme) {
     final neon = theme.extension<NeonAccentTheme>();
-    
     return Column(
       children: [
         Expanded(
@@ -229,7 +346,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               ),
               const SizedBox(height: 16),
               GestureDetector(
-                onTap: () => _showRequirementsSheet(context, theme, null), // Pass null for profileData
+                onTap: () => _showRequirementsSheet(context, theme, null),
                 child: Text(
                   'Learn more about monetization requirements',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -261,149 +378,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           Text(desc, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ]))
       ]),
-    );
-  }
-  
-  // ===========================================================================
-  // 2. DASHBOARD VIEW (With Verification Logic)
-  // ===========================================================================
-  Widget _buildPremiumDashboard(ThemeData theme, Map<String, dynamic> profileData) {
-    final earnings = profileData['earnings_balance'] ?? 0.0;
-    // Hardcoded benefits for MVP
-    final adCredits = 2000; 
-    final progress = profileData['progress'] ?? 0;
-    final views = profileData['total_video_views'] ?? 0;
-    
-    // VERIFICATION CHECK
-    final isVerified = profileData['is_verified'] == true;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // --- VERIFICATION BANNER ---
-          if (!isVerified)
-            Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.amber.shade900.withValues(alpha: 0.2),
-                border: Border.all(color: Colors.amber.shade700),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.hourglass_top, color: Colors.amber.shade700),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Verification Pending', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.amber.shade700)),
-                        const SizedBox(height: 4),
-                        Text('Your ID is under review. Earnings will accumulate but cannot be withdrawn yet.', style: theme.textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else 
-            Container(
-              margin: const EdgeInsets.only(bottom: 20),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.green.shade900.withValues(alpha: 0.2),
-                border: Border.all(color: Colors.green),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.check_circle, color: Colors.green),
-                  const SizedBox(width: 12),
-                  Text('Account Verified. Payouts Active.', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.green)),
-                ],
-              ),
-            ),
-
-          // Earnings Card
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Estimated Earnings', style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 14)),
-                const SizedBox(height: 8),
-                Text('₦${earnings.toStringAsFixed(2)}', style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
-                  child: const Text('Next Payout: Dec 30', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              // Ad Credits
-              Expanded(child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(20)),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Icon(Icons.campaign, color: theme.colorScheme.secondary, size: 32),
-                  const SizedBox(height: 12),
-                  Text('Ad Credits', style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: 4),
-                  Text('₦$adCredits', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                ]),
-              )),
-              const SizedBox(width: 16),
-              // Views
-              Expanded(child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: theme.colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(20)),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Icon(Icons.bar_chart, color: theme.colorScheme.tertiary, size: 32),
-                  const SizedBox(height: 12),
-                  Text('30d Views', style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  const SizedBox(height: 4),
-                  Text('$views', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                ]),
-              )),
-            ],
-          ),
-          const SizedBox(height: 32),
-          Text('Monetization Progress', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 16),
-          Center(
-            child: SizedBox(
-              height: 160,
-              width: 160,
-              child: Stack(
-                children: [
-                  SizedBox.expand(child: CircularProgressIndicator(value: progress / 100, strokeWidth: 12, backgroundColor: theme.colorScheme.surfaceContainerHighest, color: theme.colorScheme.primary, strokeCap: StrokeCap.round)),
-                  Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Text('$progress%', style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.bold)),
-                    Text('Qualified', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                  ])),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -442,6 +416,85 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         Text(text, style: theme.textTheme.bodyLarge),
       ]),
     );
+  }
+
+  // --- PAYMENT LOGIC PRESERVED ---
+  void _startPayment() {
+    final email = supabase.auth.currentUser?.email;
+    if (email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email found')));
+      return;
+    }
+    final amount = 7000 * 100; // Kobo
+    final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      enableDrag: false,
+      backgroundColor: Colors.white,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.85,
+        decoration: const BoxDecoration(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: _PaystackWebView(
+            apiKey: _paystackPublicKey,
+            email: email,
+            amount: amount.toString(),
+            reference: ref,
+            onSuccess: (ref) {
+              Navigator.pop(context); 
+              _confirmPurchaseOnBackend(ref); 
+            },
+            onCancel: () {
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment cancelled')));
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmPurchaseOnBackend(String reference) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      await supabase.rpc('confirm_premium_purchase', params: {
+        'payment_reference': reference,
+        'payment_amount': 7000,
+      });
+      if (!mounted) return;
+      Navigator.pop(context); // Close loader
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Welcome to the Elite 🚀'),
+          content: const Text('Payment verified! Let\'s set up your profile for payouts.'),
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                context.push('/verify');
+              },
+              child: const Text('Let\'s Go'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification failed: $e')));
+      }
+    }
   }
 }
 
