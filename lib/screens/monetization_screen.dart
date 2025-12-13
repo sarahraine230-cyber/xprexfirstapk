@@ -4,10 +4,30 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:webview_flutter/webview_flutter.dart'; // THE ROBUST WEBVIEW
+import 'package:webview_flutter/webview_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
+
+// --- REACTIVE PROVIDER ---
+// This listens to the database in real-time. 
+// If 'is_premium' changes, the UI updates instantly.
+final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
+  final authService = ref.watch(authServiceProvider);
+  final userId = authService.currentUserId;
+  
+  if (userId == null) {
+    return Stream.value({});
+  }
+
+  // We stream the profile row. 
+  // If you manually edit Supabase, this updates the app immediately.
+  return Supabase.instance.client
+      .from('profiles')
+      .stream(primaryKey: ['id'])
+      .eq('auth_user_id', userId)
+      .map((event) => event.isNotEmpty ? event.first : {});
+});
 
 class MonetizationScreen extends ConsumerStatefulWidget {
   const MonetizationScreen({super.key});
@@ -20,30 +40,43 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // PAYSTACK CONFIG (Test Key)
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
 
-  Map<String, dynamic>? _profileData;
-  bool _isLoading = true;
-
   @override
-  void initState() {
-    super.initState();
-    _loadProfileData();
-  }
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final profileAsync = ref.watch(monetizationProfileProvider);
 
-  Future<void> _loadProfileData() async {
-    final authService = ref.read(authServiceProvider);
-    final profileService = ref.read(profileServiceProvider);
-    try {
-      final data = await profileService.getMonetizationEligibility(authService.currentUserId!);
-      if (mounted) {
-        setState(() {
-          _profileData = data;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      debugPrint('Error loading profile: $e');
-    }
+    return Scaffold(
+      appBar: AppBar(
+        // Dynamic Title based on state
+        title: profileAsync.when(
+          data: (data) => Text(
+            (data['is_premium'] == true) ? 'Creator Hub' : 'Premium',
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          loading: () => const Text('Loading...'),
+          error: (_, __) => const Text('Monetization'),
+        ),
+        centerTitle: true,
+      ),
+      body: profileAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text('Error: $err')),
+        data: (profileData) {
+          if (profileData.isEmpty) return const Center(child: Text("Profile not found"));
+
+          final isPremium = profileData['is_premium'] == true;
+
+          // REACTIVE SWITCH:
+          // If is_premium is true, we ALWAYS show the Dashboard.
+          // If false, we show the Sales Page.
+          if (isPremium) {
+            return _buildPremiumDashboard(theme, profileData);
+          } else {
+            return _buildSalesPage(theme);
+          }
+        },
+      ),
+    );
   }
 
   // --- THE ROBUST WEBVIEW PAYMENT LOGIC ---
@@ -54,11 +87,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       return;
     }
 
-    // Amount in Kobo (7000 * 100)
-    final amount = 7000 * 100;
+    final amount = 7000 * 100; // Kobo
     final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
 
-    // Show the WebView Payment Sheet
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -91,64 +122,55 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   Future<void> _confirmPurchaseOnBackend(String reference) async {
-    setState(() => _isLoading = true);
+    // We show a loader dialog while verifying
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
     try {
       await supabase.rpc('confirm_premium_purchase', params: {
         'payment_reference': reference,
         'payment_amount': 7000,
       });
-      await _loadProfileData(); // Refresh UI to show dashboard
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Welcome to the Elite 🚀'),
-            content: const Text('Payment verified! Your premium features, ad credits, and boost are now active.'),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(ctx).pop();
-                  context.push('/verify'); // START THE SEQUENCE
-                },
-                child: const Text('Let\'s Go'),
-              ),
-            ],
-          ),
-        );
-      }
+      
+      if (!mounted) return;
+      Navigator.pop(context); // Close loader
+
+      // Success Dialog
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Welcome to the Elite 🚀'),
+          content: const Text('Payment verified! Let\'s set up your profile for payouts.'),
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                // CRITICAL: Navigate to the Sequence
+                context.push('/verify');
+              },
+              child: const Text('Let\'s Go'),
+            ),
+          ],
+        ),
+      );
+      // Note: We don't need to manually refresh the UI here. 
+      // The 'monetizationProfileProvider' stream will automatically fire 
+      // when the 'confirm_premium_purchase' function updates the database.
+      
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        Navigator.pop(context); // Close loader
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Verification failed: $e')));
       }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Monetization')),
-        body: const Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    final isPremium = _profileData?['is_premium'] == true;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(isPremium ? 'Creator Hub' : 'Premium'),
-        centerTitle: true,
-      ),
-      body: isPremium ? _buildPremiumDashboard(theme) : _buildSalesPage(theme),
-    );
-  }
-
   // ===========================================================================
-  // 1. SALES PAGE UI (Restored)
+  // 1. SALES PAGE UI
   // ===========================================================================
   Widget _buildSalesPage(ThemeData theme) {
     final neon = theme.extension<NeonAccentTheme>();
@@ -180,7 +202,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 ),
                 const SizedBox(height: 48),
                 
-                // RESTORED VALUE PROPS
                 _buildBenefitRow(theme: theme, icon: Icons.campaign_rounded, iconColor: neon?.cyan ?? Colors.cyan, title: 'Monthly Ad Credits', desc: 'Get ₦2,000 every month to promote your brand.'),
                 _buildBenefitRow(theme: theme, icon: Icons.rocket_launch_rounded, iconColor: neon?.purple ?? Colors.purple, title: '1.5x Reach Boost', desc: 'Dominate the algorithm. Your content gets priority placement.'),
                 _buildBenefitRow(theme: theme, icon: Icons.verified, iconColor: neon?.blue ?? Colors.blue, title: 'Verification Badge', desc: 'Instant credibility. Stand out in comments.'),
@@ -198,7 +219,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 width: double.infinity,
                 height: 56,
                 child: FilledButton(
-                  onPressed: _startPayment, // Calls the WebView flow
+                  onPressed: _startPayment,
                   style: FilledButton.styleFrom(
                     backgroundColor: theme.colorScheme.onSurface,
                     foregroundColor: theme.colorScheme.surface,
@@ -208,7 +229,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               ),
               const SizedBox(height: 16),
               GestureDetector(
-                onTap: () => _showRequirementsSheet(context, theme),
+                onTap: () => _showRequirementsSheet(context, theme, null), // Pass null for profileData
                 child: Text(
                   'Learn more about monetization requirements',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -244,20 +265,68 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
   
   // ===========================================================================
-  // 2. DASHBOARD VIEW (Restored)
+  // 2. DASHBOARD VIEW (With Verification Logic)
   // ===========================================================================
-  Widget _buildPremiumDashboard(ThemeData theme) {
-    // Mock data defaults (will act as 'fillings' until we have real analytics)
-    final earnings = _profileData?['earnings_balance'] ?? 0.0;
+  Widget _buildPremiumDashboard(ThemeData theme, Map<String, dynamic> profileData) {
+    final earnings = profileData['earnings_balance'] ?? 0.0;
+    // Hardcoded benefits for MVP
     final adCredits = 2000; 
-    final progress = _profileData?['progress'] ?? 0;
-    final views = _profileData?['video_views'] ?? 0;
+    final progress = profileData['progress'] ?? 0;
+    final views = profileData['total_video_views'] ?? 0;
+    
+    // VERIFICATION CHECK
+    final isVerified = profileData['is_verified'] == true;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // --- VERIFICATION BANNER ---
+          if (!isVerified)
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade900.withValues(alpha: 0.2),
+                border: Border.all(color: Colors.amber.shade700),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.hourglass_top, color: Colors.amber.shade700),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Verification Pending', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.amber.shade700)),
+                        const SizedBox(height: 4),
+                        Text('Your ID is under review. Earnings will accumulate but cannot be withdrawn yet.', style: theme.textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else 
+            Container(
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade900.withValues(alpha: 0.2),
+                border: Border.all(color: Colors.green),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green),
+                  const SizedBox(width: 12),
+                  Text('Account Verified. Payouts Active.', style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.green)),
+                ],
+              ),
+            ),
+
           // Earnings Card
           Container(
             width: double.infinity,
@@ -338,8 +407,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  void _showRequirementsSheet(BuildContext context, ThemeData theme) {
-    final criteria = _profileData?['criteria'] as Map<String, dynamic>?;
+  void _showRequirementsSheet(BuildContext context, ThemeData theme, Map<String, dynamic>? profileData) {
+    final criteria = profileData?['criteria'] as Map<String, dynamic>?;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -357,7 +426,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                _buildReqItem('Account Age 30+ Days', criteria['min_account_age'] ?? false, theme),
                _buildReqItem('Email Verified', criteria['email_verified'] ?? false, theme),
             ] else 
-              const Text('Loading criteria...'),
+              const Text('Standard Criteria apply.'),
           ],
         ),
       ),
@@ -377,7 +446,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 }
 
 // --- THE ROBUST WEBVIEW COMPONENT ---
-// This runs the Paystack Popup in a hidden HTML wrapper.
 class _PaystackWebView extends StatefulWidget {
   final String apiKey;
   final String email;
