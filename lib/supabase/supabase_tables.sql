@@ -323,8 +323,59 @@ begin
     DESC
   limit limit_count;
 end;
-$$;
+$$; 
 
+-- Partner Program Ledger 
+
+-- 1. UPGRADE VIDEO VIEWS (To track Duration)
+-- We need to know HOW LONG they watched, not just 'that' they watched.
+alter table public.video_views 
+add column if not exists duration_seconds int not null default 0;
+
+-- 2. SYSTEM CONFIG (The "Brains")
+-- Stores your 70/30 split logic so you can change it later without coding.
+create table if not exists public.system_config (
+  key text primary key,
+  value text not null,
+  description text
+);
+
+-- Insert your default policy (70% to Creator Pool)
+insert into public.system_config (key, value, description)
+values 
+  ('creator_pool_percentage', '0.70', 'Percentage of daily revenue allocated to creators'),
+  ('min_payout_threshold', '5000', 'Minimum NGN required to request withdrawal');
+
+-- 3. DAILY POOL STATS (The "Market Rate")
+-- Stores the calculated "Rate per Second" for every single day.
+create table if not exists public.daily_pool_stats (
+  date date primary key default current_date,
+  total_revenue numeric not null default 0, -- Total cash collected that day
+  creator_pool_amount numeric not null default 0, -- The 70% share
+  total_platform_seconds bigint not null default 0, -- Total time watched by everyone
+  calculated_rate_per_second numeric not null default 0, -- The resulting rate (Pool / Seconds)
+  is_finalized boolean default false, -- True when the batch job finishes
+  created_at timestamptz default now()
+);
+
+-- 4. DAILY CREATOR EARNINGS (The "Paycheck stub")
+-- Stores exactly what each user earned that day based on the calculated rate.
+create table if not exists public.daily_creator_earnings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  total_seconds_watched int not null default 0, -- How long their content was watched
+  amount_earned numeric not null default 0, -- (Seconds * Rate)
+  video_breakdown jsonb default '[]'::jsonb, -- Stores which videos earned what
+  created_at timestamptz default now(),
+  unique(user_id, date)
+);
+
+-- Security: Creators can see their own daily earnings
+alter table public.daily_creator_earnings enable row level security;
+create policy "Users view own daily earnings" 
+on public.daily_creator_earnings for select 
+using (auth.uid() = user_id);
 -- ==========================================
 -- 3. AUTOMATION TRIGGERS
 -- ==========================================
