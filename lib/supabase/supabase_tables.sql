@@ -376,6 +376,167 @@ alter table public.daily_creator_earnings enable row level security;
 create policy "Users view own daily earnings" 
 on public.daily_creator_earnings for select 
 using (auth.uid() = user_id);
+
+-- PARTNER PROGRAM EARNINGS CALCULATIONS 
+-- =================================================================
+-- 1. SETUP TABLES (If you haven't run Phase 1 yet)
+-- =================================================================
+
+-- Add duration tracking if missing
+alter table public.video_views 
+add column if not exists duration_seconds int not null default 0;
+
+-- Configuration Table (70% Split)
+create table if not exists public.system_config (
+  key text primary key,
+  value text not null
+);
+
+insert into public.system_config (key, value)
+values 
+  ('subscription_price', '7000'), -- NGN
+  ('creator_pool_percentage', '0.70'), -- 70%
+  ('pool_duration_days', '30') -- Smoothing factor
+on conflict (key) do nothing;
+
+-- Ledger Tables
+create table if not exists public.daily_pool_stats (
+  date date primary key default current_date,
+  total_revenue numeric not null default 0,
+  creator_pool_amount numeric not null default 0,
+  total_premium_seconds bigint not null default 0, -- CHANGED: Premium Only
+  rate_per_second numeric not null default 0,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.daily_creator_earnings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null default current_date,
+  seconds_watched int not null default 0,
+  amount_earned numeric not null default 0,
+  video_breakdown jsonb default '[]'::jsonb,
+  created_at timestamptz default now(),
+  unique(user_id, date)
+);
+
+alter table public.daily_creator_earnings enable row level security;
+create policy "Users see own earnings" on public.daily_creator_earnings for select using (auth.uid() = user_id);
+
+-- =================================================================
+-- 2. THE ENGINE (The Calculation Function)
+-- =================================================================
+
+create or replace function calculate_daily_earnings()
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  -- Config variables
+  v_sub_price numeric;
+  v_split_pct numeric;
+  v_days numeric;
+  
+  -- Calculation variables
+  v_yesterday date;
+  v_active_subs int;
+  v_daily_pool numeric;
+  v_total_premium_seconds bigint;
+  v_rate numeric;
+  
+  -- Loop variables
+  r_creator record;
+  v_video_breakdown jsonb;
+begin
+  -- A. Load Config
+  select value::numeric into v_sub_price from system_config where key = 'subscription_price';
+  select value::numeric into v_split_pct from system_config where key = 'creator_pool_percentage';
+  select value::numeric into v_days from system_config where key = 'pool_duration_days';
+  
+  v_yesterday := current_date - 1;
+
+  -- B. Calculate The Pool (Amortized Revenue)
+  -- Count users who are CURRENTLY premium
+  select count(*) into v_active_subs from profiles where is_premium = true;
+  
+  -- Math: (Subs * 7000 * 0.70) / 30
+  v_daily_pool := (v_active_subs * v_sub_price * v_split_pct) / v_days;
+
+  -- C. Calculate Total Work (PREMIUM SECONDS ONLY)
+  -- This is the "Premium Eyes Only" filter you requested
+  select coalesce(sum(v.duration_seconds), 0)
+  into v_total_premium_seconds
+  from video_views v
+  join profiles viewer on v.viewer_id = viewer.auth_user_id
+  where 
+    v.created_at >= v_yesterday::timestamp
+    and v.created_at < current_date::timestamp
+    and v.viewer_id != v.author_id -- No self-views
+    and viewer.is_premium = true;  -- ONLY Premium Viewers Count!
+
+  -- Safety Check: Avoid division by zero
+  if v_total_premium_seconds > 0 then
+    v_rate := v_daily_pool / v_total_premium_seconds;
+  else
+    v_rate := 0;
+  end if;
+
+  -- D. Log the Day's Stats
+  insert into daily_pool_stats (date, total_revenue, creator_pool_amount, total_premium_seconds, rate_per_second)
+  values (v_yesterday, (v_active_subs * v_sub_price)/v_days, v_daily_pool, v_total_premium_seconds, v_rate)
+  on conflict (date) do update set 
+    rate_per_second = EXCLUDED.rate_per_second, 
+    total_premium_seconds = EXCLUDED.total_premium_seconds;
+
+  -- E. Pay The Creators (If rate > 0)
+  if v_rate > 0 then
+    
+    -- Loop through every creator who got PREMIUM views yesterday
+    for r_creator in 
+      select 
+        v.author_id, 
+        sum(v.duration_seconds) as total_sec,
+        jsonb_agg(jsonb_build_object('video_id', v.video_id, 'sec', v.duration_seconds)) as videos
+      from video_views v
+      join profiles viewer on v.viewer_id = viewer.auth_user_id
+      where 
+        v.created_at >= v_yesterday::timestamp
+        and v.created_at < current_date::timestamp
+        and v.viewer_id != v.author_id
+        and viewer.is_premium = true -- Filter again for the payout list
+      group by v.author_id
+    loop
+      -- 1. Insert Record
+      insert into daily_creator_earnings (user_id, date, seconds_watched, amount_earned, video_breakdown)
+      values (
+        r_creator.author_id, 
+        v_yesterday, 
+        r_creator.total_sec, 
+        (r_creator.total_sec * v_rate), 
+        r_creator.videos
+      )
+      on conflict (user_id, date) do update set 
+        amount_earned = EXCLUDED.amount_earned,
+        seconds_watched = EXCLUDED.seconds_watched;
+
+      -- 2. Update Wallet (Atomic Increment)
+      update profiles 
+      set earnings_balance = coalesce(earnings_balance, 0) + (r_creator.total_sec * v_rate)
+      where auth_user_id = r_creator.author_id;
+      
+    end loop;
+  end if;
+
+  return json_build_object(
+    'status', 'success',
+    'date', v_yesterday,
+    'pool', v_daily_pool,
+    'rate', v_rate
+  );
+end;
+$$;
+
 -- ==========================================
 -- 3. AUTOMATION TRIGGERS
 -- ==========================================
