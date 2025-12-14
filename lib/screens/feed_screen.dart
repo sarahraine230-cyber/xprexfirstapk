@@ -1,3 +1,4 @@
+import 'dart:async'; // Added for Timer
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -114,6 +115,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     final theme = Theme.of(context);
 
     final feedVisible = widget.isVisible && _appActive && _routeVisible;
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
@@ -212,12 +214,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _repostCount = 0;
   
   bool _loading = true;
+
+  // --- STOPWATCH VARIABLES (Monetization Engine) ---
+  Timer? _watchTimer;
+  int _secondsWatched = 0;
+  bool _hasRecordedView = false; // Initial view count
+
   @override
   void initState() {
     super.initState();
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
-    // --- INITIALIZE COUNTS ---
     _saveCount = widget.video.savesCount;
     _repostCount = widget.video.repostsCount;
     _init();
@@ -227,6 +234,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   void didUpdateWidget(covariant VideoFeedItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.video.id != widget.video.id) {
+      _flushWatchTime(); // Flush old video data before switching
       _disposeController();
       _loading = true;
       _init();
@@ -240,9 +248,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
         ..setLooping(true);
       await _controller!.initialize();
-      // --- CRITICAL: RECORD VIEW ---
-      if (widget.video.authorAuthUserId.isNotEmpty) {
+      
+      // We only record the initial "View" count once per session
+      if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView) {
         _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
+        _hasRecordedView = true;
       }
       
       final uid = supabase.auth.currentUser?.id;
@@ -275,15 +285,71 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   void _updatePlayState() {
     if (_controller == null) return;
     final shouldPlay = widget.feedVisible && widget.isActive;
+    
     if (shouldPlay) {
       _controller!.play();
       _maybeEnableWakelock();
+      _startWatchTimer(); // Start counting money
     } else {
       _controller!.pause();
       _maybeDisableWakelock();
+      _stopWatchTimer(); // Pause counting
     }
     setState(() {});
   }
+
+  // --- STOPWATCH LOGIC ---
+  void _startWatchTimer() {
+    if (_watchTimer != null && _watchTimer!.isActive) return;
+    
+    _watchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      // Only count if actually playing
+      if (_controller != null && _controller!.value.isPlaying) {
+        _secondsWatched++;
+        // Optional: Debug print to see it working
+        // debugPrint('⏱️ Watched ${widget.video.id}: $_secondsWatched sec');
+      }
+    });
+  }
+
+  void _stopWatchTimer() {
+    _watchTimer?.cancel();
+    _watchTimer = null;
+  }
+
+  Future<void> _flushWatchTime() async {
+    _stopWatchTimer();
+    
+    // Don't spam DB with tiny views (< 3 seconds)
+    if (_secondsWatched < 3) {
+      _secondsWatched = 0;
+      return;
+    }
+
+    try {
+      final uid = supabase.auth.currentUser?.id;
+      // We send this to Supabase. 
+      // Note: We are inserting into a raw 'video_views' log or updating. 
+      // For MVP, we simply insert a record that this user watched X seconds.
+      // We will create this specific RPC or Table logic in SQL phase.
+      if (uid != null) {
+         await supabase.from('video_views').insert({
+           'video_id': widget.video.id,
+           'viewer_id': uid,
+           'author_id': widget.video.authorAuthUserId,
+           'duration_seconds': _secondsWatched, // The golden metric
+           'created_at': DateTime.now().toIso8601String(),
+         });
+      }
+      debugPrint('💰 Flushed $_secondsWatched seconds for video ${widget.video.id}');
+    } catch (e) {
+      debugPrint('❌ Failed to flush watch time: $e');
+    } finally {
+      _secondsWatched = 0; // Reset for next loop/video
+    }
+  }
+
+  // --- EXISTING ACTIONS ---
 
   Future<void> _toggleLike() async {
     try {
@@ -406,6 +472,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   @override
   void dispose() {
     WakelockPlus.disable();
+    _flushWatchTime(); // Save any pending seconds before destroy
     _disposeController();
     super.dispose();
   }
@@ -474,10 +541,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   if (_controller!.value.isPlaying) {
                     _controller!.pause();
                     _maybeDisableWakelock();
+                    _stopWatchTimer();
                   } else {
                     if (widget.feedVisible && widget.isActive) {
                       _controller!.play();
                       _maybeEnableWakelock();
+                      _startWatchTimer();
                     }
                   }
                   setState(() {});
@@ -486,7 +555,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
-          // --- UPDATED BOTTOM LEFT SECTION ---
+          // --- BOTTOM LEFT SECTION ---
           Positioned(
             bottom: 80,
             left: 16,
@@ -676,7 +745,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       builder: (ctx) {
         return _CommentsSheet(
           videoId: widget.video.id,
-          // FIX: Pass the initial count from the parent widget
           initialCount: _commentsCount,
           onNewComment: () {
             setState(() => _commentsCount += 1);
@@ -803,10 +871,9 @@ class _NeonRailButtonState extends State<_NeonRailButton> {
   }
 }
 
-// --- UPDATED COMMENT SHEET: PHYSICS, TYPOGRAPHY, & EMOJIS ---
 class _CommentsSheet extends StatefulWidget {
   final String videoId;
-  final int initialCount; // FIX: Added parameter to receive count
+  final int initialCount; 
   final VoidCallback? onNewComment;
   const _CommentsSheet({
     required this.videoId, 
@@ -822,20 +889,14 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   final _inputCtrl = TextEditingController();
   late Future<List<CommentModel>> _loader;
   bool _posting = false;
-  
-  // FIX: Added local state for count
   late int _commentsCount;
-  
-  // REPLY STATE
   CommentModel? _replyingTo; 
 
-  // EMOJI BAR
   final List<String> _quickEmojis = ['🔥', '😂', '😍', '👏', '😢', '😮', '💯', '🙏'];
-
   @override
   void initState() {
     super.initState();
-    _commentsCount = widget.initialCount; // FIX: Initialize from widget prop
+    _commentsCount = widget.initialCount;
     _loader = _svc.getCommentsByVideo(widget.videoId);
   }
 
@@ -859,7 +920,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
     }
     setState(() => _posting = true);
     try {
-      // Logic for nesting: If replying to a reply, set parent as the original parent
       String? parentId;
       if (_replyingTo != null) {
         parentId = _replyingTo!.parentId ?? _replyingTo!.id;
@@ -871,12 +931,11 @@ class _CommentsSheetState extends State<_CommentsSheet> {
         text: text,
         parentId: parentId,
       );
-      
       _inputCtrl.clear();
       setState(() {
-        _replyingTo = null; // Reset reply mode
+        _replyingTo = null; 
         _loader = _svc.getCommentsByVideo(widget.videoId);
-        _commentsCount++; // FIX: Increment local count
+        _commentsCount++;
         _posting = false;
       });
       if (mounted) {
@@ -912,7 +971,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
       curve: Curves.easeOut,
       padding: EdgeInsets.only(bottom: viewInsets),
       child: DraggableScrollableSheet(
-        // --- 1. PHYSICS UPDATE: HALF SHEET BY DEFAULT ---
         initialChildSize: 0.55, 
         minChildSize: 0.40,
         maxChildSize: 0.95,
@@ -934,7 +992,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
                   child: Row(
                     children: [
-                      // Updated Header style
                       Text('Comments', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                       if (_commentsCount > 0)
                         Padding(
@@ -990,7 +1047,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                   ),
                 ),
                 
-                // --- REPLY INDICATOR ---
                 if (_replyingTo != null)
                   Container(
                     color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -1012,7 +1068,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     ),
                   ),
 
-                // --- 3. THE "EXTRA MILE" EMOJI BAR ---
                 Container(
                   height: 44,
                   decoration: BoxDecoration(
@@ -1039,7 +1094,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
                     child: Row(
                     children: [
                       CircleAvatar(
-                        radius: 18, // Show current user avatar placeholder
+                        radius: 18, 
                         backgroundColor: theme.colorScheme.surfaceContainerHighest,
                         child: Icon(Icons.person, size: 20, color: theme.colorScheme.onSurfaceVariant),
                       ),
@@ -1073,7 +1128,6 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   }
 }
 
-// --- UPDATED WIDGET: HIGH FIDELITY ROW ---
 class _CommentRow extends StatefulWidget {
   final CommentModel comment;
   final Function(CommentModel) onReplyTap;
@@ -1087,7 +1141,6 @@ class _CommentRowState extends State<_CommentRow> {
   bool _repliesVisible = false;
   bool _loadingReplies = false;
   final _svc = CommentService();
-
   late bool _isLiked;
   late int _likesCount;
 
@@ -1103,7 +1156,6 @@ class _CommentRowState extends State<_CommentRow> {
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
     });
-
     try {
       await _svc.toggleCommentLike(widget.comment.id);
     } catch (e) {
@@ -1126,7 +1178,6 @@ class _CommentRowState extends State<_CommentRow> {
       _loadingReplies = true;
       _repliesVisible = true;
     });
-
     try {
       final replies = await _svc.getReplies(widget.comment.id);
       if (mounted) {
@@ -1149,13 +1200,11 @@ class _CommentRowState extends State<_CommentRow> {
         ? c.authorDisplayName!
         : (c.authorUsername != null ? '@${c.authorUsername}' : 'User');
     
-    // --- 2. TYPOGRAPHY UPDATES ---
     return Column(
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // LARGER AVATAR
             CircleAvatar(
               radius: 20, 
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
@@ -1173,14 +1222,12 @@ class _CommentRowState extends State<_CommentRow> {
                 children: [
                   Row(
                     children: [
-                      // BOLDER USERNAME
                       Text(name, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 13.5)),
                       const SizedBox(width: 6),
                       Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
                     ],
                   ),
                   const SizedBox(height: 2),
-                  // LARGER COMMENT TEXT
                   Text(c.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15, height: 1.3)),
                   const SizedBox(height: 6),
                   
@@ -1223,7 +1270,7 @@ class _CommentRowState extends State<_CommentRow> {
                     onTap: _toggleLike,
                     child: Icon(
                       _isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: 18, // Slightly larger icon
+                      size: 18, 
                       color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
@@ -1235,7 +1282,6 @@ class _CommentRowState extends State<_CommentRow> {
           ],
         ),
 
-        // REPLIES LIST (Nested)
         if (_repliesVisible && c.replies.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(left: 52.0, top: 16),
@@ -1245,7 +1291,7 @@ class _CommentRowState extends State<_CommentRow> {
               itemCount: c.replies.length,
               separatorBuilder: (_,__) => const SizedBox(height: 16),
               itemBuilder: (ctx, i) {
-                 final r = c.replies[i];
+                final r = c.replies[i];
                  return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
               },
             ),
@@ -1259,7 +1305,6 @@ class _ReplyRow extends StatefulWidget {
   final CommentModel reply;
   final Function(CommentModel) onReplyTap;
   const _ReplyRow({required this.reply, required this.onReplyTap});
-
   @override
   State<_ReplyRow> createState() => _ReplyRowState();
 }
