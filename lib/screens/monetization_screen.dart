@@ -7,7 +7,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
-import 'package:intl/intl.dart'; // Ensure intl package is in pubspec.yaml
+import 'package:intl/intl.dart'; 
 
 // --- 1. PROFILE STREAM (Wallet Balance & Status) ---
 final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
@@ -49,10 +49,11 @@ final earningsBreakdownProvider = FutureProvider.autoDispose<List<Map<String, dy
   if (videoIds.isEmpty) return [];
 
   // C. Fetch Video Titles
+  // FIX: Switched from .in_() to .filter() to avoid version conflicts
   final videosResponse = await Supabase.instance.client
       .from('videos')
       .select('id, title, created_at')
-      .in_('id', videoIds);
+      .filter('id', 'in', videoIds);
 
   // D. Merge Data (Amount + Title)
   return breakdown.map((item) {
@@ -91,7 +92,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // UPDATED TITLE: Revenue Studio
         title: profileAsync.when(
           data: (data) => Text(
             (data['is_premium'] == true) ? 'Revenue Studio' : 'Premium',
