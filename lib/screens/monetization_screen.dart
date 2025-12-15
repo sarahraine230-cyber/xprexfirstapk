@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,22 +7,67 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
+import 'package:intl/intl.dart'; // Ensure intl package is in pubspec.yaml
 
-// --- REACTIVE PROVIDER ---
-// This listens to the database in real-time. 
+// --- 1. PROFILE STREAM (Wallet Balance & Status) ---
 final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
   
-  if (userId == null) {
-    return Stream.value({});
-  }
+  if (userId == null) return Stream.value({});
 
   return Supabase.instance.client
       .from('profiles')
       .stream(primaryKey: ['id'])
       .eq('auth_user_id', userId)
       .map((event) => event.isNotEmpty ? event.first : {});
+});
+
+// --- 2. EARNINGS BREAKDOWN FETCHER (The Real Data) ---
+final earningsBreakdownProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final authService = ref.watch(authServiceProvider);
+  final userId = authService.currentUserId;
+  if (userId == null) return [];
+
+  // A. Fetch the LATEST earnings record
+  final earningsResponse = await Supabase.instance.client
+      .from('daily_creator_earnings')
+      .select('video_breakdown, date')
+      .eq('user_id', userId)
+      .order('date', ascending: false)
+      .limit(1)
+      .maybeSingle();
+
+  if (earningsResponse == null) return [];
+
+  final List<dynamic> breakdown = earningsResponse['video_breakdown'] ?? [];
+  if (breakdown.isEmpty) return [];
+
+  // B. Extract Video IDs to fetch titles
+  final videoIds = breakdown.map((e) => e['video_id']).toList();
+
+  if (videoIds.isEmpty) return [];
+
+  // C. Fetch Video Titles
+  final videosResponse = await Supabase.instance.client
+      .from('videos')
+      .select('id, title, created_at')
+      .in_('id', videoIds);
+
+  // D. Merge Data (Amount + Title)
+  return breakdown.map((item) {
+    // Find the matching video title
+    final vidDetails = videosResponse.firstWhere(
+      (v) => v['id'] == item['video_id'],
+      orElse: () => {'title': 'Unknown Video', 'created_at': DateTime.now().toIso8601String()},
+    );
+    
+    return {
+      'title': vidDetails['title'],
+      'date': vidDetails['created_at'],
+      'amount': item['amount'] ?? 0.0,
+    };
+  }).toList();
 });
 
 class MonetizationScreen extends ConsumerStatefulWidget {
@@ -34,7 +78,6 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
-  // PAYSTACK CONFIG (Test Key)
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
   
   // UI State for the Dashboard Filter
@@ -48,13 +91,14 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
     return Scaffold(
       appBar: AppBar(
+        // UPDATED TITLE: Revenue Studio
         title: profileAsync.when(
           data: (data) => Text(
-            (data['is_premium'] == true) ? 'Partner Program' : 'Premium',
+            (data['is_premium'] == true) ? 'Revenue Studio' : 'Premium',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           loading: () => const Text('Loading...'),
-          error: (_, __) => const Text('Monetization'),
+          error: (_, __) => const Text('Revenue Studio'),
         ),
         centerTitle: true,
         scrolledUnderElevation: 0,
@@ -67,7 +111,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
           final isPremium = profileData['is_premium'] == true;
 
-          // REACTIVE SWITCH
           if (isPremium) {
             return _buildProfessionalDashboard(theme, profileData);
           } else {
@@ -79,12 +122,15 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   // ===========================================================================
-  // 1. PROFESSIONAL DASHBOARD (Medium-Inspired Layout)
+  // 1. PROFESSIONAL DASHBOARD (Connected to Real Data)
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
     final earnings = profileData['earnings_balance'] ?? 0.0;
     final isVerified = profileData['is_verified'] == true;
     final adCredits = 2000; 
+    
+    // Watch the Breakdown Data
+    final breakdownAsync = ref.watch(earningsBreakdownProvider);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -134,7 +180,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           
           const SizedBox(height: 32),
 
-          // --- 2. TOOLS SECTION (Moved Top) ---
+          // --- 2. TOOLS SECTION ---
           _buildSettingsTile(
             theme, 
             title: 'Payout settings', 
@@ -167,7 +213,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           Text('Overview', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
-            'This page only displays earnings that have accrued in the selected time period. Daily earnings may take up to 48 hours to be finalized — the amounts displayed here may be updated during this time.',
+            'This page only displays earnings that have accrued in the selected time period. Daily earnings may take up to 48 hours to be finalized.',
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.4),
           ),
           const SizedBox(height: 20),
@@ -225,7 +271,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
           const SizedBox(height: 24),
           
-          // Disclaimer
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -233,7 +278,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              'We’ll typically send payouts by the 5th business day of the following month. After payouts have been sent, it may take an additional 2-3 business days for the funds to appear in your bank. Earnings are non-binding.',
+              'We’ll typically send payouts by the 5th business day of the following month. Earnings are non-binding.',
               style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ),
@@ -242,7 +287,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const Divider(),
           const SizedBox(height: 24),
 
-          // --- 4. EARNINGS BY VIDEO ---
+          // --- 4. EARNINGS BY VIDEO (REAL DATA) ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -257,10 +302,37 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Mock Data 
-          _buildVideoEarningRow(theme, "12 Brutal Truths About Narcissists", "₦4,200.50", "Dec 4, 2025"),
-          _buildVideoEarningRow(theme, "Why Nice Guys Finish Last", "₦1,850.00", "Dec 10, 2025"),
-          _buildVideoEarningRow(theme, "Day in the Life: Lagos Tech", "₦920.00", "Dec 12, 2025"),
+          // THE REAL LIST
+          breakdownAsync.when(
+            loading: () => const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator())),
+            error: (err, _) => Text('Could not load details: $err'),
+            data: (items) {
+              if (items.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text(
+                    "No earnings recorded yet for this period.",
+                    style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                  ),
+                );
+              }
+              // Show up to 5 items
+              return Column(
+                children: items.take(5).map((item) {
+                  final date = DateTime.tryParse(item['date'].toString());
+                  final dateStr = date != null ? DateFormat('MMM d, yyyy').format(date) : '';
+                  final amount = double.tryParse(item['amount'].toString()) ?? 0.0;
+                  
+                  return _buildVideoEarningRow(
+                    theme, 
+                    item['title'] ?? 'Untitled Video', 
+                    '₦${amount.toStringAsFixed(2)}', 
+                    dateStr
+                  );
+                }).toList(),
+              );
+            },
+          ),
 
           const SizedBox(height: 24),
           const Divider(),
@@ -276,7 +348,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
           const SizedBox(height: 8),
           _buildPayoutRow(theme, "Nov 1 - Nov 30", "₦0.00", "Paid"),
-          _buildPayoutRow(theme, "Oct 1 - Oct 31", "₦0.00", "Paid"),
           
           const SizedBox(height: 40),
         ],
@@ -284,6 +355,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
+  // --- HELPER WIDGETS ---
   Widget _buildSettingsTile(ThemeData theme, {required String title, required String subtitle, required IconData icon, required VoidCallback onTap}) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -360,9 +432,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // ===========================================================================
-  // 2. SALES PAGE UI (Unchanged)
-  // ===========================================================================
+  // --- SALES PAGE UI ---
   Widget _buildSalesPage(ThemeData theme) {
     final neon = theme.extension<NeonAccentTheme>();
     return Column(
@@ -544,7 +614,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         'payment_amount': 7000,
       });
       if (!mounted) return;
-      Navigator.pop(context); // Close loader
+      Navigator.pop(context); 
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -571,7 +641,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 }
 
-// --- THE ROBUST WEBVIEW COMPONENT ---
 class _PaystackWebView extends StatefulWidget {
   final String apiKey;
   final String email;
