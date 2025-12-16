@@ -348,7 +348,13 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Earnings by video', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              TextButton(onPressed: (){}, child: const Text('View all')),
+              TextButton(
+  onPressed: () {
+    // Pass the currently selected period (e.g. "Dec 2025") to the new screen
+    context.push('/monetization/video-earnings', extra: _selectedPeriod);
+  },
+  child: const Text('View all'),
+),
             ],
           ),
           const SizedBox(height: 4),
