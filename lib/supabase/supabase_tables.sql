@@ -325,8 +325,7 @@ begin
 end;
 $$; 
 
--- Partner Program Ledger 
-
+-- PARTNER PROGRAM LEDGER 
 -- 1. UPGRADE VIDEO VIEWS (To track Duration)
 -- We need to know HOW LONG they watched, not just 'that' they watched.
 alter table public.video_views 
@@ -674,3 +673,65 @@ end;
 $$ language plpgsql security definer;
 drop trigger if exists on_follow_notify on public.follows;
 create trigger on_follow_notify after insert on public.follows for each row execute function notify_on_follow();
+
+-- This creates the ledger and the automated function to generate final payout invoices.
+-- 1. Create the Payouts Ledger
+create table if not exists public.payouts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  period date not null, -- Stores "2025-11-01" for November payout
+  amount numeric not null,
+  status text not null default 'Processing', -- 'Processing', 'Paid', 'Failed'
+  processed_at timestamptz, -- When you actually transferred the money
+  created_at timestamptz default now(),
+  unique(user_id, period) -- Safety: Prevent double-paying the same month
+);
+
+-- 2. Enable Security (So users can see THEIR checks only)
+alter table public.payouts enable row level security;
+create policy "Users see own payouts" on public.payouts 
+for select using (auth.uid() = user_id);
+
+-- 3. The "Monthly Close" Generator Function
+create or replace function generate_monthly_payouts(target_date date default null)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  v_start date;
+  v_end date;
+  v_count int;
+begin
+  -- Logic: If no date is given, assume we are generating for LAST MONTH
+  if target_date is null then
+    v_start := date_trunc('month', current_date - interval '1 month');
+  else
+    v_start := date_trunc('month', target_date);
+  end if;
+  
+  -- The end date is the 1st of the NEXT month
+  v_end := v_start + interval '1 month';
+
+  -- Aggregation: Sum up daily earnings for that specific month
+  with monthly_sums as (
+    select user_id, sum(amount_earned) as total
+    from daily_creator_earnings
+    where date >= v_start and date < v_end
+    group by user_id
+    having sum(amount_earned) > 0 -- Only generate invoice if they earned > 0
+  )
+  insert into payouts (user_id, period, amount, status)
+  select user_id, v_start, total, 'Processing'
+  from monthly_sums
+  on conflict (user_id, period) do nothing; -- Idempotency: Running it twice won't duplicate checks
+
+  get diagnostics v_count = row_count;
+
+  return json_build_object(
+    'status', 'success', 
+    'period', v_start, 
+    'invoices_generated', v_count
+  );
+end;
+$$;
