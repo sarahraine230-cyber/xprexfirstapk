@@ -23,55 +23,63 @@ final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynam
       .map((event) => event.isNotEmpty ? event.first : {});
 });
 
-// --- 2. CUMULATIVE EARNINGS FETCHER (The "Medium" Logic) ---
-// Now accepts a "period" string (e.g., "Dec 2025") to filter correctly
+// --- 2. CUMULATIVE EARNINGS FETCHER (Fixed "Implied Rate" Logic) ---
 final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, period) async {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
   if (userId == null) return [];
 
-  // A. Parse the "Dec 2025" string into start/end dates
+  // A. Parse the "Dec 2025" string
   DateTime startDate;
   DateTime endDate;
   try {
-    // "MMM yyyy" -> Dec 2025
     startDate = DateFormat('MMM yyyy').parse(period);
-    // End date is the last day of that month
     endDate = DateTime(startDate.year, startDate.month + 1, 0, 23, 59, 59);
   } catch (e) {
-    // Fallback to current month if parsing fails
     final now = DateTime.now();
     startDate = DateTime(now.year, now.month, 1);
     endDate = DateTime(now.year, now.month + 1, 0);
   }
 
-  // B. Fetch ALL records for this month (Not just the latest day)
+  // B. Fetch records (Including seconds_watched and amount_earned)
   final earningsResponse = await Supabase.instance.client
       .from('daily_creator_earnings')
-      .select('video_breakdown, date')
+      .select('video_breakdown, date, amount_earned, seconds_watched') // Added helper columns
       .eq('user_id', userId)
       .gte('date', startDate.toIso8601String())
       .lte('date', endDate.toIso8601String());
 
   if (earningsResponse.isEmpty) return [];
 
-  // C. THE AGGREGATOR ENGINE
-  // We need to sum up earnings for the same video across multiple days.
-  final Map<String, double> videoTotals = {}; // VideoID -> Total Amount
-  final Map<String, String> videoDates = {};  // VideoID -> Last Earned Date
+  // C. THE SMART AGGREGATOR
+  final Map<String, double> videoTotals = {}; // VideoID -> Total Money
+  final Map<String, String> videoDates = {};  // VideoID -> Last Date
 
   for (final record in earningsResponse) {
+    // 1. Get the Daily Totals
+    final double dayEarnings = (record['amount_earned'] ?? 0).toDouble();
+    final int daySeconds = (record['seconds_watched'] ?? 0).toInt();
     final List<dynamic> breakdown = record['video_breakdown'] ?? [];
     final recordDate = record['date'];
 
+    // 2. Calculate the "Implied Rate" for this specific day
+    // If we earned 0 or watched 0 seconds, the rate is 0.
+    double impliedRate = 0.0;
+    if (daySeconds > 0) {
+      impliedRate = dayEarnings / daySeconds;
+    }
+
+    // 3. Distribute the money to the videos based on their seconds
     for (final item in breakdown) {
       final vidId = item['video_id'];
-      final amount = (item['amount'] ?? 0.0).toDouble();
+      // FIX: We read 'sec' (seconds), not 'amount'
+      final int sec = (item['sec'] ?? 0).toInt(); 
+      
+      // Calculate this video's share: Seconds * Rate
+      final double videoMoney = sec * impliedRate;
 
       if (vidId != null) {
-        // Add to existing total or start new
-        videoTotals[vidId] = (videoTotals[vidId] ?? 0.0) + amount;
-        // Keep track of the date (just for display purposes, usually shows "Updated X")
+        videoTotals[vidId] = (videoTotals[vidId] ?? 0.0) + videoMoney;
         videoDates[vidId] = recordDate; 
       }
     }
@@ -79,14 +87,14 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
 
   if (videoTotals.isEmpty) return [];
 
-  // D. Fetch Video Titles for the IDs found
+  // D. Fetch Video Titles
   final videoIds = videoTotals.keys.toList();
   final videosResponse = await Supabase.instance.client
       .from('videos')
       .select('id, title, created_at')
       .filter('id', 'in', videoIds);
 
-  // E. Merge Data
+  // E. Merge
   return videoIds.map((vidId) {
     final vidDetails = videosResponse.firstWhere(
       (v) => v['id'] == vidId,
@@ -95,8 +103,8 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
 
     return {
       'title': vidDetails['title'],
-      'date': videoDates[vidId], // Shows the last date it earned money
-      'amount': videoTotals[vidId] ?? 0.0, // The cumulative month total
+      'date': videoDates[vidId],
+      'amount': videoTotals[vidId] ?? 0.0,
     };
   }).toList();
 });
@@ -111,15 +119,14 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
   
-  // UI State for the Dashboard Filter
   String _selectedPeriod = 'Dec 2025';
-  // Dynamic Period Generator (Current Month + Previous 2)
+  
   List<String> get _periods {
     final now = DateTime.now();
     return [
-      DateFormat('MMM yyyy').format(now), // Current
-      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 1)), // Last Month
-      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 2)), // 2 Months ago
+      DateFormat('MMM yyyy').format(now),
+      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 1)),
+      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 2)),
     ];
   }
 
@@ -160,14 +167,13 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   // ===========================================================================
-  // 1. PROFESSIONAL DASHBOARD (Connected to Real Data)
+  // 1. PROFESSIONAL DASHBOARD
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
-    final earnings = profileData['earnings_balance'] ?? 0.0;
     final isVerified = profileData['is_verified'] == true;
     final adCredits = 2000; 
     
-    // Watch the Breakdown Data - PASSING THE PERIOD NOW
+    // Watch the Breakdown Data
     final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
 
     return SingleChildScrollView(
@@ -288,14 +294,11 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
           const SizedBox(height: 16),
           
-          // Note: "earnings" variable above is Lifetime Balance. 
-          // For Monthly summary, we should ideally sum the breakdownAsync data, 
-          // but for now, let's keep it simple or use the breakdown sum.
           breakdownAsync.when(
             loading: () => const SizedBox(),
             error: (_,__) => const SizedBox(),
             data: (items) {
-               // Calculate month total from the list items
+               // Calculate Cumulative Total for the month
                final monthTotal = items.fold(0.0, (sum, item) => sum + (item['amount'] as double));
                return Column(
                  children: [
