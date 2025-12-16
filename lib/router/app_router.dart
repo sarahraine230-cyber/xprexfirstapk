@@ -100,6 +100,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/setup/bank',
         builder: (context, state) => const BankDetailsScreen(),
       ),
+      // --- MONETIZATION VIDEO SCREEN ROUTE ---
+      GoRoute(
+        path: '/monetization/video-earnings',
+        builder: (context, state) {
+          // We extract the 'period' string passed as an object
+          final period = state.extra as String; 
+          return VideoEarningsScreen(period: period);
+        },
+      ),
     ],
   );
 });
