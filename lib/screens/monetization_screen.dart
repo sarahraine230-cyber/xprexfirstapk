@@ -23,50 +23,80 @@ final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynam
       .map((event) => event.isNotEmpty ? event.first : {});
 });
 
-// --- 2. EARNINGS BREAKDOWN FETCHER (The Real Data) ---
-final earningsBreakdownProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+// --- 2. CUMULATIVE EARNINGS FETCHER (The "Medium" Logic) ---
+// Now accepts a "period" string (e.g., "Dec 2025") to filter correctly
+final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, period) async {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
   if (userId == null) return [];
 
-  // A. Fetch the LATEST earnings record
+  // A. Parse the "Dec 2025" string into start/end dates
+  DateTime startDate;
+  DateTime endDate;
+  try {
+    // "MMM yyyy" -> Dec 2025
+    startDate = DateFormat('MMM yyyy').parse(period);
+    // End date is the last day of that month
+    endDate = DateTime(startDate.year, startDate.month + 1, 0, 23, 59, 59);
+  } catch (e) {
+    // Fallback to current month if parsing fails
+    final now = DateTime.now();
+    startDate = DateTime(now.year, now.month, 1);
+    endDate = DateTime(now.year, now.month + 1, 0);
+  }
+
+  // B. Fetch ALL records for this month (Not just the latest day)
   final earningsResponse = await Supabase.instance.client
       .from('daily_creator_earnings')
       .select('video_breakdown, date')
       .eq('user_id', userId)
-      .order('date', ascending: false)
-      .limit(1)
-      .maybeSingle();
+      .gte('date', startDate.toIso8601String())
+      .lte('date', endDate.toIso8601String());
 
-  if (earningsResponse == null) return [];
+  if (earningsResponse.isEmpty) return [];
 
-  final List<dynamic> breakdown = earningsResponse['video_breakdown'] ?? [];
-  if (breakdown.isEmpty) return [];
+  // C. THE AGGREGATOR ENGINE
+  // We need to sum up earnings for the same video across multiple days.
+  final Map<String, double> videoTotals = {}; // VideoID -> Total Amount
+  final Map<String, String> videoDates = {};  // VideoID -> Last Earned Date
 
-  // B. Extract Video IDs to fetch titles
-  final videoIds = breakdown.map((e) => e['video_id']).toList();
+  for (final record in earningsResponse) {
+    final List<dynamic> breakdown = record['video_breakdown'] ?? [];
+    final recordDate = record['date'];
 
-  if (videoIds.isEmpty) return [];
+    for (final item in breakdown) {
+      final vidId = item['video_id'];
+      final amount = (item['amount'] ?? 0.0).toDouble();
 
-  // C. Fetch Video Titles
-  // FIX: Switched from .in_() to .filter() to avoid version conflicts
+      if (vidId != null) {
+        // Add to existing total or start new
+        videoTotals[vidId] = (videoTotals[vidId] ?? 0.0) + amount;
+        // Keep track of the date (just for display purposes, usually shows "Updated X")
+        videoDates[vidId] = recordDate; 
+      }
+    }
+  }
+
+  if (videoTotals.isEmpty) return [];
+
+  // D. Fetch Video Titles for the IDs found
+  final videoIds = videoTotals.keys.toList();
   final videosResponse = await Supabase.instance.client
       .from('videos')
       .select('id, title, created_at')
       .filter('id', 'in', videoIds);
 
-  // D. Merge Data (Amount + Title)
-  return breakdown.map((item) {
-    // Find the matching video title
+  // E. Merge Data
+  return videoIds.map((vidId) {
     final vidDetails = videosResponse.firstWhere(
-      (v) => v['id'] == item['video_id'],
+      (v) => v['id'] == vidId,
       orElse: () => {'title': 'Unknown Video', 'created_at': DateTime.now().toIso8601String()},
     );
-    
+
     return {
       'title': vidDetails['title'],
-      'date': vidDetails['created_at'],
-      'amount': item['amount'] ?? 0.0,
+      'date': videoDates[vidId], // Shows the last date it earned money
+      'amount': videoTotals[vidId] ?? 0.0, // The cumulative month total
     };
   }).toList();
 });
@@ -83,7 +113,15 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   
   // UI State for the Dashboard Filter
   String _selectedPeriod = 'Dec 2025';
-  final List<String> _periods = ['Dec 2025', 'Nov 2025', 'Oct 2025'];
+  // Dynamic Period Generator (Current Month + Previous 2)
+  List<String> get _periods {
+    final now = DateTime.now();
+    return [
+      DateFormat('MMM yyyy').format(now), // Current
+      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 1)), // Last Month
+      DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 2)), // 2 Months ago
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,8 +167,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     final isVerified = profileData['is_verified'] == true;
     final adCredits = 2000; 
     
-    // Watch the Breakdown Data
-    final breakdownAsync = ref.watch(earningsBreakdownProvider);
+    // Watch the Breakdown Data - PASSING THE PERIOD NOW
+    final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -213,7 +251,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           Text('Overview', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Text(
-            'This page only displays earnings that have accrued in the selected time period. Daily earnings may take up to 48 hours to be finalized.',
+            'This page displays cumulative earnings for the selected month.',
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, height: 1.4),
           ),
           const SizedBox(height: 20),
@@ -245,28 +283,43 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           Text('Earnings summary', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 4),
           Text(
-            '$_selectedPeriod (UTC)', 
+            '$_selectedPeriod (Month to Date)', 
             style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           const SizedBox(height: 16),
           
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Video earnings', style: theme.textTheme.bodyLarge),
-              Text('₦${earnings.toStringAsFixed(2)}', style: theme.textTheme.bodyLarge),
-            ],
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Divider(height: 1),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Total earnings', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text('₦${earnings.toStringAsFixed(2)}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-            ],
+          // Note: "earnings" variable above is Lifetime Balance. 
+          // For Monthly summary, we should ideally sum the breakdownAsync data, 
+          // but for now, let's keep it simple or use the breakdown sum.
+          breakdownAsync.when(
+            loading: () => const SizedBox(),
+            error: (_,__) => const SizedBox(),
+            data: (items) {
+               // Calculate month total from the list items
+               final monthTotal = items.fold(0.0, (sum, item) => sum + (item['amount'] as double));
+               return Column(
+                 children: [
+                   Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Video earnings', style: theme.textTheme.bodyLarge),
+                        Text('₦${monthTotal.toStringAsFixed(2)}', style: theme.textTheme.bodyLarge),
+                      ],
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Divider(height: 1),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Total earnings', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                        Text('₦${monthTotal.toStringAsFixed(2)}', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                 ],
+               );
+            }
           ),
 
           const SizedBox(height: 24),
@@ -287,7 +340,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const Divider(),
           const SizedBox(height: 24),
 
-          // --- 4. EARNINGS BY VIDEO (REAL DATA) ---
+          // --- 4. EARNINGS BY VIDEO (CUMULATIVE LIST) ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -297,7 +350,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
           const SizedBox(height: 4),
           Text(
-            '$_selectedPeriod (UTC) · Updated daily', 
+            '$_selectedPeriod (UTC)', 
             style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           const SizedBox(height: 16),
@@ -316,18 +369,21 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                   ),
                 );
               }
+              // Sort by highest earning
+              items.sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
+
               // Show up to 5 items
               return Column(
                 children: items.take(5).map((item) {
                   final date = DateTime.tryParse(item['date'].toString());
-                  final dateStr = date != null ? DateFormat('MMM d, yyyy').format(date) : '';
+                  final dateStr = date != null ? DateFormat('MMM d').format(date) : '';
                   final amount = double.tryParse(item['amount'].toString()) ?? 0.0;
                   
                   return _buildVideoEarningRow(
                     theme, 
                     item['title'] ?? 'Untitled Video', 
                     '₦${amount.toStringAsFixed(2)}', 
-                    dateStr
+                    'Last earned: $dateStr'
                   );
                 }).toList(),
               );
