@@ -12,6 +12,7 @@ import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
 import 'package:xprex/screens/user_profile_screen.dart';
 import 'package:xprex/screens/monetization/video_earnings_screen.dart';
+import 'package:xprex/screens/monetization/payout_history_screen.dart';
 // --- NEW IMPORTS FOR CREATOR ONBOARDING ---
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
@@ -109,6 +110,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final period = state.extra as String; 
           return VideoEarningsScreen(period: period);
         },
+      ),
+      GoRoute(
+        path: '/monetization/payout-history',
+        builder: (context, state) => const PayoutHistoryScreen(),
       ),
     ],
   );
