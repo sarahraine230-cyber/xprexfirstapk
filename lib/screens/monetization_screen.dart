@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:url_launcher/url_launcher.dart'; // NEW: Required for opening links
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
@@ -97,7 +98,7 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
   }).toList();
 });
 
-// --- 3. PAYOUT HISTORY FETCHER (NEW) ---
+// --- 3. PAYOUT HISTORY FETCHER ---
 final payoutHistoryProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
@@ -132,6 +133,18 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 1)),
       DateFormat('MMM yyyy').format(DateTime(now.year, now.month - 2)),
     ];
+  }
+
+  /// Helper to launch URLs
+  Future<void> _launchURL(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not launch $urlString')),
+        );
+      }
+    }
   }
 
   @override
@@ -245,13 +258,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ad Manager coming soon')));
             },
           ),
-           _buildSettingsTile(
-            theme, 
-            title: 'Quick links', 
-            subtitle: 'Program Terms, Support, FAQs',
-            icon: Icons.link,
-            onTap: () {}, 
-          ),
+          
+          // NEW: Replaced the static tile with the Medium-Style Accordion
+          _buildQuickLinksAccordion(theme),
 
           const SizedBox(height: 24),
           const Divider(),
@@ -347,7 +356,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const Divider(),
           const SizedBox(height: 24),
 
-          // --- 4. EARNINGS BY VIDEO (CUMULATIVE LIST) ---
+          // --- 4. EARNINGS BY VIDEO ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -403,17 +412,17 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const Divider(),
           const SizedBox(height: 24),
 
-           // --- 5. PAYOUT HISTORY (REAL DATA) ---
+           // --- 5. PAYOUT HISTORY ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Payout History', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
               TextButton(
-  onPressed: () {
-    context.push('/monetization/payout-history');
-  }, 
-  child: const Text('View all')
-),
+                onPressed: () {
+                  context.push('/monetization/payout-history');
+                }, 
+                child: const Text('View all')
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -448,7 +457,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               // REAL PAYOUT LIST
               return Column(
                 children: payouts.map((payout) {
-                  // Format: "2025-11-01" -> "Nov 2025"
                   final date = DateTime.tryParse(payout['period'].toString());
                   final dateLabel = date != null ? DateFormat('MMM yyyy').format(date) : payout['period'].toString();
                   final amount = double.tryParse(payout['amount'].toString()) ?? 0.0;
@@ -467,6 +475,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   // --- HELPER WIDGETS ---
+
+  // REUSABLE SETTINGS TILE (Used for Payout settings etc)
   Widget _buildSettingsTile(ThemeData theme, {required String title, required String subtitle, required IconData icon, required VoidCallback onTap}) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -482,6 +492,70 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       title: Text(title, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
       subtitle: Text(subtitle, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       trailing: Icon(Icons.chevron_right, color: theme.colorScheme.onSurfaceVariant),
+    );
+  }
+
+  // NEW: CUSTOM ACCORDION FOR QUICK LINKS (MEDIUM STYLE)
+  Widget _buildQuickLinksAccordion(ThemeData theme) {
+    return Container(
+      // Same decoration as a ListTile container would have if we wrapped it, 
+      // ensuring consistency with the list.
+      // Note: Since _buildSettingsTile uses ListTile transparency, we apply the container style here ONLY if we want it boxed.
+      // But Medium style is usually just "in list".
+      // Let's match the spacing of _buildSettingsTile but use ExpansionTile.
+      
+      child: Theme(
+        // Remove the default divider lines that ExpansionTile adds
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: const EdgeInsets.only(left: 16, bottom: 8), // Indent children
+          shape: const Border(), // Remove expanded border
+          collapsedShape: const Border(), // Remove collapsed border
+          
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.link, color: theme.colorScheme.onSurface),
+          ),
+          title: Text(
+            'Quick links', 
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)
+          ),
+          subtitle: Text(
+            'The Partner Playbook, Support, FAQs', 
+            style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+          ),
+          
+          // THE LINKS LIST
+          children: [
+            _buildLinkItem(theme, 'The Partner Playbook', 'https://xprex.vercel.app/partner-playbook'),
+            _buildLinkItem(theme, 'Quality Guidelines', 'https://xprex.vercel.app/quality'),
+            _buildLinkItem(theme, 'Earnings FAQ', 'https://xprex.vercel.app/earnings-faq'),
+            _buildLinkItem(theme, 'Leave Partner Program', 'https://xprex.vercel.app/leave-program', isDestructive: true),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLinkItem(ThemeData theme, String text, String url, {bool isDestructive = false}) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      title: Text(
+        text, 
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: isDestructive ? theme.colorScheme.error : theme.colorScheme.primary,
+          decoration: TextDecoration.underline,
+          decorationColor: isDestructive ? theme.colorScheme.error.withValues(alpha: 0.3) : theme.colorScheme.primary.withValues(alpha: 0.3),
+        )
+      ),
+      onTap: () => _launchURL(url),
     );
   }
 
