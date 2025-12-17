@@ -735,3 +735,31 @@ begin
   );
 end;
 $$;
+
+-- MARK PAYOUTS AS PAID 
+create or replace function mark_payouts_as_paid(target_period date)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  v_count int;
+begin
+  -- Update pending payouts for the specific month to 'Paid'
+  update public.payouts
+  set 
+    status = 'Paid',
+    processed_at = now()
+  where 
+    period = target_period 
+    and status = 'Processing';
+
+  get diagnostics v_count = row_count;
+
+  return json_build_object(
+    'status', 'success',
+    'period', target_period,
+    'payouts_marked_paid', v_count
+  );
+end;
+$$;
