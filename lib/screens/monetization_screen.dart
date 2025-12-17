@@ -29,7 +29,6 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
   final userId = authService.currentUserId;
   if (userId == null) return [];
 
-  // A. Parse the "Dec 2025" string
   DateTime startDate;
   DateTime endDate;
   try {
@@ -41,41 +40,32 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
     endDate = DateTime(now.year, now.month + 1, 0);
   }
 
-  // B. Fetch records (Including seconds_watched and amount_earned)
   final earningsResponse = await Supabase.instance.client
       .from('daily_creator_earnings')
-      .select('video_breakdown, date, amount_earned, seconds_watched') // Added helper columns
+      .select('video_breakdown, date, amount_earned, seconds_watched') 
       .eq('user_id', userId)
       .gte('date', startDate.toIso8601String())
       .lte('date', endDate.toIso8601String());
 
   if (earningsResponse.isEmpty) return [];
 
-  // C. THE SMART AGGREGATOR
-  final Map<String, double> videoTotals = {}; // VideoID -> Total Money
-  final Map<String, String> videoDates = {};  // VideoID -> Last Date
+  final Map<String, double> videoTotals = {}; 
+  final Map<String, String> videoDates = {};  
 
   for (final record in earningsResponse) {
-    // 1. Get the Daily Totals
     final double dayEarnings = (record['amount_earned'] ?? 0).toDouble();
     final int daySeconds = (record['seconds_watched'] ?? 0).toInt();
     final List<dynamic> breakdown = record['video_breakdown'] ?? [];
     final recordDate = record['date'];
 
-    // 2. Calculate the "Implied Rate" for this specific day
-    // If we earned 0 or watched 0 seconds, the rate is 0.
     double impliedRate = 0.0;
     if (daySeconds > 0) {
       impliedRate = dayEarnings / daySeconds;
     }
 
-    // 3. Distribute the money to the videos based on their seconds
     for (final item in breakdown) {
       final vidId = item['video_id'];
-      // FIX: We read 'sec' (seconds), not 'amount'
       final int sec = (item['sec'] ?? 0).toInt(); 
-      
-      // Calculate this video's share: Seconds * Rate
       final double videoMoney = sec * impliedRate;
 
       if (vidId != null) {
@@ -87,14 +77,12 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
 
   if (videoTotals.isEmpty) return [];
 
-  // D. Fetch Video Titles
   final videoIds = videoTotals.keys.toList();
   final videosResponse = await Supabase.instance.client
       .from('videos')
       .select('id, title, created_at')
       .filter('id', 'in', videoIds);
 
-  // E. Merge
   return videoIds.map((vidId) {
     final vidDetails = videosResponse.firstWhere(
       (v) => v['id'] == vidId,
@@ -107,6 +95,22 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
       'amount': videoTotals[vidId] ?? 0.0,
     };
   }).toList();
+});
+
+// --- 3. PAYOUT HISTORY FETCHER (NEW) ---
+final payoutHistoryProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final authService = ref.watch(authServiceProvider);
+  final userId = authService.currentUserId;
+  if (userId == null) return [];
+
+  final response = await Supabase.instance.client
+      .from('payouts')
+      .select('*')
+      .eq('user_id', userId)
+      .order('period', ascending: false) // Newest invoices first
+      .limit(3); // Just show recent history on dashboard
+
+  return List<Map<String, dynamic>>.from(response);
 });
 
 class MonetizationScreen extends ConsumerStatefulWidget {
@@ -173,8 +177,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     final isVerified = profileData['is_verified'] == true;
     final adCredits = 2000; 
     
-    // Watch the Breakdown Data
     final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
+    final payoutAsync = ref.watch(payoutHistoryProvider);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
@@ -349,12 +353,11 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             children: [
               Text('Earnings by video', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
               TextButton(
-  onPressed: () {
-    // Pass the currently selected period (e.g. "Dec 2025") to the new screen
-    context.push('/monetization/video-earnings', extra: _selectedPeriod);
-  },
-  child: const Text('View all'),
-),
+                onPressed: () {
+                  context.push('/monetization/video-earnings', extra: _selectedPeriod);
+                },
+                child: const Text('View all'),
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -364,7 +367,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           ),
           const SizedBox(height: 16),
 
-          // THE REAL LIST
           breakdownAsync.when(
             loading: () => const Center(child: Padding(padding: EdgeInsets.all(16), child: CircularProgressIndicator())),
             error: (err, _) => Text('Could not load details: $err'),
@@ -378,10 +380,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                   ),
                 );
               }
-              // Sort by highest earning
               items.sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
 
-              // Show up to 5 items
               return Column(
                 children: items.take(5).map((item) {
                   final date = DateTime.tryParse(item['date'].toString());
@@ -403,16 +403,59 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const Divider(),
           const SizedBox(height: 24),
 
-           // --- 5. PAYOUT HISTORY ---
+           // --- 5. PAYOUT HISTORY (REAL DATA) ---
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Payout History', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              TextButton(onPressed: (){}, child: const Text('View all')),
+              TextButton(onPressed: (){ 
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payout details coming soon')));
+              }, child: const Text('View all')),
             ],
           ),
           const SizedBox(height: 8),
-          _buildPayoutRow(theme, "Nov 1 - Nov 30", "₦0.00", "Paid"),
+
+          payoutAsync.when(
+            loading: () => const Padding(padding: EdgeInsets.all(12), child: CircularProgressIndicator()),
+            error: (err, _) => Text('Error loading payouts'),
+            data: (payouts) {
+              if (payouts.isEmpty) {
+                // EMPTY STATE CARD
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(Icons.receipt_long_outlined, size: 32, color: theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(height: 8),
+                      Text(
+                        "You haven't received any payouts yet.",
+                        style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              // REAL PAYOUT LIST
+              return Column(
+                children: payouts.map((payout) {
+                  // Format: "2025-11-01" -> "Nov 2025"
+                  final date = DateTime.tryParse(payout['period'].toString());
+                  final dateLabel = date != null ? DateFormat('MMM yyyy').format(date) : payout['period'].toString();
+                  final amount = double.tryParse(payout['amount'].toString()) ?? 0.0;
+                  final status = payout['status'].toString();
+
+                  return _buildPayoutRow(theme, dateLabel, "₦${amount.toStringAsFixed(2)}", status);
+                }).toList(),
+              );
+            },
+          ),
           
           const SizedBox(height: 40),
         ],
@@ -472,6 +515,18 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   Widget _buildPayoutRow(ThemeData theme, String period, String amount, String status) {
+    // Status Coloring
+    Color statusColor = theme.colorScheme.surfaceContainerHighest;
+    Color statusTextColor = theme.colorScheme.onSurface;
+    
+    if (status == 'Paid') {
+      statusColor = Colors.green.withValues(alpha: 0.2);
+      statusTextColor = Colors.green;
+    } else if (status == 'Processing') {
+      statusColor = Colors.orange.withValues(alpha: 0.2);
+      statusTextColor = Colors.orange;
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -485,10 +540,16 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
+                  color: statusColor,
                   borderRadius: BorderRadius.circular(4),
                 ),
-                child: Text(status, style: theme.textTheme.bodySmall),
+                child: Text(
+                  status, 
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: statusTextColor, 
+                    fontWeight: FontWeight.bold
+                  )
+                ),
               ),
             ],
           ),
