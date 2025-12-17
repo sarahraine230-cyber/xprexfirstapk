@@ -408,9 +408,12 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text('Payout History', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-              TextButton(onPressed: (){ 
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payout details coming soon')));
-              }, child: const Text('View all')),
+              TextButton(
+  onPressed: () {
+    context.push('/monetization/payout-history');
+  }, 
+  child: const Text('View all')
+),
             ],
           ),
           const SizedBox(height: 8),
