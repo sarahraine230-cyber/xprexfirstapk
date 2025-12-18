@@ -763,3 +763,71 @@ begin
   );
 end;
 $$;
+-- AD WALLET TRANSACTIONS $ CAMPAIGN 
+-- 1. Add Real Credit Balance to Profile
+alter table public.profiles 
+add column if not exists ad_credits numeric default 0;
+
+-- 2. Create the Wallet History (The Statement)
+create table if not exists public.ad_wallet_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  amount numeric not null, -- Positive for deposits, Negative for spends
+  description text not null, -- e.g. "Monthly Grant" or "Boost: My Video"
+  created_at timestamptz default now()
+);
+
+-- 3. Create the Campaign Ledger (The Orders for the Wizard)
+create table if not exists public.ad_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  video_id uuid references public.videos(id) not null,
+  package_name text not null, -- "Spark", "Amplify", "Velocity"
+  cost numeric not null,
+  target_reach int not null, -- e.g. 500, 2000, 10000
+  status text default 'Pending', -- 'Pending' -> 'Active' -> 'Completed'
+  created_at timestamptz default now()
+);
+
+-- 4. The "Purchase" Function (Safe Transaction)
+-- This ensures we don't take money if they don't have enough.
+create or replace function purchase_ad_campaign(
+  p_video_id uuid,
+  p_package_name text,
+  p_cost numeric,
+  p_target_reach int
+)
+returns json
+language plpgsql
+security definer
+as $$
+declare
+  v_user_id uuid;
+  v_current_balance numeric;
+begin
+  v_user_id := auth.uid();
+  
+  -- Check Balance
+  select ad_credits into v_current_balance from profiles where id = v_user_id;
+  
+  if v_current_balance < p_cost then
+    return json_build_object('status', 'error', 'message', 'Insufficient ad credits');
+  end if;
+
+  -- 1. Deduct Money
+  update profiles set ad_credits = ad_credits - p_cost where id = v_user_id;
+
+  -- 2. Record Transaction
+  insert into ad_wallet_transactions (user_id, amount, description)
+  values (v_user_id, -p_cost, 'Purchased ' || p_package_name || ' Plan');
+
+  -- 3. Create Order (For the Wizard to see)
+  insert into ad_campaigns (user_id, video_id, package_name, cost, target_reach, status)
+  values (v_user_id, p_video_id, p_package_name, p_cost, p_target_reach, 'Pending');
+
+  return json_build_object('status', 'success', 'new_balance', v_current_balance - p_cost);
+end;
+$$;
+
+-- 5. Give you some starter money for testing (Optional)
+update profiles set ad_credits = 5000 where is_premium = true;
