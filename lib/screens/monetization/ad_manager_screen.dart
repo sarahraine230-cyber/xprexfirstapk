@@ -8,34 +8,32 @@ import 'package:xprex/theme.dart';
 
 // --- PROVIDERS ---
 
-// 1. Fetch Ad Wallet Balance & History
+// 1. Fetch Ad Wallet Balance
 final adWalletProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
-  if (userId == null) return Stream.value({'balance': 0, 'history': []});
+  if (userId == null) return Stream.value({'balance': 0});
 
-  // Listen to profile changes for balance
-  final profileStream = Supabase.instance.client
+  return Supabase.instance.client
       .from('profiles')
       .stream(primaryKey: ['id'])
       .eq('auth_user_id', userId)
-      .map((event) => event.isNotEmpty ? event.first['ad_credits'] : 0);
-
-  return profileStream.map((balance) => {'balance': balance});
+      .map((event) => event.isNotEmpty ? {'balance': event.first['ad_credits']} : {'balance': 0});
 });
 
-// 2. Fetch User's Videos (For the Picker)
+// 2. Fetch User's Videos (Crash-Proof Version)
 final myVideosProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
   if (userId == null) return [];
 
+  // We select thumbnail_url, but if it's null in DB, Dart handles it safely
   final response = await Supabase.instance.client
       .from('videos')
       .select('id, title, thumbnail_url, created_at')
       .eq('user_id', userId)
       .order('created_at', ascending: false)
-      .limit(10); // Show last 10 videos
+      .limit(10); 
 
   return List<Map<String, dynamic>>.from(response);
 });
@@ -50,12 +48,27 @@ final activeCampaignsProvider = FutureProvider.autoDispose<List<Map<String, dyna
       .from('ad_campaigns')
       .select('*, videos(title)')
       .eq('user_id', userId)
-      .neq('status', 'Completed') // Show Pending & Active
+      .neq('status', 'Completed') 
       .order('created_at', ascending: false);
 
   return List<Map<String, dynamic>>.from(response);
 });
 
+// 4. NEW: Fetch Transaction History
+final transactionHistoryProvider = FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
+  final authService = ref.watch(authServiceProvider);
+  final userId = authService.currentUserId;
+  if (userId == null) return [];
+
+  final response = await Supabase.instance.client
+      .from('ad_wallet_transactions')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', ascending: false)
+      .limit(20);
+
+  return List<Map<String, dynamic>>.from(response);
+});
 
 class AdManagerScreen extends ConsumerStatefulWidget {
   const AdManagerScreen({super.key});
@@ -81,7 +94,7 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
   }
 
   Future<void> _executePurchase(String videoId, String planName, int cost, int reach) async {
-    Navigator.pop(context); // Close sheet
+    Navigator.pop(context); 
     setState(() => _isPurchasing = true);
 
     try {
@@ -93,11 +106,10 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
       });
 
       if (res['status'] == 'success') {
-        ref.invalidate(adWalletProvider); // Refresh balance
-        ref.invalidate(activeCampaignsProvider); // Refresh list
-        if (mounted) {
-           _showSuccessDialog(planName);
-        }
+        ref.invalidate(adWalletProvider); 
+        ref.invalidate(activeCampaignsProvider); 
+        ref.invalidate(transactionHistoryProvider); // Refresh history too
+        if (mounted) _showSuccessDialog(planName);
       } else {
         throw res['message'];
       }
@@ -129,9 +141,9 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
     final theme = Theme.of(context);
     final walletAsync = ref.watch(adWalletProvider);
     final campaignsAsync = ref.watch(activeCampaignsProvider);
+    final historyAsync = ref.watch(transactionHistoryProvider);
 
-    // Default to 0 if loading
-    final int balance = walletAsync.value?['balance'] ?? 0;
+    final int balance = (walletAsync.value?['balance'] ?? 0).toInt();
 
     return Scaffold(
       appBar: AppBar(
@@ -143,7 +155,7 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- 1. HERO BALANCE CARD ---
+            // --- 1. HERO BALANCE CARD (Updated) ---
             Container(
               padding: const EdgeInsets.all(24),
               width: double.infinity,
@@ -161,7 +173,29 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Available Credits', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Available Credits', style: theme.textTheme.titleMedium?.copyWith(color: Colors.white70)),
+                      
+                      // NEW: TOP UP BUTTON
+                      Container(
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: TextButton.icon(
+                          onPressed: () {
+                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Top Up via Paystack coming soon!')));
+                          },
+                          icon: const Icon(Icons.add, color: Colors.white, size: 16),
+                          label: const Text("Top Up", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 12)),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     '₦${NumberFormat('#,###').format(balance)}',
@@ -218,9 +252,9 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
 
             const SizedBox(height: 32),
             const Divider(),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
 
-             // --- 3. THE "MENU" (Preview) ---
+            // --- 3. AVAILABLE PACKAGES ---
             Text('Available Packages', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
             Text('Purchase reach using your credits.', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
@@ -228,6 +262,60 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
             _buildPackagePreview(theme, 'Spark', '₦500', '~500 Reach', Colors.blue),
             _buildPackagePreview(theme, 'Amplify', '₦2,000', '~2,500 Reach', Colors.purple),
             _buildPackagePreview(theme, 'Velocity', '₦7,500', '~10k+ Reach', Colors.orange),
+
+            const SizedBox(height: 32),
+            const Divider(),
+            const SizedBox(height: 24),
+
+            // --- 4. NEW: TRANSACTION HISTORY ---
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Transaction History', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                Icon(Icons.history, color: theme.colorScheme.onSurfaceVariant),
+              ],
+            ),
+            const SizedBox(height: 16),
+            historyAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Text('Error: $e'),
+              data: (history) {
+                if (history.isEmpty) {
+                  return Text("No transactions yet.", style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant));
+                }
+                return Column(
+                  children: history.map((tx) {
+                    final amount = (tx['amount'] ?? 0).toDouble();
+                    final isDeposit = amount > 0;
+                    final date = DateTime.tryParse(tx['created_at'].toString());
+                    final dateStr = date != null ? DateFormat('MMM d, h:mm a').format(date) : '';
+
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                        radius: 18,
+                        backgroundColor: isDeposit ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
+                        child: Icon(
+                          isDeposit ? Icons.arrow_downward : Icons.arrow_upward, 
+                          color: isDeposit ? Colors.green : Colors.red,
+                          size: 16,
+                        ),
+                      ),
+                      title: Text(tx['description'] ?? 'Transaction', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                      subtitle: Text(dateStr, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      trailing: Text(
+                        '${isDeposit ? '+' : ''}₦${amount.abs().toStringAsFixed(0)}',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: isDeposit ? Colors.green : theme.colorScheme.onSurface,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+            const SizedBox(height: 40),
           ],
         ),
       ),
@@ -235,9 +323,12 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
   }
 
   Widget _buildCampaignTile(ThemeData theme, Map<String, dynamic> campaign) {
-    final videoTitle = campaign['videos'] != null ? campaign['videos']['title'] : 'Unknown Video';
-    final plan = campaign['package_name'];
-    final status = campaign['status'];
+    // Handling nested nulls safely
+    final videoTitle = (campaign['videos'] != null && campaign['videos']['title'] != null) 
+        ? campaign['videos']['title'] 
+        : 'Unknown Video';
+    final plan = campaign['package_name'] ?? 'Boost';
+    final status = campaign['status'] ?? 'Pending';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -274,7 +365,7 @@ class _AdManagerScreenState extends ConsumerState<AdManagerScreen> {
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
-              status.toUpperCase(),
+              status.toString().toUpperCase(),
               style: TextStyle(
                 fontSize: 10, 
                 fontWeight: FontWeight.bold,
@@ -357,13 +448,16 @@ class _VideoPickerSheetState extends ConsumerState<_VideoPickerSheet> {
                   itemBuilder: (ctx, i) {
                     final v = videos[i];
                     final isSelected = _selectedVideoId == v['id'];
+                    final thumbUrl = v['thumbnail_url'];
+
                     return ListTile(
                       onTap: () => setState(() => _selectedVideoId = v['id']),
                       leading: Container(
                         width: 50, height: 50,
                         color: Colors.grey[900],
-                        child: v['thumbnail_url'] != null 
-                          ? Image.network(v['thumbnail_url'], fit: BoxFit.cover) 
+                        // SAFE THUMBNAIL LOADING
+                        child: (thumbUrl != null && thumbUrl.isNotEmpty)
+                          ? Image.network(thumbUrl, fit: BoxFit.cover, errorBuilder: (c,e,s) => const Icon(Icons.videocam)) 
                           : const Icon(Icons.videocam),
                       ),
                       title: Text(v['title'], maxLines: 1, overflow: TextOverflow.ellipsis),
