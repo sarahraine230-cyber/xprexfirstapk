@@ -13,6 +13,7 @@ import 'package:xprex/screens/monetization_screen.dart';
 import 'package:xprex/screens/user_profile_screen.dart';
 import 'package:xprex/screens/monetization/video_earnings_screen.dart';
 import 'package:xprex/screens/monetization/payout_history_screen.dart';
+import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 // --- NEW IMPORTS FOR CREATOR ONBOARDING ---
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
@@ -115,6 +116,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/monetization/payout-history',
         builder: (context, state) => const PayoutHistoryScreen(),
       ),
+GoRoute(
+  path: '/monetization/ad-manager',
+  builder: (context, state) => const AdManagerScreen(),
+),
     ],
   );
 });
