@@ -250,14 +250,14 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             onTap: () => context.push('/setup/bank'),
           ),
           _buildSettingsTile(
-            theme, 
-            title: 'Ad Credit Manager', 
-            subtitle: 'Balance: ₦$adCredits',
-            icon: Icons.campaign_outlined,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ad Manager coming soon')));
-            },
-          ),
+  theme, 
+  title: 'Ad Credit Manager', 
+  // We can't see the real balance here easily without a provider refactor, 
+  // so let's just say "Manage Boosts" which is cleaner.
+  subtitle: 'Manage Boosts & Credits',
+  icon: Icons.campaign_outlined,
+  onTap: () => context.push('/monetization/ad-manager'),
+),
           
           // NEW: Replaced the static tile with the Medium-Style Accordion
           _buildQuickLinksAccordion(theme),
