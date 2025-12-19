@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/screens/feed_screen.dart'; // Needed for VideoFeedItem
+import 'package:xprex/screens/feed_screen.dart'; // Imports FeedItem
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final List<VideoModel> videos;
@@ -18,18 +19,39 @@ class VideoPlayerScreen extends StatefulWidget {
 
 class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   late PageController _pageController;
-  late int _activeIndex;
+  final Map<int, CachedVideoPlayerPlusController> _controllers = {};
 
   @override
   void initState() {
     super.initState();
-    _activeIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
+    _initializeControllerAtIndex(widget.initialIndex);
+  }
+
+  Future<void> _initializeControllerAtIndex(int index) async {
+    if (index < 0 || index >= widget.videos.length) return;
+    if (_controllers.containsKey(index)) return;
+
+    final videoUrl = widget.videos[index].storagePath;
+    final controller = CachedVideoPlayerPlusController.networkUrl(Uri.parse(videoUrl));
+
+    _controllers[index] = controller;
+    try {
+      await controller.initialize();
+      await controller.setLooping(true);
+      if (index == widget.initialIndex) {
+        controller.play();
+      }
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error initializing player: $e');
+    }
   }
 
   @override
   void dispose() {
     _pageController.dispose();
+    for (var c in _controllers.values) c.dispose();
     super.dispose();
   }
 
@@ -37,29 +59,28 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      extendBodyBehindAppBar: true,
-      // A generic AppBar that floats on top
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: const BackButton(color: Colors.white),
       ),
+      extendBodyBehindAppBar: true,
       body: PageView.builder(
         controller: _pageController,
         scrollDirection: Axis.vertical,
         itemCount: widget.videos.length,
         onPageChanged: (index) {
-          setState(() => _activeIndex = index);
+          _controllers[index]?.play();
+          _controllers[index - 1]?.pause();
+          _controllers[index + 1]?.pause();
+          _initializeControllerAtIndex(index + 1);
         },
         itemBuilder: (context, index) {
-          // Reuse the feed item logic
-          return VideoFeedItem(
+          // Re-uses the robust FeedItem from the FeedScreen
+          return FeedItem(
             video: widget.videos[index],
-            isActive: index == _activeIndex,
-            feedVisible: true, // Always play since we are on the player screen
-            onLikeToggled: () {
-              // Optional: You could update local state here if needed
-            },
+            controller: _controllers[index],
+            isFocused: true, // Always focused in single player view
           );
         },
       ),
