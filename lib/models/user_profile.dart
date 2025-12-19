@@ -7,6 +7,7 @@ class UserProfile {
   final String? avatarUrl;
   final String? bio;
   final int followersCount;
+  final int followingCount; // NEW: Added this field
   final int totalVideoViews;
   final bool isPremium;
   final String monetizationStatus;
@@ -22,6 +23,7 @@ class UserProfile {
     this.avatarUrl,
     this.bio,
     this.followersCount = 0,
+    this.followingCount = 0, // NEW: Default to 0
     this.totalVideoViews = 0,
     this.isPremium = false,
     this.monetizationStatus = 'locked',
@@ -38,6 +40,7 @@ class UserProfile {
     avatarUrl: json['avatar_url'] as String?,
     bio: json['bio'] as String?,
     followersCount: json['followers_count'] as int? ?? 0,
+    followingCount: json['following_count'] as int? ?? 0, // NEW: Read from DB
     totalVideoViews: json['total_video_views'] as int? ?? 0,
     isPremium: json['is_premium'] as bool? ?? false,
     monetizationStatus: json['monetization_status'] as String? ?? 'locked',
@@ -54,6 +57,7 @@ class UserProfile {
     'avatar_url': avatarUrl,
     'bio': bio,
     'followers_count': followersCount,
+    'following_count': followingCount, // NEW: Write to JSON
     'total_video_views': totalVideoViews,
     'is_premium': isPremium,
     'monetization_status': monetizationStatus,
@@ -70,6 +74,7 @@ class UserProfile {
     String? avatarUrl,
     String? bio,
     int? followersCount,
+    int? followingCount, // NEW: Support copying
     int? totalVideoViews,
     bool? isPremium,
     String? monetizationStatus,
@@ -84,6 +89,7 @@ class UserProfile {
     avatarUrl: avatarUrl ?? this.avatarUrl,
     bio: bio ?? this.bio,
     followersCount: followersCount ?? this.followersCount,
+    followingCount: followingCount ?? this.followingCount, // NEW
     totalVideoViews: totalVideoViews ?? this.totalVideoViews,
     isPremium: isPremium ?? this.isPremium,
     monetizationStatus: monetizationStatus ?? this.monetizationStatus,
