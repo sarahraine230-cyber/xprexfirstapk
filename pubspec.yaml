@@ -27,6 +27,7 @@ dependencies:
   video_thumbnail: 0.5.6
   image_picker: '>=1.1.2'
   cached_network_image: ^3.0.0
+  video_compress: ^3.1.2  # NEW: The Magic Bullet for Speed
   
   # Utilities
   share_plus: ^12.0.0
@@ -34,17 +35,12 @@ dependencies:
   path: ^1.0.0
   path_provider: ^2.0.0
   shared_preferences: ^2.0.0
-  url_launcher: ^6.3.0
-  
   intl: 0.20.2
   timeago: ^3.6.1
   
-  # --- THE FIX: Official WebView ---
-  # Replaces the broken flutter_paystack
+  # WebView
   webview_flutter: ^4.7.0
-
-# No overrides needed anymore!
-# We removed the conflicting package.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:
