@@ -6,7 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
 
 /// Lightweight branding splash shown on every app open.
-/// After a short delay, routes users based on auth state.
+/// Uses the transparent logo asset for a seamless look.
 class BrandSplashScreen extends ConsumerStatefulWidget {
   const BrandSplashScreen({super.key});
 
@@ -67,7 +67,7 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // FORCE BLACK BACKGROUND (Non-negotiable)
+      // FORCE BLACK BACKGROUND
       backgroundColor: Colors.black,
       body: Center(
         child: FadeTransition(
@@ -75,21 +75,29 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // App mark - Clean, no container box
+              // App mark - Uses the NEW transparent asset
               SizedBox(
                 width: 120,
                 height: 120,
                 child: Image.asset(
-                  'assets/images/edgy_tech_monogram_X_logo_sharp_angles_vibrant_gradient_turquoise_1763918747193.png',
+                  // MAKE SURE YOU UPLOAD THIS FILE TO assets/images/
+                  'assets/images/splash_logo.png', 
                   fit: BoxFit.contain,
+                  // Fallback: If you haven't uploaded it yet, this prevents a crash 
+                  // by showing an error icon instead of crashing the app.
+                  errorBuilder: (context, error, stackTrace) => const Icon(
+                    Icons.error_outline, 
+                    color: Colors.red, 
+                    size: 50
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               const Text(
                 'XpreX',
                 style: TextStyle(
-                  fontFamily: 'Inter', // Ensuring font consistency
-                  fontSize: 28, // Matches headlineMedium size roughly
+                  fontFamily: 'Inter',
+                  fontSize: 28,
                   fontWeight: FontWeight.w800,
                   color: Colors.white, // Force White text
                 ),
