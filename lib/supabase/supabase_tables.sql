@@ -831,3 +831,64 @@ $$;
 
 -- 5. Give you some starter money for testing (Optional)
 update profiles set ad_credits = 5000 where is_premium = true;
+
+-- FIXING THE PROFILE SCREEN FOLLOWING DISCREPANCY 
+-- 1. UPGRADE: Add the missing 'following_count' column
+alter table public.profiles 
+add column if not exists following_count int not null default 0;
+
+-- 2. AUTOMATION: The Counter Trigger
+-- This keeps the numbers in sync forever.
+create or replace function update_follow_counts() returns trigger as $$
+begin
+  if (TG_OP = 'INSERT') then
+    -- Someone followed someone:
+    -- 1. Increase 'followers_count' for the person being followed
+    update public.profiles 
+    set followers_count = followers_count + 1 
+    where auth_user_id = new.followee_auth_user_id;
+    
+    -- 2. Increase 'following_count' for the person doing the following
+    update public.profiles 
+    set following_count = following_count + 1 
+    where auth_user_id = new.follower_auth_user_id;
+    
+    return new;
+  elsif (TG_OP = 'DELETE') then
+    -- Unfollow logic:
+    update public.profiles 
+    set followers_count = followers_count - 1 
+    where auth_user_id = old.followee_auth_user_id;
+    
+    update public.profiles 
+    set following_count = following_count - 1 
+    where auth_user_id = old.follower_auth_user_id;
+    
+    return old;
+  end if;
+  return null;
+end;
+$$ language plpgsql security definer;
+
+-- Attach the trigger to the 'follows' table
+drop trigger if exists on_follow_change on public.follows;
+create trigger on_follow_change
+after insert or delete on public.follows
+for each row execute function update_follow_counts();
+
+-- 3. REPAIR: Fix the data right now
+-- This calculates the real counts from the 'follows' table and updates profiles.
+with calculated_followers as (
+  select followee_auth_user_id as uid, count(*) as c
+  from follows
+  group by followee_auth_user_id
+),
+calculated_following as (
+  select follower_auth_user_id as uid, count(*) as c
+  from follows
+  group by follower_auth_user_id
+)
+update profiles p
+set 
+  followers_count = coalesce((select c from calculated_followers where uid = p.auth_user_id), 0),
+  following_count = coalesce((select c from calculated_following where uid = p.auth_user_id), 0);
