@@ -6,10 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
 
 /// Lightweight branding splash shown on every app open.
-/// After a short delay, routes users based on auth state:
-/// - Authenticated + verified => feed ('/')
-/// - Authenticated + unverified => '/email-verification'
-/// - Not authenticated => '/splash' (existing welcome/onboarding screen)
+/// After a short delay, routes users based on auth state.
 class BrandSplashScreen extends ConsumerStatefulWidget {
   const BrandSplashScreen({super.key});
 
@@ -69,43 +66,32 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: theme.colorScheme.surface,
+      // FORCE BLACK BACKGROUND (Non-negotiable)
+      backgroundColor: Colors.black,
       body: Center(
         child: FadeTransition(
           opacity: _fade,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // App mark
-              Container(
+              // App mark - Clean, no container box
+              SizedBox(
                 width: 120,
                 height: 120,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(28),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      theme.colorScheme.primary.withValues(alpha: 0.12),
-                      theme.colorScheme.tertiary.withValues(alpha: 0.12),
-                    ],
-                  ),
-                ),
-                padding: const EdgeInsets.all(16),
                 child: Image.asset(
                   'assets/images/edgy_tech_monogram_X_logo_sharp_angles_vibrant_gradient_turquoise_1763918747193.png',
                   fit: BoxFit.contain,
                 ),
               ),
               const SizedBox(height: 16),
-              Text(
+              const Text(
                 'XpreX',
-                style: theme.textTheme.headlineMedium?.copyWith(
+                style: TextStyle(
+                  fontFamily: 'Inter', // Ensuring font consistency
+                  fontSize: 28, // Matches headlineMedium size roughly
                   fontWeight: FontWeight.w800,
-                  color: theme.colorScheme.onSurface,
+                  color: Colors.white, // Force White text
                 ),
               ),
             ],
