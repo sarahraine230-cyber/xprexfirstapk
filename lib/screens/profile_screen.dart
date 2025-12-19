@@ -11,7 +11,8 @@ import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/video_player_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/follow_list_screen.dart';
-import 'package:xprex/screens/creator_hub_screen.dart'; 
+import 'package:xprex/screens/creator_hub_screen.dart';
+import 'package:xprex/screens/analytics_screen.dart'; // NEW: Imported Analytics
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -44,7 +45,18 @@ class ProfileScreen extends ConsumerWidget {
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
                     pinned: true,
-                    leading: Icon(Icons.bar_chart_rounded, color: theme.colorScheme.onSurface),
+                    // UPDATED: Now a clickable button leading to Analytics
+                    leading: IconButton(
+                      icon: const Icon(Icons.bar_chart_rounded),
+                      color: theme.colorScheme.onSurface,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const AnalyticsScreen(),
+                          ),
+                        );
+                      },
+                    ),
                     actions: [
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
@@ -129,7 +141,7 @@ class ProfileScreen extends ConsumerWidget {
                               const Text('·'),
                               const SizedBox(width: 8),
                                
-                              // Following (NOW INSTANT - No FutureBuilder!)
+                              // Following
                               InkWell(
                                 onTap: () {
                                   Navigator.of(context).push(
@@ -142,7 +154,7 @@ class ProfileScreen extends ConsumerWidget {
                                   );
                                 },
                                 child: Text(
-                                  '${profile.followingCount} following', // Reads directly from model
+                                  '${profile.followingCount} following',
                                   style: const TextStyle(fontWeight: FontWeight.w600),
                                 ),
                               ),
