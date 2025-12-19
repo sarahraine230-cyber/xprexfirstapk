@@ -2,34 +2,38 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_video_player_plus/cached_video_player_plus.dart'; // NEW: Cached Player
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:xprex/router/app_router.dart';
 import 'package:xprex/services/video_service.dart';
-import 'package:xprex/models/video_model.dart';
-import 'package:xprex/services/comment_service.dart';
-import 'package:xprex/models/comment_model.dart';
-import 'package:xprex/theme.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
+import 'package:xprex/services/comment_service.dart';
+import 'package:xprex/models/video_model.dart';
+import 'package:xprex/models/comment_model.dart';
 
-// --- FEED PROVIDER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
-  // Fetches videos. If you move this fetch to main_shell.dart or splash, 
-  // it would start even faster, but this is efficient enough for now.
   return await videoService.getFeedVideos();
 });
 
 class FeedScreen extends ConsumerWidget {
-  const FeedScreen({super.key});
+  // FIX 1: Added 'isVisible' to satisfy MainShell.dart
+  final bool isVisible; 
+  
+  const FeedScreen({
+    super.key, 
+    this.isVisible = true, // Default true so it works standalone too
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
+
+    // If MainShell says we are hidden, we can perform optimizations here if needed.
+    // For now, we just accept the parameter to fix the build error.
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -67,7 +71,6 @@ class FeedScreen extends ConsumerWidget {
               ),
             );
           }
-          // Pass videos to the Smart Player
           return FeedPlayer(videos: videos);
         },
       ),
@@ -75,7 +78,6 @@ class FeedScreen extends ConsumerWidget {
   }
 }
 
-// --- THE SMART PLAYER (PRE-CACHING LOGIC) ---
 class FeedPlayer extends StatefulWidget {
   final List<VideoModel> videos;
   const FeedPlayer({super.key, required this.videos});
@@ -86,33 +88,27 @@ class FeedPlayer extends StatefulWidget {
 
 class _FeedPlayerState extends State<FeedPlayer> {
   late PageController _pageController;
-  
-  // Manage multiple controllers: { index: Controller }
   final Map<int, CachedVideoPlayerPlusController> _controllers = {};
-  
   int _focusedIndex = 0;
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
-    
-    // Initialize the first few videos immediately
     _initializeControllerAtIndex(0);
-    _initializeControllerAtIndex(1); // Pre-load next
+    _initializeControllerAtIndex(1);
   }
 
   Future<void> _initializeControllerAtIndex(int index) async {
     if (index < 0 || index >= widget.videos.length) return;
-    if (_controllers.containsKey(index)) return; // Already inited
+    if (_controllers.containsKey(index)) return;
 
-    final videoUrl = widget.videos[index].storagePath; // Assuming full URL or handling path logic
+    final videoUrl = widget.videos[index].storagePath;
     
-    // Create Controller
     final controller = CachedVideoPlayerPlusController.networkUrl(
       Uri.parse(videoUrl),
-      httpHeaders: {}, // Add auth headers if R2 is private
-      invalidateCacheIfOlderThan: const Duration(days: 7), // Cache for 7 days
+      httpHeaders: {},
+      invalidateCacheIfOlderThan: const Duration(days: 7),
     );
 
     _controllers[index] = controller;
@@ -120,8 +116,6 @@ class _FeedPlayerState extends State<FeedPlayer> {
     try {
       await controller.initialize();
       await controller.setLooping(true);
-      
-      // If this is the active video, play it
       if (index == _focusedIndex) {
         await controller.play();
       }
@@ -143,26 +137,20 @@ class _FeedPlayerState extends State<FeedPlayer> {
       _focusedIndex = index;
     });
 
-    // 1. Play Current
     final current = _controllers[index];
     current?.play();
 
-    // 2. Pause Previous
     final prev = _controllers[index - 1];
     prev?.pause();
 
-    // 3. Pause Next (if user swiped back)
     final next = _controllers[index + 1];
     next?.pause();
 
-    // 4. SMART PRE-LOAD STRATEGY
-    // Load the next 2 videos to ensure instant swipe
     _initializeControllerAtIndex(index + 1);
     _initializeControllerAtIndex(index + 2);
 
-    // 5. Cleanup OLD videos to save RAM (keep previous 1 for quick back-swipe)
     _disposeControllerAtIndex(index - 2);
-    _disposeControllerAtIndex(index + 2); // Optional: Dispose future videos if jumping far
+    _disposeControllerAtIndex(index + 2);
   }
 
   @override
@@ -192,7 +180,6 @@ class _FeedPlayerState extends State<FeedPlayer> {
   }
 }
 
-// --- SINGLE FEED ITEM ---
 class FeedItem extends ConsumerStatefulWidget {
   final VideoModel video;
   final CachedVideoPlayerPlusController? controller;
@@ -212,12 +199,13 @@ class FeedItem extends ConsumerStatefulWidget {
 class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
   bool _isLiked = false;
   int _likesCount = 0;
-  bool _showHeart = false; // For double-tap animation
+  bool _showHeart = false;
 
   @override
   void initState() {
     super.initState();
-    _isLiked = widget.video.isLikedByCurrentUser;
+    // FIX 2: Handle Nullable Boolean safely
+    _isLiked = widget.video.isLikedByCurrentUser ?? false;
     _likesCount = widget.video.likesCount;
     WakelockPlus.enable();
   }
@@ -238,6 +226,8 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
     });
+    // FIX 3: Service now handles user ID internally, OR we pass it if needed.
+    // We updated the service to be smart, so this simple call works.
     service.toggleLike(widget.video.id);
   }
 
@@ -270,7 +260,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // 1. VIDEO LAYER
         GestureDetector(
           onTap: () {
             if (controller != null && controller.value.isInitialized) {
@@ -287,7 +276,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                   )
                 : Stack(
                   children: [
-                    // Placeholder while initializing
                     if (widget.video.coverImageUrl != null)
                       Positioned.fill(
                         child: Image.network(
@@ -295,14 +283,11 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                           fit: BoxFit.cover,
                         ),
                       ),
-                    // Loading Indicator
                     const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
                   ],
                 ),
           ),
         ),
-
-        // 2. GRADIENT OVERLAY
         Positioned.fill(
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -317,14 +302,11 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
             ),
           ),
         ),
-
-        // 3. RIGHT ACTION BAR
         Positioned(
           right: 8,
           bottom: 100,
           child: Column(
             children: [
-              // Avatar
               GestureDetector(
                 onTap: () {
                    context.push('/profile/${widget.video.authorAuthUserId}');
@@ -338,8 +320,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                 ),
               ),
               const SizedBox(height: 24),
-              
-              // Like
               _buildAction(
                 context, 
                 icon: _isLiked ? Icons.favorite : Icons.favorite_border, 
@@ -347,23 +327,13 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                 label: '$_likesCount',
                 onTap: _toggleLike
               ),
-              
-              // Comment
               _buildAction(context, icon: Icons.comment, label: '${widget.video.commentsCount}', onTap: _showComments),
-              
-              // Save
               _SaveButton(videoId: widget.video.id),
-              
-              // Share
               _buildAction(context, icon: Icons.share, label: 'Share', onTap: _onShare),
-              
-              // Repost (Using Service)
               _RepostButton(videoId: widget.video.id),
             ],
           ),
         ),
-
-        // 4. BOTTOM INFO
         Positioned(
           left: 16,
           bottom: 24,
@@ -396,8 +366,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
             ],
           ),
         ),
-
-        // 5. DOUBLE TAP HEART ANIMATION
         if (_showHeart)
           const Center(
             child: Icon(Icons.favorite, color: Colors.white, size: 100),
@@ -423,7 +391,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
   }
 }
 
-// --- HELPER BUTTONS ---
 class _SaveButton extends StatefulWidget {
   final String videoId;
   const _SaveButton({required this.videoId});
@@ -483,7 +450,6 @@ class _RepostButton extends StatelessWidget {
   }
 }
 
-// --- COMMENTS SHEET (Placeholder wrapper) ---
 class CommentsSheet extends StatefulWidget {
   final String videoId;
   final String authorId;
@@ -498,7 +464,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
   
   @override
   Widget build(BuildContext context) {
-    // Basic Comment UI Implementation
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
       decoration: const BoxDecoration(
