@@ -892,3 +892,25 @@ update profiles p
 set 
   followers_count = coalesce((select c from calculated_followers where uid = p.auth_user_id), 0),
   following_count = coalesce((select c from calculated_following where uid = p.auth_user_id), 0);
+
+-- KYC PROFILE FIELDS AND SELF ACCOUNT DELETION 
+-- 1. UPGRADE PROFILES: Add KYC fields
+alter table public.profiles 
+add column if not exists full_name text,
+add column if not exists date_of_birth date,
+add column if not exists phone_number text,
+add column if not exists address text;
+
+-- 2. SECURE DELETE: Function to let users delete themselves
+-- This deletes the AUTH user, which cascades to delete their profile/videos automatically.
+create or replace function delete_own_account()
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  -- Delete the user from the auth.users table
+  -- This triggers the 'on delete cascade' for profiles, videos, etc.
+  delete from auth.users where id = auth.uid();
+end;
+$$;
