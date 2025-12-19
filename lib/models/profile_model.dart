@@ -5,6 +5,7 @@ class ProfileModel {
   final String displayName;
   final String? avatarUrl;
   final int followersCount;
+  final int followingCount; // NEW: Added field
 
   ProfileModel({
     required this.id,
@@ -13,6 +14,7 @@ class ProfileModel {
     required this.displayName,
     this.avatarUrl,
     this.followersCount = 0,
+    this.followingCount = 0, // NEW: Default 0
   });
 
   factory ProfileModel.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class ProfileModel {
       displayName: json['display_name'] as String,
       avatarUrl: json['avatar_url'] as String?,
       followersCount: json['followers_count'] as int? ?? 0,
+      followingCount: json['following_count'] as int? ?? 0, // NEW: Read from DB
     );
   }
 }
