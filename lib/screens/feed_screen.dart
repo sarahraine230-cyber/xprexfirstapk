@@ -1,1395 +1,552 @@
-import 'dart:async'; // Added for Timer
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
+import 'package:cached_video_player_plus/cached_video_player_plus.dart'; // NEW: Cached Player
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter/material.dart' show RouteAware, ModalRoute, PageRoute;
 import 'package:xprex/router/app_router.dart';
 import 'package:xprex/services/video_service.dart';
-import 'package:xprex/services/storage_service.dart';
-import 'package:xprex/config/supabase_config.dart';
-import 'package:xprex/config/app_links.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/comment_service.dart';
 import 'package:xprex/models/comment_model.dart';
 import 'package:xprex/theme.dart';
-
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 
-// --- THE WIRING FIX: Call the Smart Algorithm ---
+// --- FEED PROVIDER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
-  // We now call the "Brain" algorithm instead of the raw feed
-  return await videoService.getForYouFeed(limit: 20);
+  // Fetches videos. If you move this fetch to main_shell.dart or splash, 
+  // it would start even faster, but this is efficient enough for now.
+  return await videoService.getFeedVideos();
 });
 
-class FeedScreen extends ConsumerStatefulWidget {
-  final bool isVisible;
-
-  const FeedScreen({super.key, this.isVisible = true});
+class FeedScreen extends ConsumerWidget {
+  const FeedScreen({super.key});
 
   @override
-  ConsumerState<FeedScreen> createState() => _FeedScreenState();
-}
-
-class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
-  int _activeIndex = 0;
-  bool _appActive = true;
-  bool _routeVisible = true;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      routeObserver.subscribe(this, route);
-    }
-  }
-
-  @override
-  void didPushNext() {
-    if (_routeVisible) {
-      setState(() => _routeVisible = false);
-      _maybeDisableWakelock();
-      debugPrint('📺 FeedScreen.didPushNext → route hidden, pausing feed visuals');
-    }
-  }
-
-  @override
-  void didPopNext() {
-    if (!_routeVisible) {
-      setState(() => _routeVisible = true);
-      debugPrint('📺 FeedScreen.didPopNext → route visible again');
-    }
-  }
-
-  @override
-  void dispose() {
-    _maybeDisableWakelock();
-    WidgetsBinding.instance.removeObserver(this);
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      routeObserver.unsubscribe(this);
-    }
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant FeedScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.isVisible != widget.isVisible) {
-      if (!widget.isVisible) {
-        _maybeDisableWakelock();
-      }
-      setState(() {});
-    }
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    final active = state == AppLifecycleState.resumed;
-    if (_appActive != active) {
-      _appActive = active;
-      if (!active) {
-        _maybeDisableWakelock();
-      }
-      setState(() {});
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ref = this.ref;
-    final videosAsync = ref.watch(feedVideosProvider);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feedAsync = ref.watch(feedVideosProvider);
     final theme = Theme.of(context);
 
-    final feedVisible = widget.isVisible && _appActive && _routeVisible;
-
     return Scaffold(
-      extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        title: const Text(
-          'XpreX',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+      body: feedAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator(color: Colors.white)),
+        error: (err, stack) => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.white, size: 48),
+              const SizedBox(height: 16),
+              Text('Error loading feed', style: theme.textTheme.bodyLarge?.copyWith(color: Colors.white)),
+              TextButton(
+                onPressed: () => ref.refresh(feedVideosProvider), 
+                child: const Text('Retry')
+              ),
+            ],
+          ),
         ),
-      ),
-      body: videosAsync.when(
         data: (videos) {
           if (videos.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.video_library_outlined, size: 80, color: theme.colorScheme.onSurfaceVariant),
+                  const Icon(Icons.videocam_off, color: Colors.white54, size: 64),
                   const SizedBox(height: 16),
-                  Text('No videos yet', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 8),
-                  Text('Be the first to upload!', style: theme.textTheme.bodyMedium),
+                  const Text('No videos yet', style: TextStyle(color: Colors.white)),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => ref.refresh(feedVideosProvider),
+                    child: const Text('Refresh'),
+                  ),
                 ],
               ),
             );
           }
-
-          return PageView.builder(
-            scrollDirection: Axis.vertical,
-            itemCount: videos.length,
-            itemBuilder: (context, index) {
-              final video = videos[index];
-              return VideoFeedItem(
-                key: ValueKey(video.id),
-                video: video,
-                isActive: index == _activeIndex,
-                feedVisible: feedVisible,
-                onLikeToggled: () {
-                  ref.invalidate(feedVideosProvider);
-                },
-              );
-            },
-            onPageChanged: (i) {
-              setState(() => _activeIndex = i);
-            },
-          );
+          // Pass videos to the Smart Player
+          return FeedPlayer(videos: videos);
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 64, color: theme.colorScheme.error),
-              const SizedBox(height: 16),
-              Text('Error loading feed', style: theme.textTheme.titleMedium),
-              const SizedBox(height: 8),
-              Text(error.toString(), style: theme.textTheme.bodySmall, textAlign: TextAlign.center),
-            ],
-          ),
-        ),
       ),
     );
   }
 }
 
-class VideoFeedItem extends StatefulWidget {
-  final VideoModel video;
-  final bool isActive;
-  final bool feedVisible;
-  final VoidCallback? onLikeToggled;
-  const VideoFeedItem({super.key, required this.video, required this.isActive, required this.feedVisible, this.onLikeToggled});
+// --- THE SMART PLAYER (PRE-CACHING LOGIC) ---
+class FeedPlayer extends StatefulWidget {
+  final List<VideoModel> videos;
+  const FeedPlayer({super.key, required this.videos});
 
   @override
-  State<VideoFeedItem> createState() => _VideoFeedItemState();
+  State<FeedPlayer> createState() => _FeedPlayerState();
 }
 
-class _VideoFeedItemState extends State<VideoFeedItem> {
-  final _storage = StorageService();
-  final _videoService = VideoService();
-  final _saveService = SaveService();
-  final _repostService = RepostService();
-
-  VideoPlayerController? _controller;
-  bool _isLiked = false;
-  int _likeCount = 0;
-  int _commentsCount = 0;
-  int _shareCount = 0;
+class _FeedPlayerState extends State<FeedPlayer> {
+  late PageController _pageController;
   
-  // --- STATE VARIABLES ---
-  bool _isSaved = false;
-  int _saveCount = 0;
-  bool _isReposted = false;
-  int _repostCount = 0;
+  // Manage multiple controllers: { index: Controller }
+  final Map<int, CachedVideoPlayerPlusController> _controllers = {};
   
-  bool _loading = true;
-
-  // --- STOPWATCH VARIABLES (Monetization Engine) ---
-  Timer? _watchTimer;
-  int _secondsWatched = 0;
-  bool _hasRecordedView = false; // Initial view count
+  int _focusedIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _likeCount = widget.video.likesCount;
-    _commentsCount = widget.video.commentsCount;
-    _saveCount = widget.video.savesCount;
-    _repostCount = widget.video.repostsCount;
-    _init();
+    _pageController = PageController();
+    
+    // Initialize the first few videos immediately
+    _initializeControllerAtIndex(0);
+    _initializeControllerAtIndex(1); // Pre-load next
   }
 
-  @override
-  void didUpdateWidget(covariant VideoFeedItem oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.video.id != widget.video.id) {
-      _flushWatchTime(); // Flush old video data before switching
-      _disposeController();
-      _loading = true;
-      _init();
-    }
-    _updatePlayState();
-  }
+  Future<void> _initializeControllerAtIndex(int index) async {
+    if (index < 0 || index >= widget.videos.length) return;
+    if (_controllers.containsKey(index)) return; // Already inited
 
-  Future<void> _init() async {
+    final videoUrl = widget.videos[index].storagePath; // Assuming full URL or handling path logic
+    
+    // Create Controller
+    final controller = CachedVideoPlayerPlusController.networkUrl(
+      Uri.parse(videoUrl),
+      httpHeaders: {}, // Add auth headers if R2 is private
+      invalidateCacheIfOlderThan: const Duration(days: 7), // Cache for 7 days
+    );
+
+    _controllers[index] = controller;
+
     try {
-      final playableUrl = await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
-      _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
-        ..setLooping(true);
-      await _controller!.initialize();
+      await controller.initialize();
+      await controller.setLooping(true);
       
-      // We only record the initial "View" count once per session
-      if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView) {
-        _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
-        _hasRecordedView = true;
+      // If this is the active video, play it
+      if (index == _focusedIndex) {
+        await controller.play();
       }
-      
-      final uid = supabase.auth.currentUser?.id;
-      if (uid != null) {
-        _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
-          if (mounted) setState(() => _isLiked = liked);
-        });
-        _saveService.isVideoSaved(widget.video.id, uid).then((saved) {
-          if (mounted) setState(() => _isSaved = saved);
-        });
-        _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
-          if (mounted) setState(() => _isReposted = reposted);
-        });
-        _videoService.getShareCount(widget.video.id).then((count) {
-          if (mounted) setState(() => _shareCount = count);
-        });
-      } else {
-        _videoService.getShareCount(widget.video.id).then((count) {
-          if (mounted) setState(() => _shareCount = count);
-        });
-      }
-      _updatePlayState();
+      if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('❌ Failed to init player: $e');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      debugPrint('Error initializing video $index: $e');
     }
   }
 
-  void _updatePlayState() {
-    if (_controller == null) return;
-    final shouldPlay = widget.feedVisible && widget.isActive;
-    
-    if (shouldPlay) {
-      _controller!.play();
-      _maybeEnableWakelock();
-      _startWatchTimer(); // Start counting money
-    } else {
-      _controller!.pause();
-      _maybeDisableWakelock();
-      _stopWatchTimer(); // Pause counting
+  void _disposeControllerAtIndex(int index) {
+    if (_controllers.containsKey(index)) {
+      _controllers[index]?.dispose();
+      _controllers.remove(index);
     }
-    setState(() {});
   }
 
-  // --- STOPWATCH LOGIC ---
-  void _startWatchTimer() {
-    if (_watchTimer != null && _watchTimer!.isActive) return;
-    
-    _watchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      // Only count if actually playing
-      if (_controller != null && _controller!.value.isPlaying) {
-        _secondsWatched++;
-        // Optional: Debug print to see it working
-        // debugPrint('⏱️ Watched ${widget.video.id}: $_secondsWatched sec');
-      }
+  void _onPageChanged(int index) {
+    setState(() {
+      _focusedIndex = index;
     });
-  }
 
-  void _stopWatchTimer() {
-    _watchTimer?.cancel();
-    _watchTimer = null;
-  }
+    // 1. Play Current
+    final current = _controllers[index];
+    current?.play();
 
-  Future<void> _flushWatchTime() async {
-    _stopWatchTimer();
-    
-    // Don't spam DB with tiny views (< 3 seconds)
-    if (_secondsWatched < 3) {
-      _secondsWatched = 0;
-      return;
-    }
+    // 2. Pause Previous
+    final prev = _controllers[index - 1];
+    prev?.pause();
 
-    try {
-      final uid = supabase.auth.currentUser?.id;
-      // We send this to Supabase. 
-      // Note: We are inserting into a raw 'video_views' log or updating. 
-      // For MVP, we simply insert a record that this user watched X seconds.
-      // We will create this specific RPC or Table logic in SQL phase.
-      if (uid != null) {
-         await supabase.from('video_views').insert({
-           'video_id': widget.video.id,
-           'viewer_id': uid,
-           'author_id': widget.video.authorAuthUserId,
-           'duration_seconds': _secondsWatched, // The golden metric
-           'created_at': DateTime.now().toIso8601String(),
-         });
-      }
-      debugPrint('💰 Flushed $_secondsWatched seconds for video ${widget.video.id}');
-    } catch (e) {
-      debugPrint('❌ Failed to flush watch time: $e');
-    } finally {
-      _secondsWatched = 0; // Reset for next loop/video
-    }
-  }
+    // 3. Pause Next (if user swiped back)
+    final next = _controllers[index + 1];
+    next?.pause();
 
-  // --- EXISTING ACTIONS ---
+    // 4. SMART PRE-LOAD STRATEGY
+    // Load the next 2 videos to ensure instant swipe
+    _initializeControllerAtIndex(index + 1);
+    _initializeControllerAtIndex(index + 2);
 
-  Future<void> _toggleLike() async {
-    try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please sign in to like videos')),
-          );
-        }
-        return;
-      }
-      final previousLiked = _isLiked;
-      setState(() {
-        _isLiked = !previousLiked;
-        _likeCount += _isLiked ? 1 : -1;
-      });
-      widget.onLikeToggled?.call();
-
-      final liked = await _videoService.toggleLike(widget.video.id, uid);
-      if (liked != _isLiked && mounted) {
-        setState(() {
-          _isLiked = liked;
-          _likeCount += liked ? 1 : -1;
-        });
-      }
-    } catch (e) {
-      debugPrint('❌ like toggle failed: $e');
-      if (mounted) {
-        setState(() {
-          _isLiked = !_isLiked;
-          _likeCount += _isLiked ? 1 : -1;
-        });
-        final msg = e.toString().contains('42703')
-            ? 'Like failed: backend counters missing. Please run latest SQL.'
-            : 'Failed to like. Please try again.';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    }
-  }
-
-  Future<void> _toggleSave() async {
-    try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please sign in to save videos')),
-          );
-        }
-        return;
-      }
-      
-      final prev = _isSaved;
-      setState(() {
-        _isSaved = !prev;
-        _saveCount += _isSaved ? 1 : -1;
-      });
-      final saved = await _saveService.toggleSave(widget.video.id, uid);
-      
-      if (mounted && saved != _isSaved) {
-        setState(() {
-          _isSaved = saved;
-          _saveCount += saved ? 1 : -1; 
-        });
-      }
-    } catch (e) {
-      debugPrint('❌ toggle save failed: $e');
-      if (mounted) {
-        setState(() {
-           _isSaved = !_isSaved;
-           _saveCount += _isSaved ? 1 : -1;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to save. Please try again.')),
-        );
-      }
-    }
-  }
-
-  Future<void> _toggleRepost() async {
-    try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Please sign in to repost')),
-          );
-        }
-        return;
-      }
-      
-      final prev = _isReposted;
-      setState(() {
-        _isReposted = !prev;
-        _repostCount += _isReposted ? 1 : -1;
-      });
-      final reposted = await _repostService.toggleRepost(widget.video.id, uid);
-      
-      if (mounted && reposted != _isReposted) {
-        setState(() {
-          _isReposted = reposted;
-          _repostCount += reposted ? 1 : -1;
-        });
-      }
-    } catch (e) {
-      debugPrint('❌ toggle repost failed: $e');
-      if (mounted) {
-        setState(() {
-          _isReposted = !_isReposted;
-          _repostCount += _isReposted ? 1 : -1;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Failed to repost. Please try again.')),
-        );
-      }
-    }
+    // 5. Cleanup OLD videos to save RAM (keep previous 1 for quick back-swipe)
+    _disposeControllerAtIndex(index - 2);
+    _disposeControllerAtIndex(index + 2); // Optional: Dispose future videos if jumping far
   }
 
   @override
   void dispose() {
-    WakelockPlus.disable();
-    _flushWatchTime(); // Save any pending seconds before destroy
-    _disposeController();
+    _pageController.dispose();
+    for (var c in _controllers.values) {
+      c.dispose();
+    }
     super.dispose();
-  }
-
-  void _disposeController() {
-    try {
-      _controller?.dispose();
-    } catch (_) {}
-    _controller = null;
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final neon = Theme.of(context).extension<NeonAccentTheme>();
-    final size = MediaQuery.sizeOf(context);
-    final padding = MediaQuery.viewPaddingOf(context);
-    final h = size.height;
-    final double railHeight = h <= 640
-        ? h * 0.44
-        : (h <= 780
-            ? h * 0.41
-            : (h <= 900
-                ? h * 0.38
-                : h * 0.36));
-    final double bottomGuard = padding.bottom + 88.0;
-    
-    final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
-    final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
-    
-    const double baseIcon = 32.0;
-    const double baseSmallGap = 6.0;
-    const double baseGroupGap = 14.0;
-    
-    final double scaleRatio = iconSize / baseIcon;
-    final double smallGap = (baseSmallGap * scaleRatio).clamp(5.0, 8.0);
-    final double groupGap = (baseGroupGap * scaleRatio).clamp(12.0, 18.0);
-    final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
-        ? widget.video.authorDisplayName!
-        : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
-        
-    return Container(
-      color: Colors.black,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: _controller != null && _controller!.value.isInitialized
-                ? FittedBox(
-                    fit: BoxFit.cover,
-                    child: SizedBox(
-                      width: _controller!.value.size.width,
-                      height: _controller!.value.size.height,
-                      child: VideoPlayer(_controller!),
-                    ),
-                  )
-                : (widget.video.coverImageUrl != null
-                    ? Image.network(widget.video.coverImageUrl!, fit: BoxFit.cover)
-                    : Container(color: Colors.black)),
-          ),
-          Positioned.fill(
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  if (_controller == null) return;
-                  if (_controller!.value.isPlaying) {
-                    _controller!.pause();
-                    _maybeDisableWakelock();
-                    _stopWatchTimer();
-                  } else {
-                    if (widget.feedVisible && widget.isActive) {
-                      _controller!.play();
-                      _maybeEnableWakelock();
-                      _startWatchTimer();
-                    }
-                  }
-                  setState(() {});
-                },
-              ),
-            ),
-          ),
-          
-          // --- BOTTOM LEFT SECTION ---
-          Positioned(
-            bottom: 80,
-            left: 16,
-            right: 80,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (widget.video.repostedByUsername != null)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2), // Semi-transparent glass
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.repeat, color: Colors.white, size: 12),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${widget.video.repostedByUsername} reposted',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () async {
-                        try {
-                          _controller?.pause();
-                          _controller?.setVolume(0);
-                          _maybeDisableWakelock();
-                        } catch (_) {}
-                        if (widget.video.authorAuthUserId.isNotEmpty) {
-                          await context.push('/u/${widget.video.authorAuthUserId}');
-                          try { _controller?.setVolume(1.0); } catch (_) {}
-                        }
-                      },
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.white.withValues(alpha: 0.15),
-                        backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
-                            ? NetworkImage(widget.video.authorAvatarUrl!)
-                            : null,
-                        child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
-                            ? const Icon(Icons.person_outline, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          try {
-                            _controller?.pause();
-                            _controller?.setVolume(0);
-                            _maybeDisableWakelock();
-                          } catch (_) {}
-                          if (widget.video.authorAuthUserId.isNotEmpty) {
-                            await context.push('/u/${widget.video.authorAuthUserId}');
-                            try { _controller?.setVolume(1.0); } catch (_) {}
-                          }
-                        },
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(authorName, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            if (widget.video.authorDisplayName == null || widget.video.authorDisplayName!.trim().isEmpty)
-                              Text(widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : '', style: theme.textTheme.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.8))),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(widget.video.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
-                if (widget.video.description != null)
-                  Text(widget.video.description!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
-              ],
-            ),
-          ),
-          
-          Positioned(
-            right: 12,
-            bottom: (bottomGuard - (railHeight * 0.20)).clamp(padding.bottom + 12.0, double.infinity),
-            child: SizedBox(
-              height: railHeight,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.bottomCenter,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _NeonRailButton(
-                      icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: iconSize,
-                      onTap: _toggleLike,
-                      color: Colors.white,
-                      glow: neon?.purple ?? theme.colorScheme.primary,
-                      background: Colors.transparent,
-                      outlined: false,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.comment,
-                      size: iconSize,
-                      onTap: _openComments,
-                      color: Colors.white,
-                      glow: neon?.cyan ?? theme.colorScheme.secondary,
-                      background: Colors.transparent,
-                      outlined: false,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.share,
-                      size: iconSize,
-                      onTap: _handleShare,
-                      color: Colors.white,
-                      glow: neon?.blue ?? theme.colorScheme.tertiary,
-                      background: Colors.transparent,
-                      outlined: false,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                      size: iconSize,
-                      onTap: _toggleSave,
-                      color: Colors.white,
-                      glow: neon?.blue ?? theme.colorScheme.primary,
-                      background: Colors.transparent,
-                      outlined: false,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.repeat,
-                      size: iconSize,
-                      onTap: _toggleRepost,
-                      color: Colors.white,
-                      glow: neon?.purple ?? theme.colorScheme.secondary,
-                      background: Colors.transparent,
-                      outlined: false,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _repostCount, glowColor: neon?.purple ?? theme.colorScheme.secondary, textScale: 2.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (_loading)
-            const Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-        ],
-      ),
+    return PageView.builder(
+      controller: _pageController,
+      scrollDirection: Axis.vertical,
+      itemCount: widget.videos.length,
+      onPageChanged: _onPageChanged,
+      itemBuilder: (context, index) {
+        return FeedItem(
+          video: widget.videos[index],
+          controller: _controllers[index],
+          isFocused: index == _focusedIndex,
+        );
+      },
     );
   }
+}
 
-  void _openComments() {
-    final wasPlaying = _controller?.value.isPlaying == true;
-    try {
-      _controller?.pause();
-      _maybeDisableWakelock();
-    } catch (_) {}
+// --- SINGLE FEED ITEM ---
+class FeedItem extends ConsumerStatefulWidget {
+  final VideoModel video;
+  final CachedVideoPlayerPlusController? controller;
+  final bool isFocused;
 
+  const FeedItem({
+    super.key,
+    required this.video,
+    required this.controller,
+    required this.isFocused,
+  });
+
+  @override
+  ConsumerState<FeedItem> createState() => _FeedItemState();
+}
+
+class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
+  bool _isLiked = false;
+  int _likesCount = 0;
+  bool _showHeart = false; // For double-tap animation
+
+  @override
+  void initState() {
+    super.initState();
+    _isLiked = widget.video.isLikedByCurrentUser;
+    _likesCount = widget.video.likesCount;
+    WakelockPlus.enable();
+  }
+
+  @override
+  void didUpdateWidget(FeedItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isFocused && widget.controller != null && widget.controller!.value.isInitialized) {
+      widget.controller!.play();
+    } else if (!widget.isFocused && widget.controller != null) {
+      widget.controller!.pause();
+    }
+  }
+
+  void _toggleLike() {
+    final service = VideoService();
+    setState(() {
+      _isLiked = !_isLiked;
+      _likesCount += _isLiked ? 1 : -1;
+    });
+    service.toggleLike(widget.video.id);
+  }
+
+  void _handleDoubleTap() {
+    if (!_isLiked) _toggleLike();
+    setState(() => _showHeart = true);
+    Future.delayed(const Duration(milliseconds: 600), () {
+      if (mounted) setState(() => _showHeart = false);
+    });
+  }
+
+  void _showComments() {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return _CommentsSheet(
-          videoId: widget.video.id,
-          initialCount: _commentsCount,
-          onNewComment: () {
-            setState(() => _commentsCount += 1);
-          },
-        );
-      },
-    ).whenComplete(() {
-      if (wasPlaying && widget.feedVisible && widget.isActive) {
-        try {
-          _controller?.play();
-          _maybeEnableWakelock();
-        } catch (_) {}
-      }
-    });
+      builder: (_) => CommentsSheet(videoId: widget.video.id, authorId: widget.video.authorAuthUserId),
+    );
   }
 
-  Future<void> _handleShare() async {
-    try {
-      final deepLink = AppLinks.videoLink(widget.video.id);
-      final url = deepLink.isNotEmpty
-          ? deepLink
-          : await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
-      await Share.share(url);
-      final uid = supabase.auth.currentUser?.id;
-      if (uid != null) {
-        await _videoService.recordShare(widget.video.id, uid);
-      }
-      setState(() => _shareCount += 1);
-    } catch (e) {
-      debugPrint('❌ share failed: $e');
-    }
-  }
-}
-
-void _maybeEnableWakelock() {
-  if (kIsWeb) return;
-  try {
-    WakelockPlus.enable();
-  } catch (e) {
-    debugPrint('wakelock enable ignored: $e');
-  }
-}
-
-void _maybeDisableWakelock() {
-  if (kIsWeb) return;
-  try {
-    WakelockPlus.disable();
-  } catch (e) {
-    debugPrint('wakelock disable ignored: $e');
-  }
-}
-
-Widget _countBadge(BuildContext context, int count, {Color? glowColor, double textScale = 1.0}) {
-  return Text(
-    '$count',
-    textAlign: TextAlign.center,
-    style: TextStyle(
-      color: Colors.white,
-      fontSize: 80.0,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.0,
-      height: 0.98,
-    ),
-  );
-}
-
-class _NeonRailButton extends StatefulWidget {
-  final IconData icon;
-  final double size;
-  final VoidCallback onTap;
-  final Color color;
-  final Color glow;
-  final Color background;
-  final bool outlined;
-
-  const _NeonRailButton({
-    required this.icon,
-    required this.size,
-    required this.onTap,
-    required this.color,
-    required this.glow,
-    required this.background,
-    this.outlined = false,
-  });
-  @override
-  State<_NeonRailButton> createState() => _NeonRailButtonState();
-}
-
-class _NeonRailButtonState extends State<_NeonRailButton> {
-  bool _pressed = false;
-  void _setPressed(bool v) {
-    if (_pressed == v) return;
-    setState(() => _pressed = v);
+  void _onShare() {
+     Share.share('Check out this video on XpreX: ${widget.video.title}');
   }
 
   @override
   Widget build(BuildContext context) {
-    final double containerSize = widget.size + (18 * (widget.size / 36.0));
-    return GestureDetector(
-      onTapDown: (_) => _setPressed(true),
-      onTapCancel: () => _setPressed(false),
-      onTapUp: (_) => _setPressed(false),
-      onTap: widget.onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _pressed ? 1.07 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          width: containerSize,
-          height: containerSize,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.transparent,
-        ),
-          child: Center(
-            child: Icon(widget.icon, size: widget.size, color: widget.color),
+    final theme = Theme.of(context);
+    final controller = widget.controller;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // 1. VIDEO LAYER
+        GestureDetector(
+          onTap: () {
+            if (controller != null && controller.value.isInitialized) {
+              controller.value.isPlaying ? controller.pause() : controller.play();
+            }
+          },
+          onDoubleTap: _handleDoubleTap,
+          child: Container(
+            color: Colors.black,
+            child: (controller != null && controller.value.isInitialized)
+                ? AspectRatio(
+                    aspectRatio: controller.value.aspectRatio,
+                    child: CachedVideoPlayerPlus(controller),
+                  )
+                : Stack(
+                  children: [
+                    // Placeholder while initializing
+                    if (widget.video.coverImageUrl != null)
+                      Positioned.fill(
+                        child: Image.network(
+                          widget.video.coverImageUrl!,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    // Loading Indicator
+                    const Center(child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                  ],
+                ),
           ),
         ),
-      ),
-    );
-  }
-}
 
-class _CommentsSheet extends StatefulWidget {
-  final String videoId;
-  final int initialCount; 
-  final VoidCallback? onNewComment;
-  const _CommentsSheet({
-    required this.videoId, 
-    required this.initialCount, 
-    this.onNewComment
-  });
-  @override
-  State<_CommentsSheet> createState() => _CommentsSheetState();
-}
-
-class _CommentsSheetState extends State<_CommentsSheet> {
-  final _svc = CommentService();
-  final _inputCtrl = TextEditingController();
-  late Future<List<CommentModel>> _loader;
-  bool _posting = false;
-  late int _commentsCount;
-  CommentModel? _replyingTo; 
-
-  final List<String> _quickEmojis = ['🔥', '😂', '😍', '👏', '😢', '😮', '💯', '🙏'];
-  @override
-  void initState() {
-    super.initState();
-    _commentsCount = widget.initialCount;
-    _loader = _svc.getCommentsByVideo(widget.videoId);
-  }
-
-  @override
-  void dispose() {
-    _inputCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _post() async {
-    final text = _inputCtrl.text.trim();
-    if (text.isEmpty || _posting) return;
-    final uid = supabase.auth.currentUser?.id;
-    if (uid == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please sign in to comment')),
-        );
-      }
-      return;
-    }
-    setState(() => _posting = true);
-    try {
-      String? parentId;
-      if (_replyingTo != null) {
-        parentId = _replyingTo!.parentId ?? _replyingTo!.id;
-      }
-
-      await _svc.createComment(
-        videoId: widget.videoId, 
-        authorAuthUserId: uid, 
-        text: text,
-        parentId: parentId,
-      );
-      _inputCtrl.clear();
-      setState(() {
-        _replyingTo = null; 
-        _loader = _svc.getCommentsByVideo(widget.videoId);
-        _commentsCount++;
-        _posting = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Comment posted')),
-        );
-      }
-      widget.onNewComment?.call();
-    } catch (e) {
-      setState(() => _posting = false);
-      debugPrint('❌ post comment failed: $e');
-      if (mounted) {
-        final msg = e.toString().contains('42703')
-            ? 'Comment failed: backend counters missing. Please run latest SQL.'
-            : 'Failed to post comment';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    }
-  }
-
-  void _insertEmoji(String emoji) {
-    _inputCtrl.text += emoji;
-    _inputCtrl.selection = TextSelection.fromPosition(TextPosition(offset: _inputCtrl.text.length));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final viewInsets = MediaQuery.of(context).viewInsets.bottom;
-    
-    return AnimatedPadding(
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      padding: EdgeInsets.only(bottom: viewInsets),
-      child: DraggableScrollableSheet(
-        initialChildSize: 0.55, 
-        minChildSize: 0.40,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) {
-          return Container(
+        // 2. GRADIENT OVERLAY
+        Positioned.fill(
+          child: DecoratedBox(
             decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(20),
-                topRight: Radius.circular(20),
-              ),
-            ),
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                Container(width: 40, height: 4, decoration: BoxDecoration(color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(2))),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text('Comments', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                      if (_commentsCount > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 8.0),
-                          child: Text(_commentsCount.toString(), style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-                        ),
-                      const Spacer(),
-                      IconButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: Icon(Icons.close, color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(height: 1, color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5)),
-                Expanded(
-                  child: FutureBuilder<List<CommentModel>>(
-                    future: _loader,
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      final items = snap.data ?? const <CommentModel>[];
-                      if (items.isEmpty) {
-                        return Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('No comments yet', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 4),
-                              Text('Start the conversation.', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                            ],
-                          ),
-                        );
-                      }
-                      return ListView.separated(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        itemCount: items.length,
-                        itemBuilder: (context, i) {
-                          return _CommentRow(
-                            comment: items[i], 
-                            onReplyTap: (c) {
-                               setState(() {
-                                 _replyingTo = c;
-                               });
-                            },
-                          );
-                        },
-                        separatorBuilder: (_, __) => const SizedBox(height: 20),
-                      );
-                    },
-                  ),
-                ),
-                
-                if (_replyingTo != null)
-                  Container(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      children: [
-                        Text(
-                          'Replying to @${_replyingTo!.authorUsername ?? "user"}', 
-                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)
-                        ),
-                        const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 16),
-                          onPressed: () => setState(() => _replyingTo = null),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        )
-                      ],
-                    ),
-                  ),
-
-                Container(
-                  height: 44,
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3))),
-                  ),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _quickEmojis.length,
-                    separatorBuilder: (_,__) => const SizedBox(width: 16),
-                    itemBuilder: (ctx, i) {
-                      return GestureDetector(
-                        onTap: () => _insertEmoji(_quickEmojis[i]),
-                        child: Center(child: Text(_quickEmojis[i], style: const TextStyle(fontSize: 22))),
-                      );
-                    },
-                  ),
-                ),
-
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
-                    child: Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 18, 
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                        child: Icon(Icons.person, size: 20, color: theme.colorScheme.onSurfaceVariant),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextField(
-                          controller: _inputCtrl,
-                          decoration: InputDecoration(
-                            hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
-                            hintStyle: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                      IconButton(
-                         onPressed: _posting ? null : _post,
-                         icon: Icon(Icons.arrow_upward, color: _posting ? theme.colorScheme.onSurfaceVariant : theme.colorScheme.primary),
-                      )
-                    ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _CommentRow extends StatefulWidget {
-  final CommentModel comment;
-  final Function(CommentModel) onReplyTap;
-  const _CommentRow({required this.comment, required this.onReplyTap});
-
-  @override
-  State<_CommentRow> createState() => _CommentRowState();
-}
-
-class _CommentRowState extends State<_CommentRow> {
-  bool _repliesVisible = false;
-  bool _loadingReplies = false;
-  final _svc = CommentService();
-  late bool _isLiked;
-  late int _likesCount;
-
-  @override
-  void initState() {
-    super.initState();
-    _isLiked = widget.comment.isLiked;
-    _likesCount = widget.comment.likesCount;
-  }
-
-  void _toggleLike() async {
-    setState(() {
-      _isLiked = !_isLiked;
-      _likesCount += _isLiked ? 1 : -1;
-    });
-    try {
-      await _svc.toggleCommentLike(widget.comment.id);
-    } catch (e) {
-      if (mounted) {
-         setState(() {
-          _isLiked = !_isLiked;
-          _likesCount += _isLiked ? 1 : -1;
-        });
-      }
-    }
-  }
-
-  Future<void> _fetchReplies() async {
-    if (widget.comment.replies.isNotEmpty) {
-      setState(() => _repliesVisible = !_repliesVisible);
-      return;
-    }
-
-    setState(() {
-      _loadingReplies = true;
-      _repliesVisible = true;
-    });
-    try {
-      final replies = await _svc.getReplies(widget.comment.id);
-      if (mounted) {
-        setState(() {
-          widget.comment.replies = replies;
-          _loadingReplies = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading replies: $e');
-      if (mounted) setState(() => _loadingReplies = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final c = widget.comment;
-    final name = (c.authorDisplayName?.trim().isNotEmpty == true)
-        ? c.authorDisplayName!
-        : (c.authorUsername != null ? '@${c.authorUsername}' : 'User');
-    
-    return Column(
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              radius: 20, 
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              backgroundImage: (c.authorAvatarUrl?.isNotEmpty == true) 
-                  ? NetworkImage(c.authorAvatarUrl!) 
-                  : null,
-              child: (c.authorAvatarUrl?.isEmpty ?? true) 
-                  ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 24) 
-                  : null,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(name, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 13.5)),
-                      const SizedBox(width: 6),
-                      Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Text(c.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 15, height: 1.3)),
-                  const SizedBox(height: 6),
-                  
-                  GestureDetector(
-                    onTap: () => widget.onReplyTap(c),
-                    child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
-                  ),
-
-                  if (c.replyCount > 0) ...[
-                    const SizedBox(height: 12),
-                    GestureDetector(
-                      onTap: _fetchReplies,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(width: 30, height: 1, color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5)),
-                          const SizedBox(width: 12),
-                          Text(
-                            _repliesVisible && c.replies.isNotEmpty ? 'Hide replies' : 'View ${c.replyCount} replies',
-                            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
-                          ),
-                          if (_loadingReplies)
-                             const Padding(
-                               padding: EdgeInsets.only(left: 8.0),
-                               child: SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)),
-                             )
-                        ],
-                      ),
-                    ),
-                  ]
+              gradient: LinearGradient(
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.6),
                 ],
+                begin: Alignment.center,
+                end: Alignment.bottomCenter,
               ),
             ),
-            
-            Padding(
-              padding: const EdgeInsets.only(top: 8.0, left: 8.0),
-              child: Column(
-                children: [
-                  GestureDetector(
-                    onTap: _toggleLike,
-                    child: Icon(
-                      _isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: 18, 
-                      color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  if (_likesCount > 0)
-                    Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
-                ],
-              ),
-            )
-          ],
+          ),
         ),
 
-        if (_repliesVisible && c.replies.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 52.0, top: 16),
-            child: ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: c.replies.length,
-              separatorBuilder: (_,__) => const SizedBox(height: 16),
-              itemBuilder: (ctx, i) {
-                final r = c.replies[i];
-                 return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
-              },
-            ),
-          )
-      ],
-    );
-  }
-}
-
-class _ReplyRow extends StatefulWidget {
-  final CommentModel reply;
-  final Function(CommentModel) onReplyTap;
-  const _ReplyRow({required this.reply, required this.onReplyTap});
-  @override
-  State<_ReplyRow> createState() => _ReplyRowState();
-}
-
-class _ReplyRowState extends State<_ReplyRow> {
-  final _svc = CommentService();
-  late bool _isLiked;
-  late int _likesCount;
-
-  @override
-  void initState() {
-    super.initState();
-    _isLiked = widget.reply.isLiked;
-    _likesCount = widget.reply.likesCount;
-  }
-
-  void _toggleLike() async {
-    setState(() {
-      _isLiked = !_isLiked;
-      _likesCount += _isLiked ? 1 : -1;
-    });
-    try {
-      await _svc.toggleCommentLike(widget.reply.id);
-    } catch (e) {
-       if (mounted) setState(() { _isLiked = !_isLiked; _likesCount += _isLiked ? 1 : -1; });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final r = widget.reply;
-    final name = (r.authorDisplayName?.trim().isNotEmpty == true)
-        ? r.authorDisplayName!
-        : (r.authorUsername != null ? '@${r.authorUsername}' : 'User');
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CircleAvatar(
-          radius: 16,
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-          backgroundImage: (r.authorAvatarUrl?.isNotEmpty == true) ? NetworkImage(r.authorAvatarUrl!) : null,
-          child: (r.authorAvatarUrl?.isEmpty ?? true) ? Icon(Icons.person, color: theme.colorScheme.onSurfaceVariant, size: 18) : null,
+        // 3. RIGHT ACTION BAR
+        Positioned(
+          right: 8,
+          bottom: 100,
+          child: Column(
+            children: [
+              // Avatar
+              GestureDetector(
+                onTap: () {
+                   context.push('/profile/${widget.video.authorAuthUserId}');
+                },
+                child: CircleAvatar(
+                  radius: 24,
+                  backgroundImage: widget.video.authorAvatarUrl != null 
+                    ? NetworkImage(widget.video.authorAvatarUrl!) 
+                    : null,
+                  child: widget.video.authorAvatarUrl == null ? const Icon(Icons.person) : null,
+                ),
+              ),
+              const SizedBox(height: 24),
+              
+              // Like
+              _buildAction(
+                context, 
+                icon: _isLiked ? Icons.favorite : Icons.favorite_border, 
+                color: _isLiked ? Colors.red : Colors.white,
+                label: '$_likesCount',
+                onTap: _toggleLike
+              ),
+              
+              // Comment
+              _buildAction(context, icon: Icons.comment, label: '${widget.video.commentsCount}', onTap: _showComments),
+              
+              // Save
+              _SaveButton(videoId: widget.video.id),
+              
+              // Share
+              _buildAction(context, icon: Icons.share, label: 'Share', onTap: _onShare),
+              
+              // Repost (Using Service)
+              _RepostButton(videoId: widget.video.id),
+            ],
+          ),
         ),
-        const SizedBox(width: 12),
-        Expanded(
+
+        // 4. BOTTOM INFO
+        Positioned(
+          left: 16,
+          bottom: 24,
+          right: 80,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(name, style: theme.textTheme.labelLarge?.copyWith(fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(width: 6),
-                  Text('2h', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                ],
+              Text(
+                '@${widget.video.authorUsername}',
+                style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 2),
-              Text(r.text, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14.5, height: 1.3)),
-              const SizedBox(height: 6),
-              GestureDetector(
-                onTap: () => widget.onReplyTap(r),
-                child: Text('Reply', style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(
+                widget.video.title,
+                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
+              if (widget.video.tags.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Wrap(
+                    spacing: 4,
+                    children: widget.video.tags.map((t) => Text(
+                      '#$t', 
+                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)
+                    )).toList(),
+                  ),
+                ),
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: 8.0, left: 8.0),
-          child: Column(
-            children: [
-              GestureDetector(
-                onTap: _toggleLike,
-                child: Icon(
-                  _isLiked ? Icons.favorite : Icons.favorite_border,
-                  size: 16,
-                  color: _isLiked ? Colors.red : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              if (_likesCount > 0)
-                Text('$_likesCount', style: theme.textTheme.labelSmall?.copyWith(fontSize: 10, color: theme.colorScheme.onSurfaceVariant)),
-            ],
+
+        // 5. DOUBLE TAP HEART ANIMATION
+        if (_showHeart)
+          const Center(
+            child: Icon(Icons.favorite, color: Colors.white, size: 100),
           ),
-        )
       ],
+    );
+  }
+
+  Widget _buildAction(BuildContext context, {required IconData icon, required String label, required VoidCallback onTap, Color color = Colors.white}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20.0),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Icon(icon, size: 32, color: color),
+            const SizedBox(height: 4),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- HELPER BUTTONS ---
+class _SaveButton extends StatefulWidget {
+  final String videoId;
+  const _SaveButton({required this.videoId});
+  @override
+  State<_SaveButton> createState() => _SaveButtonState();
+}
+class _SaveButtonState extends State<_SaveButton> {
+  bool _isSaved = false;
+  @override 
+  void initState() { super.initState(); _check(); }
+  void _check() async {
+    final s = await SaveService().isSaved(widget.videoId);
+    if(mounted) setState(() => _isSaved = s);
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: GestureDetector(
+        onTap: () async {
+          setState(() => _isSaved = !_isSaved);
+          await SaveService().toggleSave(widget.videoId);
+        },
+        child: Column(
+          children: [
+            Icon(_isSaved ? Icons.bookmark : Icons.bookmark_border, size: 32, color: Colors.white),
+            const SizedBox(height: 4),
+            const Text('Save', style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RepostButton extends StatelessWidget {
+  final String videoId;
+  const _RepostButton({required this.videoId});
+  @override
+  Widget build(BuildContext context) {
+     return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: GestureDetector(
+        onTap: () async {
+           await RepostService().repostVideo(videoId);
+           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reposted!')));
+        },
+        child: const Column(
+          children: [
+            Icon(Icons.repeat, size: 32, color: Colors.white),
+            SizedBox(height: 4),
+            Text('Repost', style: TextStyle(color: Colors.white, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// --- COMMENTS SHEET (Placeholder wrapper) ---
+class CommentsSheet extends StatefulWidget {
+  final String videoId;
+  final String authorId;
+  const CommentsSheet({super.key, required this.videoId, required this.authorId});
+
+  @override
+  State<CommentsSheet> createState() => _CommentsSheetState();
+}
+class _CommentsSheetState extends State<CommentsSheet> {
+  final _commentService = CommentService();
+  final _textController = TextEditingController();
+  
+  @override
+  Widget build(BuildContext context) {
+    // Basic Comment UI Implementation
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.7,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 10),
+          Container(width: 40, height: 4, color: Colors.grey[300]),
+          const SizedBox(height: 20),
+          const Text('Comments', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const Divider(),
+          Expanded(
+            child: FutureBuilder<List<CommentModel>>(
+              future: _commentService.getComments(widget.videoId),
+              builder: (ctx, snapshot) {
+                if(!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                final comments = snapshot.data!;
+                if(comments.isEmpty) return const Center(child: Text('No comments yet.'));
+                return ListView.builder(
+                  itemCount: comments.length,
+                  itemBuilder: (ctx, i) => ListTile(
+                    leading: CircleAvatar(backgroundImage: NetworkImage(comments[i].authorAvatarUrl ?? '')),
+                    title: Text(comments[i].authorUsername, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(comments[i].text),
+                  ),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Expanded(child: TextField(controller: _textController, decoration: const InputDecoration(hintText: 'Add a comment...'))),
+                IconButton(icon: const Icon(Icons.send), onPressed: () async {
+                   if(_textController.text.isNotEmpty) {
+                     await _commentService.postComment(widget.videoId, _textController.text);
+                     _textController.clear();
+                     setState((){});
+                   }
+                }),
+              ],
+            ),
+          )
+        ],
+      ),
     );
   }
 }
