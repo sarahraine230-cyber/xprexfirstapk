@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:xprex/services/video_service.dart';
@@ -12,7 +11,7 @@ import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/video_player_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/follow_list_screen.dart';
-import 'package:xprex/screens/creator_hub_screen.dart'; // Import Hub
+import 'package:xprex/screens/creator_hub_screen.dart'; 
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -129,32 +128,23 @@ class ProfileScreen extends ConsumerWidget {
                               const SizedBox(width: 8),
                               const Text('·'),
                               const SizedBox(width: 8),
-                              
-                              // Following
-                              FutureBuilder<int>(
-                                future: Supabase.instance.client
-                                    .from('follows')
-                                    .count(CountOption.exact)
-                                    .eq('follower_auth_user_id', profile.authUserId),
-                                builder: (context, snap) {
-                                  final count = snap.data ?? 0;
-                                  return InkWell(
-                                    onTap: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute(
-                                          builder: (ctx) => FollowListScreen(
-                                            userId: profile.authUserId, 
-                                            type: 'following'
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    child: Text(
-                                      '$count following',
-                                      style: const TextStyle(fontWeight: FontWeight.w600),
+                               
+                              // Following (NOW INSTANT - No FutureBuilder!)
+                              InkWell(
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (ctx) => FollowListScreen(
+                                        userId: profile.authUserId, 
+                                        type: 'following'
+                                      ),
                                     ),
                                   );
                                 },
+                                child: Text(
+                                  '${profile.followingCount} following', // Reads directly from model
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
                               ),
                             ],
                           ),
@@ -180,10 +170,9 @@ class ProfileScreen extends ConsumerWidget {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              // HERO BUTTON: Creator Hub
+                                // HERO BUTTON: Creator Hub
                               FilledButton(
                                 onPressed: () {
-                                  // --- UPDATED: Go to Creator Hub Screen ---
                                   Navigator.of(context).push(
                                     MaterialPageRoute(builder: (context) => const CreatorHubScreen()),
                                   );
@@ -203,7 +192,7 @@ class ProfileScreen extends ConsumerWidget {
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              
+                               
                               // Share Button
                               InkWell(
                                 onTap: () {
@@ -302,13 +291,11 @@ class ProfileScreen extends ConsumerWidget {
 class _VideoGrid extends StatelessWidget {
   final Future<List<VideoModel>> loader;
   final String emptyMsg;
-
   const _VideoGrid({required this.loader, this.emptyMsg = 'No videos yet'});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
     return FutureBuilder<List<VideoModel>>(
       future: loader,
       builder: (context, snap) {
@@ -379,11 +366,11 @@ class _VideoGrid extends StatelessWidget {
                         width: double.infinity,
                         padding: const EdgeInsets.all(4.0),
                         decoration: const BoxDecoration(
-                           gradient: LinearGradient(
+                          gradient: LinearGradient(
                              begin: Alignment.bottomCenter,
                              end: Alignment.topCenter,
                              colors: [Colors.black54, Colors.transparent],
-                           )
+                          )
                         ),
                         child: Row(
                           children: [
