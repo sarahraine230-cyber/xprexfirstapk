@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import 'package:url_launcher/url_launcher.dart'; // NEW: Required for opening links
+import 'package:url_launcher/url_launcher.dart'; 
 import 'package:xprex/config/supabase_config.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
@@ -24,7 +24,7 @@ final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynam
       .map((event) => event.isNotEmpty ? event.first : {});
 });
 
-// --- 2. CUMULATIVE EARNINGS FETCHER (Fixed "Implied Rate" Logic) ---
+// --- 2. CUMULATIVE EARNINGS FETCHER ---
 final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, period) async {
   final authService = ref.watch(authServiceProvider);
   final userId = authService.currentUserId;
@@ -108,8 +108,8 @@ final payoutHistoryProvider = FutureProvider.autoDispose<List<Map<String, dynami
       .from('payouts')
       .select('*')
       .eq('user_id', userId)
-      .order('period', ascending: false) // Newest invoices first
-      .limit(3); // Just show recent history on dashboard
+      .order('period', ascending: false) 
+      .limit(3); 
 
   return List<Map<String, dynamic>>.from(response);
 });
@@ -135,7 +135,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     ];
   }
 
-  /// Helper to launch URLs
   Future<void> _launchURL(String urlString) async {
     final Uri url = Uri.parse(urlString);
     if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
@@ -188,7 +187,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
     final isVerified = profileData['is_verified'] == true;
-    final adCredits = 2000; 
     
     final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
     final payoutAsync = ref.watch(payoutHistoryProvider);
@@ -241,7 +239,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           
           const SizedBox(height: 32),
 
-          // --- 2. TOOLS SECTION ---
+          // --- 2. TOOLS SECTION (CLEANED UP) ---
           _buildSettingsTile(
             theme, 
             title: 'Payout settings', 
@@ -249,17 +247,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             icon: Icons.account_balance,
             onTap: () => context.push('/setup/bank'),
           ),
-          _buildSettingsTile(
-  theme, 
-  title: 'Ad Credit Manager', 
-  // We can't see the real balance here easily without a provider refactor, 
-  // so let's just say "Manage Boosts" which is cleaner.
-  subtitle: 'Manage Boosts & Credits',
-  icon: Icons.campaign_outlined,
-  onTap: () => context.push('/monetization/ad-manager'),
-),
           
-          // NEW: Replaced the static tile with the Medium-Style Accordion
+          // REPLACED: Ad Manager removed. Now just Quick Links.
           _buildQuickLinksAccordion(theme),
 
           const SizedBox(height: 24),
@@ -432,7 +421,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             error: (err, _) => Text('Error loading payouts'),
             data: (payouts) {
               if (payouts.isEmpty) {
-                // EMPTY STATE CARD
                 return Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
@@ -454,7 +442,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 );
               }
 
-              // REAL PAYOUT LIST
               return Column(
                 children: payouts.map((payout) {
                   final date = DateTime.tryParse(payout['period'].toString());
@@ -476,7 +463,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
 
   // --- HELPER WIDGETS ---
 
-  // REUSABLE SETTINGS TILE (Used for Payout settings etc)
   Widget _buildSettingsTile(ThemeData theme, {required String title, required String subtitle, required IconData icon, required VoidCallback onTap}) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -495,23 +481,15 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
     );
   }
 
-  // NEW: CUSTOM ACCORDION FOR QUICK LINKS (MEDIUM STYLE)
   Widget _buildQuickLinksAccordion(ThemeData theme) {
     return Container(
-      // Same decoration as a ListTile container would have if we wrapped it, 
-      // ensuring consistency with the list.
-      // Note: Since _buildSettingsTile uses ListTile transparency, we apply the container style here ONLY if we want it boxed.
-      // But Medium style is usually just "in list".
-      // Let's match the spacing of _buildSettingsTile but use ExpansionTile.
-      
       child: Theme(
-        // Remove the default divider lines that ExpansionTile adds
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
           tilePadding: EdgeInsets.zero,
-          childrenPadding: const EdgeInsets.only(left: 16, bottom: 8), // Indent children
-          shape: const Border(), // Remove expanded border
-          collapsedShape: const Border(), // Remove collapsed border
+          childrenPadding: const EdgeInsets.only(left: 16, bottom: 8), 
+          shape: const Border(), 
+          collapsedShape: const Border(), 
           
           leading: Container(
             padding: const EdgeInsets.all(8),
@@ -530,7 +508,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           
-          // THE LINKS LIST
           children: [
             _buildLinkItem(theme, 'The Partner Playbook', 'https://xprex.vercel.app/partner-playbook'),
             _buildLinkItem(theme, 'Quality Guidelines', 'https://xprex.vercel.app/quality'),
@@ -592,7 +569,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   }
 
   Widget _buildPayoutRow(ThemeData theme, String period, String amount, String status) {
-    // Status Coloring
     Color statusColor = theme.colorScheme.surfaceContainerHighest;
     Color statusTextColor = theme.colorScheme.onSurface;
     
@@ -665,7 +641,15 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 ),
                 const SizedBox(height: 48),
                 
-                _buildBenefitRow(theme: theme, icon: Icons.campaign_rounded, iconColor: neon?.cyan ?? Colors.cyan, title: 'Monthly Ad Credits', desc: 'Get ₦2,000 every month to promote your brand.'),
+                // UPDATED: Replaced Ad Credits with Priority Support
+                _buildBenefitRow(
+                  theme: theme, 
+                  icon: Icons.support_agent_rounded, 
+                  iconColor: neon?.cyan ?? Colors.cyan, 
+                  title: 'Priority Partner Support', 
+                  desc: 'Direct access to our team. Get help and account reviews faster.'
+                ),
+                
                 _buildBenefitRow(theme: theme, icon: Icons.rocket_launch_rounded, iconColor: neon?.purple ?? Colors.purple, title: '1.5x Reach Boost', desc: 'Dominate the algorithm. Your content gets priority placement.'),
                 _buildBenefitRow(theme: theme, icon: Icons.verified, iconColor: neon?.blue ?? Colors.blue, title: 'Verification Badge', desc: 'Instant credibility. Stand out in comments.'),
                 _buildBenefitRow(theme: theme, icon: Icons.monetization_on_rounded, iconColor: Colors.greenAccent, title: 'Revenue Pool Access', desc: 'Unlock the Creator Revenue Sharing program and get paid to post.'),
