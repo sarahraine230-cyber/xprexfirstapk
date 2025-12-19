@@ -80,7 +80,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           return FeedItem(
             video: widget.videos[index],
             controller: _controllers[index],
-            isFocused: true, // Always focused in single player view
+            // FIXED: Changed from isFocused to isVisible to match FeedScreen
+            isVisible: true, 
           );
         },
       ),
