@@ -12,7 +12,8 @@ import 'package:xprex/screens/video_player_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/follow_list_screen.dart';
 import 'package:xprex/screens/creator_hub_screen.dart';
-import 'package:xprex/screens/analytics_screen.dart'; // NEW: Imported Analytics
+import 'package:xprex/screens/analytics_screen.dart';
+import 'package:xprex/screens/settings/settings_screen.dart'; // NEW: Settings Import
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -45,7 +46,7 @@ class ProfileScreen extends ConsumerWidget {
                     backgroundColor: theme.colorScheme.surface,
                     elevation: 0,
                     pinned: true,
-                    // UPDATED: Now a clickable button leading to Analytics
+                    // Stats Button -> Analytics
                     leading: IconButton(
                       icon: const Icon(Icons.bar_chart_rounded),
                       color: theme.colorScheme.onSurface,
@@ -58,25 +59,16 @@ class ProfileScreen extends ConsumerWidget {
                       },
                     ),
                     actions: [
+                      // Settings Button -> Settings Menu
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
                         color: theme.colorScheme.onSurface,
-                        onPressed: () async {
-                          final confirm = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Sign Out'),
-                              content: const Text('Are you sure you want to sign out?'),
-                              actions: [
-                                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-                                FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Sign Out')),
-                              ],
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const SettingsScreen(),
                             ),
                           );
-                          if (confirm == true) {
-                            await ref.read(authServiceProvider).signOut();
-                            if (context.mounted) context.go('/login');
-                          }
                         },
                       ),
                     ],
