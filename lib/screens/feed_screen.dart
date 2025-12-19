@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_video_player_plus/cached_video_player_plus.dart'; // NEW ENGINE
+import 'package:cached_video_player_plus/cached_video_player_plus.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -19,7 +19,7 @@ final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
 });
 
 class FeedScreen extends ConsumerWidget {
-  final bool isVisible; // Kept for MainShell compatibility
+  final bool isVisible;
 
   const FeedScreen({
     super.key,
@@ -111,12 +111,10 @@ class _FeedPageViewState extends State<FeedPageView> {
         });
       },
       itemBuilder: (context, index) {
-        // PageView automatically builds index, index-1, and index+1.
-        // This means the next video (index+1) initializes and caches 
-        // silently while you watch the current one.
         return FeedItem(
           video: widget.videos[index],
           isFocused: widget.isVisible && (index == _focusedIndex),
+          // We don't pass a controller here; FeedItem will create its own for auto-caching
         );
       },
     );
@@ -126,11 +124,14 @@ class _FeedPageViewState extends State<FeedPageView> {
 class FeedItem extends ConsumerStatefulWidget {
   final VideoModel video;
   final bool isFocused;
+  // FIX: Added optional controller so VideoPlayerScreen can pass one if it wants to
+  final CachedVideoPlayerPlusController? controller;
 
   const FeedItem({
     super.key,
     required this.video,
     required this.isFocused,
+    this.controller,
   });
 
   @override
@@ -138,13 +139,15 @@ class FeedItem extends ConsumerStatefulWidget {
 }
 
 class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
-  // NEW ENGINE CONTROLLER
-  CachedVideoPlayerPlusController? _controller;
+  CachedVideoPlayerPlusController? _internalController;
+  
+  // Getter to choose between external or internal controller
+  CachedVideoPlayerPlusController? get _controller => widget.controller ?? _internalController;
   
   bool _isInitialized = false;
   bool _isLiked = false;
   int _likesCount = 0;
-  bool _showHeart = false; // Double tap animation
+  bool _showHeart = false; 
 
   @override
   void initState() {
@@ -157,6 +160,8 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
   @override
   void didUpdateWidget(FeedItem oldWidget) {
     super.didUpdateWidget(oldWidget);
+    
+    // Check focus changes to play/pause
     if (widget.isFocused != oldWidget.isFocused) {
       if (widget.isFocused) {
         _play();
@@ -167,15 +172,32 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
   }
 
   Future<void> _initializeVideo() async {
-    // Uses the Cached Player to download & cache the video file
-    _controller = CachedVideoPlayerPlusController.networkUrl(
+    // If an external controller is provided and already initialized, just use it
+    if (widget.controller != null) {
+      if (widget.controller!.value.isInitialized) {
+        setState(() => _isInitialized = true);
+        if (widget.isFocused) _play();
+      } else {
+        // If external but not ready, wait for it (VideoPlayerScreen usually handles init, but safety first)
+        try {
+          await widget.controller!.initialize();
+          await widget.controller!.setLooping(true);
+          if(mounted) setState(() => _isInitialized = true);
+          if (widget.isFocused) _play();
+        } catch(e) { debugPrint('Error init external: $e'); }
+      }
+      return;
+    }
+
+    // Otherwise, create internal controller (Feed Screen Logic)
+    _internalController = CachedVideoPlayerPlusController.networkUrl(
       Uri.parse(widget.video.storagePath),
       invalidateCacheIfOlderThan: const Duration(days: 30),
     );
 
     try {
-      await _controller!.initialize();
-      await _controller!.setLooping(true);
+      await _internalController!.initialize();
+      await _internalController!.setLooping(true);
       if (mounted) {
         setState(() {
           _isInitialized = true;
@@ -205,7 +227,8 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
 
   @override
   void dispose() {
-    _controller?.dispose();
+    // Only dispose if we created it. If passed externally, parent disposes it.
+    _internalController?.dispose();
     WakelockPlus.disable();
     super.dispose();
   }
@@ -215,7 +238,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
     });
-    // Fire and forget
     VideoService().toggleLike(widget.video.id);
   }
 
@@ -260,15 +282,13 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
           onDoubleTap: _handleDoubleTap,
           child: Container(
             color: Colors.black,
-            child: _isInitialized
+            child: _isInitialized && _controller != null
                 ? AspectRatio(
                     aspectRatio: _controller!.value.aspectRatio,
-                    // NEW WIDGET
                     child: CachedVideoPlayerPlus(_controller!), 
                   )
                 : Stack(
                     children: [
-                      // Thumbnail placeholder
                       if (widget.video.coverImageUrl != null)
                         Positioned.fill(
                           child: Image.network(
@@ -276,7 +296,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                             fit: BoxFit.cover,
                           ),
                         ),
-                      // Loading spinner
                       const Center(
                         child: CircularProgressIndicator(
                           color: Colors.white, 
@@ -288,7 +307,7 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
           ),
         ),
 
-        // 2. GRADIENT OVERLAY (Restored)
+        // 2. GRADIENT OVERLAY
         Positioned.fill(
           child: DecoratedBox(
             decoration: BoxDecoration(
@@ -304,13 +323,12 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
           ),
         ),
 
-        // 3. RIGHT ACTION BAR (Restored)
+        // 3. RIGHT ACTION BAR
         Positioned(
           right: 8,
           bottom: 100,
           child: Column(
             children: [
-              // Avatar
               GestureDetector(
                 onTap: () {
                    context.push('/profile/${widget.video.authorAuthUserId}');
@@ -327,8 +345,6 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                 ),
               ),
               const SizedBox(height: 24),
-              
-              // Like
               _buildAction(
                 context, 
                 icon: _isLiked ? Icons.favorite : Icons.favorite_border, 
@@ -336,33 +352,25 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
                 label: '$_likesCount',
                 onTap: _toggleLike
               ),
-              
-              // Comment
               _buildAction(
                 context, 
                 icon: Icons.comment, 
                 label: '${widget.video.commentsCount}', 
                 onTap: _showComments
               ),
-              
-              // Save
               _SaveButton(videoId: widget.video.id),
-              
-              // Share
               _buildAction(
                 context, 
                 icon: Icons.share, 
                 label: 'Share', 
                 onTap: _onShare
               ),
-              
-              // Repost
               _RepostButton(videoId: widget.video.id),
             ],
           ),
         ),
 
-        // 4. BOTTOM INFO (Restored)
+        // 4. BOTTOM INFO
         Positioned(
           left: 16,
           bottom: 24,
@@ -402,7 +410,7 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
           ),
         ),
 
-        // 5. DOUBLE TAP HEART ANIMATION (Restored)
+        // 5. DOUBLE TAP HEART ANIMATION
         if (_showHeart)
           const Center(
             child: Icon(Icons.favorite, color: Colors.white, size: 100),
@@ -440,7 +448,7 @@ class _FeedItemState extends ConsumerState<FeedItem> with RouteAware {
   }
 }
 
-// --- HELPER BUTTONS (Restored) ---
+// --- HELPER BUTTONS ---
 
 class _SaveButton extends StatefulWidget {
   final String videoId;
@@ -480,13 +488,15 @@ class _SaveButtonState extends State<_SaveButton> {
 class _RepostButton extends StatelessWidget {
   final String videoId;
   const _RepostButton({required this.videoId});
+
   @override
   Widget build(BuildContext context) {
      return Padding(
       padding: const EdgeInsets.only(bottom: 20),
       child: GestureDetector(
         onTap: () async {
-           await RepostService().repostVideo(widget.videoId);
+           // FIX: Removed 'widget.' because this is a StatelessWidget
+           await RepostService().repostVideo(videoId);
            if (context.mounted) {
              ScaffoldMessenger.of(context).showSnackBar(
                const SnackBar(content: Text('Reposted!'))
@@ -505,7 +515,7 @@ class _RepostButton extends StatelessWidget {
   }
 }
 
-// --- COMMENTS SHEET (Restored) ---
+// --- COMMENTS SHEET ---
 class CommentsSheet extends StatefulWidget {
   final String videoId;
   final String authorId;
@@ -521,7 +531,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Uses the app's bottom sheet styling
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
       decoration: BoxDecoration(
