@@ -3,18 +3,17 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart'; // FIXED: Added missing import
+import 'package:go_router/go_router.dart'; // FIXED: Missing import
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:video_compress/video_compress.dart'; // ENABLED
+import 'package:video_compress/video_compress.dart'; // ENABLED: Hardware Acceleration
 import 'package:path/path.dart' as p;
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/screens/feed_screen.dart';
-// import 'package:xprex/screens/main_shell.dart'; // Removed to prevent potential circular import issues if not strictly needed, relying on go_router
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -51,40 +50,62 @@ class _UploadScreenState extends State<UploadScreen> {
     _descController.dispose();
     _tagController.dispose();
     _playerController?.dispose();
-    _subscription?.unsubscribe(); // Clean up compression listener
+    _subscription?.unsubscribe(); 
     VideoCompress.cancelCompression(); 
     super.dispose();
   }
 
   Future<void> _pickVideo() async {
-    // 60-SECOND RULE: We ask the OS to filter videos longer than 60s
+    // 1. PICK VIDEO (60s Limit)
     final video = await _picker.pickVideo(
       source: ImageSource.gallery,
       maxDuration: const Duration(seconds: 60), 
     );
     
     if (video != null) {
+      // Dispose old controller if exists
+      _playerController?.dispose();
+      
       setState(() {
         _pickedVideo = video;
-        _playerController = VideoPlayerController.file(File(video.path))
-          ..initialize().then((_) {
-            // Double-check duration in case OS ignored the filter
-            if (_playerController!.value.duration.inSeconds > 65) { // 5s buffer
-               setState(() {
-                 _pickedVideo = null;
-                 _playerController = null;
-               });
-               ScaffoldMessenger.of(context).showSnackBar(
-                 const SnackBar(content: Text('Video must be 60 seconds or less.')),
-               );
-               return;
-            }
-            setState(() {});
-            _playerController!.play();
-            _playerController!.setLooping(true);
-          });
+      });
+
+      // Initialize new controller for Preview
+      final controller = VideoPlayerController.file(File(video.path));
+      await controller.initialize();
+      
+      // Double-check duration (OS filter isn't always perfect)
+      if (controller.value.duration.inSeconds > 65) { 
+         setState(() {
+           _pickedVideo = null;
+           _playerController = null;
+         });
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Video must be 60 seconds or less.')),
+           );
+         }
+         return;
+      }
+
+      setState(() {
+        _playerController = controller;
+        _playerController!.setLooping(true);
+        _playerController!.play(); // Auto-play on pick
       });
     }
+  }
+
+  void _togglePlayPause() {
+    if (_playerController == null || !_playerController!.value.isInitialized) return;
+    
+    setState(() {
+      if (_playerController!.value.isPlaying) {
+        _playerController!.pause();
+      } else {
+        _playerController!.play();
+      }
+    });
   }
 
   void _addTag(String value) {
@@ -115,31 +136,31 @@ class _UploadScreenState extends State<UploadScreen> {
       final user = _authService.currentUser;
       if (user == null) throw Exception('User not logged in');
       
-      // 1. GENERATE THUMBNAIL (From Original)
+      // 1. GENERATE THUMBNAIL (High Quality from Original)
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: _pickedVideo!.path,
         imageFormat: ImageFormat.JPEG,
-        maxWidth: 400,
-        quality: 75,
+        maxWidth: 480, // Optimized size
+        quality: 80,
       );
       
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
       
-      // 2. COMPRESS VIDEO (The Optimization)
-      debugPrint('⏳ Starting Compression...');
+      // 2. COMPRESS VIDEO (Hardware Accelerated)
+      debugPrint('⏳ Starting H.264 Compression...');
       
-      // Listen to compression progress
+      // UI: Map compression 0-100% to Global Progress 0-30%
       _subscription = VideoCompress.compressProgress$.subscribe((progress) {
-        // We map compression (0-100) to the first 30% of our total progress bar
-        setState(() {
-          _uploadProgress = (progress / 100) * 0.30;
-        });
-        debugPrint('Compression: $progress%');
+        if (mounted) {
+          setState(() {
+            _uploadProgress = (progress / 100) * 0.30;
+          });
+        }
       });
 
       final MediaInfo? info = await VideoCompress.compressVideo(
         _pickedVideo!.path,
-        quality: VideoQuality.MediumQuality, // Good balance (720p/1080p optimized)
+        quality: VideoQuality.MediumQuality, // Targets ~720p/1080p @ 2.5Mbps (TikTok Standard)
         deleteOrigin: false, 
         includeAudio: true,
       );
@@ -151,10 +172,10 @@ class _UploadScreenState extends State<UploadScreen> {
       final File fileToUpload = info.file!;
       final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
-      debugPrint('🚀 Starting Upload of ${fileToUpload.lengthSync()} bytes (Compressed)');
+      debugPrint('🚀 Starting Upload: Original=${File(_pickedVideo!.path).lengthSync()} -> Compressed=${fileToUpload.lengthSync()}');
 
       // 3. UPLOAD VIDEO TO R2
-      // We map upload progress to the remaining 70% (from 0.30 to 1.0)
+      // UI: Map upload to Global Progress 30-100%
       final String videoPath = await _storage.uploadVideoWithProgress(
         userId: user.id,
         timestamp: timestamp,
@@ -162,7 +183,6 @@ class _UploadScreenState extends State<UploadScreen> {
         onProgress: (sent, total) {
           if (mounted) {
             setState(() {
-              // Base 0.30 + (Percentage of Upload * 0.70)
               _uploadProgress = 0.30 + ((sent / total) * 0.70);
             });
           }
@@ -176,10 +196,10 @@ class _UploadScreenState extends State<UploadScreen> {
         bytes: thumbBytes,
       );
 
-      // 5. SAVE METADATA TO SUPABASE
+      // 5. SAVE METADATA (Supabase)
       await _videoService.createVideo(
         authorAuthUserId: user.id,
-        storagePath: videoPath, // R2 Key
+        storagePath: videoPath, // Stores R2 Key
         title: _titleController.text.trim(),
         description: _descController.text.trim(),
         coverImageUrl: thumbnailUrl,
@@ -191,11 +211,12 @@ class _UploadScreenState extends State<UploadScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Video uploaded successfully!')),
         );
-        // Clear cleanup cache
+        
+        // Cleanup
         await VideoCompress.deleteAllCache();
         
-        // Navigate using go_router
-        context.pushReplacement('/'); // Assuming '/' is your home/feed route
+        // Navigate
+        context.pushReplacement('/'); 
       }
     } catch (e) {
       debugPrint('❌ Upload failed: $e');
@@ -218,6 +239,7 @@ class _UploadScreenState extends State<UploadScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     
+    // --- UPLOADING STATE (Full Screen Overlay) ---
     if (_isUploading) {
       return Scaffold(
         backgroundColor: Colors.black,
@@ -233,9 +255,9 @@ class _UploadScreenState extends State<UploadScreen> {
               const SizedBox(height: 24),
               Text(
                 _uploadProgress < 0.30 
-                   ? 'Compressing Video...' 
+                   ? 'Optimizing Video...' 
                    : 'Uploading to Cloud...',
-                style: const TextStyle(color: Colors.white, fontSize: 18),
+                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text(
@@ -258,34 +280,58 @@ class _UploadScreenState extends State<UploadScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // --- PREVIEW PLAYER (RESTORED V5 UI) ---
               GestureDetector(
-                onTap: _pickVideo,
+                onTap: _pickedVideo == null ? _pickVideo : _togglePlayPause,
                 child: Container(
-                  height: 200,
+                  // Use a fixed height but allow AspectRatio to control width within it
+                  // or let it take natural height up to a limit.
+                  constraints: const BoxConstraints(maxHeight: 400), 
                   decoration: BoxDecoration(
                     color: Colors.grey[200],
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.grey[300]!),
                   ),
-                  child: _pickedVideo != null
+                  child: _pickedVideo != null && _playerController != null && _playerController!.value.isInitialized
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: AspectRatio(
-                            aspectRatio: _playerController?.value.aspectRatio ?? 16/9,
-                            child: VideoPlayer(_playerController!),
+                            // This respects the VIDEO'S true shape (9:16, 16:9, etc)
+                            aspectRatio: _playerController!.value.aspectRatio,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                VideoPlayer(_playerController!),
+                                // Play/Pause Overlay Icon
+                                if (!_playerController!.value.isPlaying)
+                                  Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.black45,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    padding: const EdgeInsets.all(12),
+                                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 32),
+                                  ),
+                              ],
+                            ),
                           ),
                         )
-                      : const Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.video_library, size: 48, color: Colors.grey),
-                            SizedBox(height: 8),
-                            Text('Tap to select video (Max 60s)'),
-                          ],
+                      : const SizedBox(
+                          height: 200, // Default height for empty state
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.video_library, size: 48, color: Colors.grey),
+                              SizedBox(height: 8),
+                              Text('Tap to select video (Max 60s)'),
+                            ],
+                          ),
                         ),
                 ),
               ),
+              
               const SizedBox(height: 24),
+              
               TextField(
                 controller: _titleController,
                 decoration: const InputDecoration(
@@ -294,6 +340,7 @@ class _UploadScreenState extends State<UploadScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              
               TextField(
                 controller: _descController,
                 decoration: const InputDecoration(
@@ -304,7 +351,7 @@ class _UploadScreenState extends State<UploadScreen> {
               ),
               const SizedBox(height: 16),
               
-              // TAGS INPUT
+              // --- TAGS INPUT ---
               TextField(
                 controller: _tagController,
                 enabled: _tags.length < _maxTags,
@@ -355,6 +402,9 @@ class _UploadScreenState extends State<UploadScreen> {
                   child: Text('Upload Video'),
                 ),
               ),
+              
+              // Extra padding at bottom
+              const SizedBox(height: 40),
             ],
           ),
         ),
