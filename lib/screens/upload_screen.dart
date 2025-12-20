@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:video_compress/video_compress.dart'; // ENABLED
 import 'package:path/path.dart' as p;
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
@@ -24,377 +25,58 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
+  final _tagController = TextEditingController(); // Fixed controller name
   final _picker = ImagePicker();
   final _storage = StorageService();
   final _videoService = VideoService();
   final _authService = AuthService();
   final _profileService = ProfileService();
   
-  // Note: Compression removed per request. We upload the original file directly.
+  // Compression Subscription
+  Subscription? _subscription;
 
   XFile? _pickedVideo;
   VideoPlayerController? _playerController;
   bool _isUploading = false;
-  double _progress = 0.0; // 0..1 visual step progress
-  String? _error;
+  double _uploadProgress = 0.0;
   
-  // --- NEW: Selected Tags State ---
-  List<String> _selectedTags = [];
+  // Tagging State
+  final List<String> _tags = [];
+  static const int _maxTags = 5;
 
   @override
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
+    _tagController.dispose();
     _playerController?.dispose();
+    _subscription?.unsubscribe(); // Clean up compression listener
+    VideoCompress.cancelCompression(); 
     super.dispose();
   }
 
   Future<void> _pickVideo() async {
-    if (kIsWeb) {
-      setState(() => _error = 'Upload requires a mobile device');
-      return;
-    }
-    try {
-      final xfile = await _picker.pickVideo(
-        source: ImageSource.gallery,
-        maxDuration: const Duration(minutes: 10),
-      );
-      if (xfile == null) return;
-
-      _playerController?.dispose();
-      final controller = VideoPlayerController.file(File(xfile.path));
-      await controller.initialize();
-      
+    final video = await _picker.pickVideo(source: ImageSource.gallery);
+    if (video != null) {
       setState(() {
-        _pickedVideo = xfile;
-        _playerController = controller;
-        _error = null;
+        _pickedVideo = video;
+        _playerController = VideoPlayerController.file(File(video.path))
+          ..initialize().then((_) {
+            setState(() {});
+            _playerController!.play();
+            _playerController!.setLooping(true);
+          });
       });
-    } catch (e) {
-      setState(() => _error = 'Failed to pick video: $e');
     }
   }
-
-  Future<void> _upload() async {
-    if (_pickedVideo == null) {
-      setState(() => _error = 'Please select a video to upload');
-      return;
-    }
-    if (_titleController.text.trim().isEmpty) {
-      setState(() => _error = 'Please enter a title');
-      return;
-    }
-    if (_authService.currentUserId == null) {
-      setState(() => _error = 'You must be signed in to upload');
-      return;
-    }
-    if (kIsWeb) {
-      setState(() => _error = 'Upload requires a mobile device');
-      return;
-    }
-
-    setState(() {
-      _isUploading = true;
-      _progress = 0.0;
-      _error = null;
-    });
-
-    final userId = _authService.currentUserId!;
-    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-
-    try {
-      debugPrint('🚀 Upload started. userId=$userId ts=$timestamp');
-      debugPrint('📄 Picked file: path=${_pickedVideo!.path}');
-      // 0) Ensure user has a profile so the videos FK constraint will pass
-      try {
-        final email = _authService.currentUser?.email ?? '';
-        await _profileService.ensureProfileExists(authUserId: userId, email: email);
-        debugPrint('✔️ Verified/created profile for user');
-      } catch (e) {
-        debugPrint('⚠️ Could not ensure profile exists: $e');
-        // Continue; the DB will still enforce FK and provide a clear error
-      }
-
-      // 1) Thumbnail (JPEG bytes) using video_thumbnail from original file
-      _setProgress(0.10);
-      debugPrint('🖼️ Generating thumbnail...');
-      final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
-        video: _pickedVideo!.path,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: 480,
-        quality: 80,
-      );
-      if (thumbBytes == null) {
-        throw Exception('Failed to generate thumbnail');
-      }
-      debugPrint('🖼️ Thumbnail generated. bytes=${thumbBytes.length}');
-      
-      _setProgress(0.15);
-
-      // 2) Upload original file to Supabase Storage with progress
-      final file = File(_pickedVideo!.path);
-      final int durationMs = _playerController?.value.duration.inMilliseconds ?? 0;
-
-      debugPrint('⬆️ Uploading video to storage...');
-      final String storagePath = await _storage.uploadVideoWithProgress(
-        userId: userId,
-        timestamp: timestamp,
-        file: file,
-        onProgress: (sent, total) {
-          // Map upload progress (0..1) into 0.15..0.90 UI range
-          final fraction = total > 0 ? sent / total : 0.0;
-          _setProgress(0.15 + (0.75 * fraction));
-        },
-      );
-      debugPrint('✅ Video uploaded. storagePath=$storagePath');
-
-      // 3) Upload thumbnail bytes
-      debugPrint('⬆️ Uploading thumbnail to storage...');
-      final String thumbnailUrl = await _storage.uploadThumbnailBytes(
-        userId: userId,
-        timestamp: timestamp,
-        bytes: thumbBytes,
-      );
-      debugPrint('✅ Thumbnail uploaded. publicUrl=$thumbnailUrl');
-      _setProgress(0.95);
-
-      // 4) Insert into videos table
-      debugPrint('🗄️ Inserting video record...');
-      await _videoService.createVideo(
-        authorAuthUserId: userId,
-        storagePath: storagePath, // store storage path; playback will resolve to signed URL
-        title: _titleController.text.trim(),
-        description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
-        coverImageUrl: thumbnailUrl,
-        duration: (durationMs / 1000).ceil(),
-        // --- PASS TAGS TO SERVICE ---
-        tags: _selectedTags,
-      );
-      debugPrint('✅ Video record inserted.');
-
-      _setProgress(1.0);
-
-      if (!mounted) return;
-      // Refresh feed provider to show the new video and jump to Feed tab
-      try {
-        final container = ProviderScope.containerOf(context, listen: false);
-        container.invalidate(feedVideosProvider);
-      } catch (e) {
-        debugPrint('⚠️ Could not invalidate feed provider: $e');
-      }
-
-      setMainTabIndex(0);
-
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload complete')));
-      
-      // Reset UI
-      setState(() {
-        _pickedVideo = null;
-        _playerController?.dispose();
-        _playerController = null;
-        _titleController.clear();
-        _descController.clear();
-        _selectedTags = []; // Reset tags
-        _isUploading = false;
-        _progress = 0.0;
-      });
-
-    } catch (e) {
-      debugPrint('❌ Upload error: $e');
-      if (!mounted) return;
-      setState(() {
-        _isUploading = false;
-        _error = 'Upload failed: $e';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
-    }
-  }
-
-  void _setProgress(double value) {
-    setState(() => _progress = value.clamp(0.0, 1.0));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (kIsWeb) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Upload Video')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.mobile_off, size: 100, color: theme.colorScheme.primary),
-                const SizedBox(height: 24),
-                Text('Upload requires a mobile device', style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
-                const SizedBox(height: 12),
-                Text(
-                  'Please run on Android or iOS to select and upload videos.',
-                  style: theme.textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Upload Video')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView( // Changed to SingleChildScrollView to avoid overflow
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Preview or Centered pick prompt
-              Container(
-                height: 250, // Fixed height for preview
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _playerController != null && _playerController!.value.isInitialized
-                    ? Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          FittedBox(
-                            fit: BoxFit.contain,
-                            child: SizedBox(
-                              width: _playerController!.value.size.width,
-                              height: _playerController!.value.size.height,
-                              child: VideoPlayer(_playerController!),
-                            ),
-                          ),
-                          Positioned(
-                            right: 8,
-                            bottom: 8,
-                            child: IconButton(
-                              icon: Icon(
-                                _playerController!.value.isPlaying ? Icons.pause_circle : Icons.play_circle,
-                                color: Colors.white,
-                              ),
-                              onPressed: _isUploading
-                                  ? null
-                                  : () async {
-                                      if (_playerController!.value.isPlaying) {
-                                        await _playerController!.pause();
-                                      } else {
-                                        await _playerController!.play();
-                                      }
-                                      setState(() {});
-                                    },
-                            ),
-                          ),
-                        ],
-                      )
-                    : Center(
-                        child: FilledButton.icon(
-                          onPressed: _isUploading ? null : _pickVideo,
-                          icon: const Icon(Icons.video_library),
-                          label: const Text('Pick Video'),
-                        ),
-                      ),
-              ),
-              
-              const SizedBox(height: 16),
-        
-              // Fields
-              TextField(
-                controller: _titleController,
-                textInputAction: TextInputAction.next,
-                maxLength: 80,
-                decoration: const InputDecoration(
-                  labelText: 'Title',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _descController,
-                textInputAction: TextInputAction.done,
-                maxLines: 3,
-                maxLength: 2200,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              
-              // --- NEW: TAG INPUT WIDGET ---
-              TagInputWidget(
-                maxTags: 5,
-                onChanged: (tags) {
-                  _selectedTags = tags;
-                },
-              ),
-              const SizedBox(height: 20),
-        
-              if (_pickedVideo != null)
-                Text(
-                  p.basename(_pickedVideo!.path),
-                  style: theme.textTheme.labelMedium,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              if (_error != null) ...[
-                const SizedBox(height: 8),
-                Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-              ],
-        
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _isUploading ? null : _upload,
-                icon: const Icon(Icons.cloud_upload),
-                label: const Text('Upload'),
-              ),
-              const SizedBox(height: 12),
-              if (_isUploading)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    LinearProgressIndicator(value: _progress),
-                    const SizedBox(height: 6),
-                    Text('${(_progress * 100).toStringAsFixed(0)}%'),
-                  ],
-                ),
-              // Extra padding at bottom for scrolling
-              const SizedBox(height: 40),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// --- NEW CLASS: TagInputWidget ---
-class TagInputWidget extends StatefulWidget {
-  final ValueChanged<List<String>> onChanged;
-  final int maxTags;
-  const TagInputWidget({super.key, required this.onChanged, this.maxTags = 5});
-
-  @override
-  State<TagInputWidget> createState() => _TagInputWidgetState();
-}
-
-class _TagInputWidgetState extends State<TagInputWidget> {
-  final _controller = TextEditingController();
-  final List<String> _tags = [];
 
   void _addTag(String value) {
-    final tag = value.trim();
-    if (tag.isNotEmpty && !_tags.contains(tag) && _tags.length < widget.maxTags) {
+    final tag = value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (tag.isNotEmpty && !_tags.contains(tag) && _tags.length < _maxTags) {
       setState(() {
         _tags.add(tag);
+        _tagController.clear();
       });
-      widget.onChanged(_tags);
-      _controller.clear();
     }
   }
 
@@ -402,65 +84,264 @@ class _TagInputWidgetState extends State<TagInputWidget> {
     setState(() {
       _tags.remove(tag);
     });
-    widget.onChanged(_tags);
   }
 
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
+  Future<void> _uploadVideo() async {
+    if (_pickedVideo == null || _titleController.text.isEmpty) return;
+
+    setState(() {
+      _isUploading = true;
+      _uploadProgress = 0.0;
+    });
+
+    try {
+      final user = _authService.currentUser;
+      if (user == null) throw Exception('User not logged in');
+      
+      // 1. GENERATE THUMBNAIL (From Original)
+      final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
+        video: _pickedVideo!.path,
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 400,
+        quality: 75,
+      );
+      
+      if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
+      
+      // 2. COMPRESS VIDEO (The Optimization)
+      debugPrint('⏳ Starting Compression...');
+      
+      // Listen to compression progress
+      _subscription = VideoCompress.compressProgress$.subscribe((progress) {
+        // We map compression (0-100) to the first 30% of our total progress bar
+        setState(() {
+          _uploadProgress = (progress / 100) * 0.30;
+        });
+        debugPrint('Compression: $progress%');
+      });
+
+      final MediaInfo? info = await VideoCompress.compressVideo(
+        _pickedVideo!.path,
+        quality: VideoQuality.MediumQuality, // Good balance (720p/1080p optimized)
+        deleteOrigin: false, 
+        includeAudio: true,
+      );
+
+      if (info == null || info.file == null) {
+        throw Exception('Compression failed');
+      }
+
+      final File fileToUpload = info.file!;
+      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+
+      debugPrint('🚀 Starting Upload of ${fileToUpload.lengthSync()} bytes (Compressed)');
+
+      // 3. UPLOAD VIDEO TO R2
+      // We map upload progress to the remaining 70% (from 0.30 to 1.0)
+      final String videoPath = await _storage.uploadVideoWithProgress(
+        userId: user.id,
+        timestamp: timestamp,
+        file: fileToUpload,
+        onProgress: (sent, total) {
+          if (mounted) {
+            setState(() {
+              // Base 0.30 + (Percentage of Upload * 0.70)
+              _uploadProgress = 0.30 + ((sent / total) * 0.70);
+            });
+          }
+        },
+      );
+
+      // 4. UPLOAD THUMBNAIL TO R2
+      final String thumbnailUrl = await _storage.uploadThumbnailBytes(
+        userId: user.id,
+        timestamp: timestamp,
+        bytes: thumbBytes,
+      );
+
+      // 5. SAVE METADATA TO SUPABASE
+      await _videoService.createVideo(
+        authorAuthUserId: user.id,
+        storagePath: videoPath, // R2 Key
+        title: _titleController.text.trim(),
+        description: _descController.text.trim(),
+        coverImageUrl: thumbnailUrl,
+        duration: (_playerController!.value.duration.inSeconds),
+        tags: _tags,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Video uploaded successfully!')),
+        );
+        // Clear cleanup cache
+        await VideoCompress.deleteAllCache();
+        
+        // Navigate
+        context.pushReplacement('/main'); 
+      }
+    } catch (e) {
+      debugPrint('❌ Upload failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Upload failed: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
+      _subscription?.unsubscribe();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Input Field
-        TextField(
-          controller: _controller,
-          enabled: _tags.length < widget.maxTags,
-          decoration: InputDecoration(
-            labelText: _tags.length < widget.maxTags 
-                ? 'Tags (Optional)' 
-                : 'Max tags reached',
-            hintText: 'Add tag (e.g. comedy, dance)',
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: () => _addTag(_controller.text),
-            ),
-            border: const OutlineInputBorder(),
-          ),
-          onSubmitted: _addTag,
-        ),
-        const SizedBox(height: 8),
-        
-        // Chips Display
-        if (_tags.isNotEmpty)
-          Wrap(
-            spacing: 8.0,
-            runSpacing: 4.0,
-            children: _tags.map((tag) {
-              return Chip(
-                label: Text('#$tag'),
-                backgroundColor: theme.colorScheme.secondaryContainer,
-                labelStyle: TextStyle(color: theme.colorScheme.onSecondaryContainer),
-                deleteIcon: const Icon(Icons.close, size: 16),
-                onDeleted: () => _removeTag(tag),
-              );
-            }).toList(),
-          ),
-        
-        // Counter
-        Padding(
-          padding: const EdgeInsets.only(top: 4.0),
-          child: Text(
-            '${_tags.length}/${widget.maxTags} tags',
-            style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+    
+    if (_isUploading) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                value: _uploadProgress, 
+                color: theme.colorScheme.primary,
+                backgroundColor: Colors.grey[800],
+              ),
+              const SizedBox(height: 24),
+              Text(
+                _uploadProgress < 0.30 
+                   ? 'Compressing Video...' 
+                   : 'Uploading to Cloud...',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${(_uploadProgress * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(color: Colors.white54, fontSize: 14),
+              ),
+            ],
           ),
         ),
-      ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Upload Video'),
+      ),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              GestureDetector(
+                onTap: _pickVideo,
+                child: Container(
+                  height: 200,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey[300]!),
+                  ),
+                  child: _pickedVideo != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: AspectRatio(
+                            aspectRatio: _playerController?.value.aspectRatio ?? 16/9,
+                            child: VideoPlayer(_playerController!),
+                          ),
+                        )
+                      : const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.video_library, size: 48, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text('Tap to select video'),
+                          ],
+                        ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _descController,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+              const SizedBox(height: 16),
+              
+              // TAGS INPUT
+              TextField(
+                controller: _tagController,
+                enabled: _tags.length < _maxTags,
+                decoration: InputDecoration(
+                  labelText: _tags.length < _maxTags 
+                      ? 'Tags (Optional)' 
+                      : 'Max tags reached',
+                  hintText: 'Add tag (e.g. comedy, dance)',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () => _addTag(_tagController.text),
+                  ),
+                  border: const OutlineInputBorder(),
+                ),
+                onSubmitted: _addTag,
+              ),
+              const SizedBox(height: 8),
+              
+              // Chips Display
+              if (_tags.isNotEmpty)
+                Wrap(
+                  spacing: 8.0,
+                  runSpacing: 4.0,
+                  children: _tags.map((tag) {
+                    return Chip(
+                      label: Text('#$tag'),
+                      backgroundColor: theme.colorScheme.secondaryContainer,
+                      labelStyle: TextStyle(color: theme.colorScheme.onSecondaryContainer),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                      onDeleted: () => _removeTag(tag),
+                    );
+                  }).toList(),
+                ),
+              
+              Padding(
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(
+                  '${_tags.length}/$_maxTags tags',
+                  style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+              
+              const SizedBox(height: 32),
+              FilledButton(
+                onPressed: _uploadVideo,
+                child: const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text('Upload Video'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
