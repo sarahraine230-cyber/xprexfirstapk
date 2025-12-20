@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart'; // FIXED: Added missing import
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -13,7 +14,7 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/screens/feed_screen.dart';
-import 'package:xprex/screens/main_shell.dart';
+// import 'package:xprex/screens/main_shell.dart'; // Removed to prevent potential circular import issues if not strictly needed, relying on go_router
 
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
@@ -25,7 +26,7 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
-  final _tagController = TextEditingController(); // Fixed controller name
+  final _tagController = TextEditingController();
   final _picker = ImagePicker();
   final _storage = StorageService();
   final _videoService = VideoService();
@@ -56,12 +57,28 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   Future<void> _pickVideo() async {
-    final video = await _picker.pickVideo(source: ImageSource.gallery);
+    // 60-SECOND RULE: We ask the OS to filter videos longer than 60s
+    final video = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(seconds: 60), 
+    );
+    
     if (video != null) {
       setState(() {
         _pickedVideo = video;
         _playerController = VideoPlayerController.file(File(video.path))
           ..initialize().then((_) {
+            // Double-check duration in case OS ignored the filter
+            if (_playerController!.value.duration.inSeconds > 65) { // 5s buffer
+               setState(() {
+                 _pickedVideo = null;
+                 _playerController = null;
+               });
+               ScaffoldMessenger.of(context).showSnackBar(
+                 const SnackBar(content: Text('Video must be 60 seconds or less.')),
+               );
+               return;
+            }
             setState(() {});
             _playerController!.play();
             _playerController!.setLooping(true);
@@ -177,8 +194,8 @@ class _UploadScreenState extends State<UploadScreen> {
         // Clear cleanup cache
         await VideoCompress.deleteAllCache();
         
-        // Navigate
-        context.pushReplacement('/main'); 
+        // Navigate using go_router
+        context.pushReplacement('/'); // Assuming '/' is your home/feed route
       }
     } catch (e) {
       debugPrint('❌ Upload failed: $e');
@@ -263,7 +280,7 @@ class _UploadScreenState extends State<UploadScreen> {
                           children: [
                             Icon(Icons.video_library, size: 48, color: Colors.grey),
                             SizedBox(height: 8),
-                            Text('Tap to select video'),
+                            Text('Tap to select video (Max 60s)'),
                           ],
                         ),
                 ),
