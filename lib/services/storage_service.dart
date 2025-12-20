@@ -31,7 +31,7 @@ class StorageService {
     );
   }
 
-  // Helper to strip 'https://' for Minio client which expects host only in some versions
+  // Helper to strip 'https://' for Minio client which expects host only
   String _parseEndpoint(String url) {
     return url.replaceFirst('https://', '').replaceFirst('http://', '');
   }
@@ -51,27 +51,14 @@ class StorageService {
       
       debugPrint('🚀 Starting R2 Upload: $path ($totalBytes bytes)');
 
-      // Create a stream that reports progress
-      final stream = file.openRead().transform(
-        StreamTransformer.fromHandlers(
-          handleData: (data, sink) {
-            // Report progress
-            // Note: In a real stream, we might need a counter wrapper, 
-            // but Minio reads the stream. We'll use a pass-through reporting.
-            sink.add(data);
-            // This callback might be disjointed from actual network send, 
-            // but it's the best proxy we have without custom HTTP clients.
-            // For a smoother UI, we'll assume linear progress based on stream read.
-          },
-        ),
-      );
-      
-      // We need a manual counter since the transformer above is passive
+      // We need a manual counter since the transformer below is passive
       int bytesRead = 0;
+      
+      // FIXED: Convert List<int> to Uint8List explicitly for Minio
       final reportingStream = file.openRead().map((chunk) {
         bytesRead += chunk.length;
         onProgress(bytesRead, totalBytes);
-        return chunk;
+        return Uint8List.fromList(chunk);
       });
 
       // Upload to R2
@@ -93,6 +80,7 @@ class StorageService {
 
   // --- THUMBNAIL UPLOAD (R2) ---
   
+  // File-based upload
   Future<String> uploadThumbnail({
     required String userId,
     required String timestamp,
@@ -105,7 +93,7 @@ class StorageService {
       await _r2.putObject(
         Secrets.r2BucketName,
         path,
-        Stream.value(bytes),
+        Stream.value(bytes), // bytes is already Uint8List
         size: bytes.length,
         metadata: {'content-type': 'image/jpeg'},
       );
@@ -116,6 +104,32 @@ class StorageService {
       return url;
     } catch (e) {
       debugPrint('❌ R2 Thumbnail Upload Failed: $e');
+      rethrow;
+    }
+  }
+
+  // FIXED: Added missing method for in-memory byte uploads
+  Future<String> uploadThumbnailBytes({
+    required String userId,
+    required String timestamp,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final path = '$userId/$timestamp.jpg';
+      
+      await _r2.putObject(
+        Secrets.r2BucketName,
+        path,
+        Stream.value(bytes),
+        size: bytes.length,
+        metadata: {'content-type': 'image/jpeg'},
+      );
+
+      final url = '${Secrets.r2PublicDomain}/$path';
+      debugPrint('✅ Thumbnail uploaded (bytes): $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ R2 Thumbnail Bytes Upload Failed: $e');
       rethrow;
     }
   }
@@ -154,8 +168,7 @@ class StorageService {
     required String userId,
     required File file,
   }) async {
-    // Avatars can stay on Supabase for simplicity, or move to R2.
-    // Let's keep them on Supabase to minimize risk for now.
+    // Avatars can stay on Supabase for simplicity
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final extension = file.path.split('.').last;
@@ -177,7 +190,6 @@ class StorageService {
   }
 
   Future<void> deleteFile(String bucket, String path) async {
-    // Basic implementation for R2 if bucket is 'videos' or 'thumbnails'
     try {
       if (bucket == 'videos' || bucket == Secrets.r2BucketName) {
         await _r2.removeObject(Secrets.r2BucketName, path);
@@ -189,7 +201,7 @@ class StorageService {
     }
   }
 
-  // Byte upload helpers (mapped to R2 for consistency)
+  // Byte upload helper for videos (if needed in future)
   Future<String> uploadVideoBytes({
     required String userId,
     required String timestamp,
