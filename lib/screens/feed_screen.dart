@@ -143,6 +143,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
           return PageView.builder(
             scrollDirection: Axis.vertical,
+            allowImplicitScrolling: true, // THE TIKTOK TRICK: Pre-loads next video
             itemCount: videos.length,
             itemBuilder: (context, index) {
               final video = videos[index];
