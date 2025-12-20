@@ -7,6 +7,9 @@ import 'package:xprex/config/supabase_config.dart';
 
 class StorageService {
   final SupabaseClient _supabase = supabase;
+  
+  // --- CACHE: Stores resolved URLs to prevent repeated network calls ---
+  static final Map<String, String> _urlCache = {};
 
   Future<String> uploadAvatar({
     required String userId,
@@ -181,6 +184,13 @@ class StorageService {
   // - If storagePath already looks like an http(s) URL, return as-is.
   // - Otherwise, generate a signed URL from the private videos bucket.
   Future<String> resolveVideoUrl(String storagePath, {int expiresIn = 3600}) async {
+    // 1. Check Memory Cache
+    if (_urlCache.containsKey(storagePath)) {
+      return _urlCache[storagePath]!;
+    }
+
+    String resultUrl;
+
     // If it's already a URL, try to normalize public URLs back to a signed path when possible
     if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
       // Handle Supabase "public URL" form: /storage/v1/object/public/videos/<path>
@@ -188,11 +198,18 @@ class StorageService {
       final i = storagePath.indexOf(marker);
       if (i != -1) {
         final path = storagePath.substring(i + marker.length);
-        return await getSignedVideoUrl(path, expiresIn: expiresIn);
+        resultUrl = await getSignedVideoUrl(path, expiresIn: expiresIn);
+      } else {
+        resultUrl = storagePath;
       }
-      return storagePath;
+    } else {
+      resultUrl = await getSignedVideoUrl(storagePath, expiresIn: expiresIn);
     }
-    return await getSignedVideoUrl(storagePath, expiresIn: expiresIn);
+
+    // 2. Save to Memory Cache
+    _urlCache[storagePath] = resultUrl;
+    
+    return resultUrl;
   }
 
   String getPublicUrl(String bucket, String path) {
