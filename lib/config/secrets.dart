@@ -15,5 +15,5 @@ class Secrets {
   // Copy the "R2.dev subdomain" (or your Custom Domain if you connected one).
   // It should look like: https://pub-xxxxxxxx.r2.dev
   // DO NOT include a trailing slash.
-  static const String r2PublicDomain = 'https://replace-this-with-your-r2-dev-url.r2.dev'; 
+  static const String r2PublicDomain = 'https://pub-6a33f747461a43d7a06b0cd298966ab6.r2.dev'; 
 }
