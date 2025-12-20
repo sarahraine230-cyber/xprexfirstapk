@@ -22,9 +22,12 @@ dependencies:
   supabase_flutter: '>=1.10.0'
   http: ^1.0.0
   
+  # R2 / S3 Client
+  minio: ^6.0.0  # NEW: The R2 Connector
+  
   # Video & Media
-  video_player: '>=2.9.2' # Kept for Upload Screen
-  cached_video_player_plus: ^3.0.3 # NEW: The Caching Engine for Feed
+  video_player: '>=2.9.2'
+  cached_video_player_plus: ^3.0.3
   video_thumbnail: 0.5.6
   image_picker: '>=1.1.2'
   cached_network_image: ^3.0.0
