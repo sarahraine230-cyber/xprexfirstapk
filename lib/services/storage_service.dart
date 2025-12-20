@@ -1,20 +1,174 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import 'package:minio/minio.dart'; // The S3 Client
+import 'package:minio/models.dart'; // Minio Models
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/config/supabase_config.dart';
+import 'package:xprex/config/secrets.dart'; // Your Keys
 
 class StorageService {
   final SupabaseClient _supabase = supabase;
   
-  // --- CACHE: Stores resolved URLs to prevent repeated network calls ---
+  // R2 Client (S3 Compatible)
+  late Minio _r2;
+
+  // Cache for resolved URLs (Memory optimization)
   static final Map<String, String> _urlCache = {};
+
+  StorageService() {
+    _initR2();
+  }
+
+  void _initR2() {
+    _r2 = Minio(
+      endPoint: _parseEndpoint(Secrets.r2Endpoint),
+      accessKey: Secrets.r2AccessKey,
+      secretKey: Secrets.r2SecretKey,
+      region: 'auto', // R2 uses 'auto'
+      // useSSL: true is default
+    );
+  }
+
+  // Helper to strip 'https://' for Minio client which expects host only
+  String _parseEndpoint(String url) {
+    return url.replaceFirst('https://', '').replaceFirst('http://', '');
+  }
+
+  // --- VIDEO UPLOAD (R2) ---
+  
+  // Uploads directly to Cloudflare R2 with progress tracking
+  Future<String> uploadVideoWithProgress({
+    required String userId,
+    required String timestamp,
+    required File file,
+    required void Function(int bytesSent, int totalBytes) onProgress,
+  }) async {
+    try {
+      final path = '$userId/$timestamp.mp4';
+      final totalBytes = await file.length();
+      
+      debugPrint('🚀 Starting R2 Upload: $path ($totalBytes bytes)');
+
+      // We need a manual counter since the transformer below is passive
+      int bytesRead = 0;
+      
+      // FIXED: Convert List<int> to Uint8List explicitly for Minio
+      final reportingStream = file.openRead().map((chunk) {
+        bytesRead += chunk.length;
+        onProgress(bytesRead, totalBytes);
+        return Uint8List.fromList(chunk);
+      });
+
+      // Upload to R2
+      await _r2.putObject(
+        Secrets.r2BucketName,
+        path,
+        reportingStream,
+        size: totalBytes,
+        metadata: {'content-type': 'video/mp4'},
+      );
+
+      debugPrint('✅ R2 Upload Complete: $path');
+      return path; // We store the R2 Key in Supabase
+    } catch (e) {
+      debugPrint('❌ R2 Upload Failed: $e');
+      rethrow;
+    }
+  }
+
+  // --- THUMBNAIL UPLOAD (R2) ---
+  
+  // File-based upload
+  Future<String> uploadThumbnail({
+    required String userId,
+    required String timestamp,
+    required File file,
+  }) async {
+    try {
+      final path = '$userId/$timestamp.jpg';
+      final bytes = await file.readAsBytes();
+      
+      await _r2.putObject(
+        Secrets.r2BucketName,
+        path,
+        Stream.value(bytes), // bytes is already Uint8List
+        size: bytes.length,
+        metadata: {'content-type': 'image/jpeg'},
+      );
+
+      // Return the Public URL directly
+      final url = '${Secrets.r2PublicDomain}/$path';
+      debugPrint('✅ Thumbnail uploaded: $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ R2 Thumbnail Upload Failed: $e');
+      rethrow;
+    }
+  }
+
+  // FIXED: Added missing method for in-memory byte uploads
+  Future<String> uploadThumbnailBytes({
+    required String userId,
+    required String timestamp,
+    required Uint8List bytes,
+  }) async {
+    try {
+      final path = '$userId/$timestamp.jpg';
+      
+      await _r2.putObject(
+        Secrets.r2BucketName,
+        path,
+        Stream.value(bytes),
+        size: bytes.length,
+        metadata: {'content-type': 'image/jpeg'},
+      );
+
+      final url = '${Secrets.r2PublicDomain}/$path';
+      debugPrint('✅ Thumbnail uploaded (bytes): $url');
+      return url;
+    } catch (e) {
+      debugPrint('❌ R2 Thumbnail Bytes Upload Failed: $e');
+      rethrow;
+    }
+  }
+
+  // --- URL RESOLUTION (The Speed Upgrade) ---
+
+  // Converts a storage path (R2 Key) into a playable Public URL
+  Future<String> resolveVideoUrl(String storagePath, {int expiresIn = 3600}) async {
+    // 1. Check Memory Cache
+    if (_urlCache.containsKey(storagePath)) {
+      return _urlCache[storagePath]!;
+    }
+
+    String resultUrl;
+
+    // 2. Logic
+    if (storagePath.startsWith('http')) {
+      // Already a URL (maybe from old Supabase uploads or external)
+      resultUrl = storagePath;
+    } else {
+      // It is an R2 Key (e.g. "user123/video456.mp4")
+      // We simply append it to the public domain. 
+      // Zero network requests needed. Instant.
+      resultUrl = '${Secrets.r2PublicDomain}/$storagePath';
+    }
+
+    // 3. Save to Cache
+    _urlCache[storagePath] = resultUrl;
+    
+    return resultUrl;
+  }
+
+  // --- LEGACY / OTHER ---
 
   Future<String> uploadAvatar({
     required String userId,
     required File file,
   }) async {
+    // Avatars can stay on Supabase for simplicity
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final extension = file.path.split('.').last;
@@ -28,7 +182,6 @@ class StorageService {
       );
 
       final url = _supabase.storage.from('avatars').getPublicUrl(path);
-      debugPrint('✅ Avatar uploaded: $url');
       return url;
     } catch (e) {
       debugPrint('❌ Error uploading avatar: $e');
@@ -36,236 +189,32 @@ class StorageService {
     }
   }
 
-  Future<String> uploadVideo({
-    required String userId,
-    required String timestamp,
-    required File file,
-  }) async {
-    try {
-      // Always store as .mp4 to meet the implementation guide
-      final path = '${userId}/${timestamp}.mp4';
-
-      await _supabase.storage.from('videos').upload(
-        path,
-        file,
-        fileOptions: const FileOptions(upsert: false),
-      );
-
-      final url = _supabase.storage.from('videos').getPublicUrl(path);
-      debugPrint('✅ Video uploaded: $url');
-      return url;
-    } catch (e) {
-      debugPrint('❌ Error uploading video: $e');
-      rethrow;
-    }
-  }
-
-  // Direct upload using HTTP with byte-level progress callback.
-  // Falls back to anon key if no user session is available.
-  // Returns the storage path (e.g., "$userId/$timestamp.mp4").
-  // Use resolveVideoUrl() to turn it into a playable URL when needed.
-  Future<String> uploadVideoWithProgress({
-    required String userId,
-    required String timestamp,
-    required File file,
-    required void Function(int bytesSent, int totalBytes) onProgress,
-  }) async {
-    final bucket = 'videos';
-    final path = '$userId/$timestamp.mp4';
-    final storageEndpoint = '${SupabaseConfig.urlValue}/storage/v1/object/$bucket/$path';
-    final token = _supabase.auth.currentSession?.accessToken ?? SupabaseConfig.anonKeyValue;
-
-    try {
-      if (_supabase.auth.currentSession == null) {
-        debugPrint('⚠️ No Supabase session found. Falling back to anon key for storage upload. For private buckets this will be denied by RLS (403).');
-      } else {
-        debugPrint('🔐 Using user JWT for storage upload. uid=${_supabase.auth.currentUser?.id}');
-      }
-      debugPrint('📦 Storage upload target -> bucket=$bucket path=$path');
-
-      final totalBytes = await file.length();
-      int sent = 0;
-
-      final uri = Uri.parse(storageEndpoint);
-      final request = http.StreamedRequest('POST', uri);
-      request.headers.addAll({
-        'Authorization': 'Bearer $token',
-        'x-upsert': 'false',
-        'Content-Type': 'video/mp4',
-      });
-      request.contentLength = totalBytes;
-
-      // Start pumping file bytes into the request sink while sending the request.
-      // This ensures progress reflects actual transfer time instead of pre-buffering.
-      final fileStream = file.openRead();
-      final pump = fileStream.listen(
-        (chunk) {
-          sent += chunk.length;
-          request.sink.add(chunk);
-          try {
-            onProgress(sent, totalBytes);
-          } catch (_) {}
-        },
-        onError: (err, st) async {
-          try {
-            await request.sink.close();
-          } catch (_) {}
-        },
-        onDone: () async {
-          try {
-            await request.sink.close();
-          } catch (_) {}
-        },
-        cancelOnError: true,
-      );
-
-      final client = http.Client();
-      http.StreamedResponse response;
-      try {
-        response = await client.send(request);
-      } finally {
-        // Do not close client until we read the stream below
-      }
-
-      // Drain the response body to completion to avoid socket leaks
-      final responseBody = await response.stream.bytesToString();
-      await pump.cancel();
-      client.close();
-
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        // Return the storage path; playback should use a signed URL for private buckets.
-        debugPrint('✅ Video uploaded (streamed) to path=$path');
-        return path;
-      }
-      throw Exception('Upload failed: ${response.statusCode} $responseBody');
-    } catch (e) {
-      debugPrint('❌ Error uploading video with progress: $e');
-      rethrow;
-    }
-  }
-
-  Future<String> uploadThumbnail({
-    required String userId,
-    required String timestamp,
-    required File file,
-  }) async {
-    try {
-      // Always store as .jpg to meet the implementation guide
-      final path = '${userId}/${timestamp}.jpg';
-
-      await _supabase.storage.from('thumbnails').upload(
-        path,
-        file,
-        fileOptions: const FileOptions(upsert: true),
-      );
-
-      final url = _supabase.storage.from('thumbnails').getPublicUrl(path);
-      debugPrint('✅ Thumbnail uploaded: $url');
-      return url;
-    } catch (e) {
-      debugPrint('❌ Error uploading thumbnail: $e');
-      rethrow;
-    }
-  }
-
-  Future<String> getSignedVideoUrl(String storagePath, {int expiresIn = 3600}) async {
-    try {
-      final url = await _supabase.storage
-          .from('videos')
-          .createSignedUrl(storagePath, expiresIn);
-      return url;
-    } catch (e) {
-      debugPrint('❌ Error getting signed URL: $e');
-      rethrow;
-    }
-  }
-
-  // Resolve a storage_path or a public URL into a playable URL.
-  // - If storagePath already looks like an http(s) URL, return as-is.
-  // - Otherwise, generate a signed URL from the private videos bucket.
-  Future<String> resolveVideoUrl(String storagePath, {int expiresIn = 3600}) async {
-    // 1. Check Memory Cache
-    if (_urlCache.containsKey(storagePath)) {
-      return _urlCache[storagePath]!;
-    }
-
-    String resultUrl;
-
-    // If it's already a URL, try to normalize public URLs back to a signed path when possible
-    if (storagePath.startsWith('http://') || storagePath.startsWith('https://')) {
-      // Handle Supabase "public URL" form: /storage/v1/object/public/videos/<path>
-      final marker = '/storage/v1/object/public/videos/';
-      final i = storagePath.indexOf(marker);
-      if (i != -1) {
-        final path = storagePath.substring(i + marker.length);
-        resultUrl = await getSignedVideoUrl(path, expiresIn: expiresIn);
-      } else {
-        resultUrl = storagePath;
-      }
-    } else {
-      resultUrl = await getSignedVideoUrl(storagePath, expiresIn: expiresIn);
-    }
-
-    // 2. Save to Memory Cache
-    _urlCache[storagePath] = resultUrl;
-    
-    return resultUrl;
-  }
-
-  String getPublicUrl(String bucket, String path) {
-    return _supabase.storage.from(bucket).getPublicUrl(path);
-  }
-
   Future<void> deleteFile(String bucket, String path) async {
     try {
-      await _supabase.storage.from(bucket).remove([path]);
-      debugPrint('✅ File deleted: $path');
+      if (bucket == 'videos' || bucket == Secrets.r2BucketName) {
+        await _r2.removeObject(Secrets.r2BucketName, path);
+      } else {
+        await _supabase.storage.from(bucket).remove([path]);
+      }
     } catch (e) {
       debugPrint('❌ Error deleting file: $e');
-      rethrow;
     }
   }
 
-  // Convenience: upload raw bytes and return public URL (no upsert for videos, upsert for thumbs)
+  // Byte upload helper for videos (if needed in future)
   Future<String> uploadVideoBytes({
     required String userId,
     required String timestamp,
     required Uint8List bytes,
   }) async {
-    try {
-      final path = '${userId}/${timestamp}.mp4';
-      await _supabase.storage.from('videos').uploadBinary(
-            path,
-            bytes,
-            fileOptions: const FileOptions(upsert: false, contentType: 'video/mp4'),
-          );
-      final url = _supabase.storage.from('videos').getPublicUrl(path);
-      debugPrint('✅ Video uploaded (bytes): $url');
-      return url;
-    } catch (e) {
-      debugPrint('❌ Error uploading video bytes: $e');
-      rethrow;
-    }
-  }
-
-  Future<String> uploadThumbnailBytes({
-    required String userId,
-    required String timestamp,
-    required Uint8List bytes,
-  }) async {
-    try {
-      final path = '${userId}/${timestamp}.jpg';
-      await _supabase.storage.from('thumbnails').uploadBinary(
-            path,
-            bytes,
-            fileOptions: const FileOptions(upsert: true, contentType: 'image/jpeg'),
-          );
-      final url = _supabase.storage.from('thumbnails').getPublicUrl(path);
-      debugPrint('✅ Thumbnail uploaded (bytes): $url');
-      return url;
-    } catch (e) {
-      debugPrint('❌ Error uploading thumbnail bytes: $e');
-      rethrow;
-    }
+    final path = '$userId/$timestamp.mp4';
+    await _r2.putObject(
+      Secrets.r2BucketName, 
+      path, 
+      Stream.value(bytes), 
+      size: bytes.length, 
+      metadata: {'content-type': 'video/mp4'}
+    );
+    return path;
   }
 }
