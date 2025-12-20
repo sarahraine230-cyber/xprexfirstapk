@@ -23,7 +23,7 @@ dependencies:
   http: ^1.0.0
   
   # R2 / S3 Client
-  minio: ^6.0.0  # NEW: The R2 Connector
+  minio: ^3.5.8  # FIXED: Corrected from 6.0.0 to actual stable version
   
   # Video & Media
   video_player: '>=2.9.2'
