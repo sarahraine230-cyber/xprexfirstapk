@@ -1,8 +1,8 @@
-import 'dart:async'; // Added for Timer
+import 'dart:async'; 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
+import 'package:cached_video_player_plus/cached_video_player_plus.dart'; // NEW ENGINE
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -21,10 +21,8 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 
-// --- THE WIRING FIX: Call the Smart Algorithm ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
-  // We now call the "Brain" algorithm instead of the raw feed
   return await videoService.getForYouFeed(limit: 20);
 });
 
@@ -62,7 +60,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     if (_routeVisible) {
       setState(() => _routeVisible = false);
       _maybeDisableWakelock();
-      debugPrint('📺 FeedScreen.didPushNext → route hidden, pausing feed visuals');
     }
   }
 
@@ -70,7 +67,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   void didPopNext() {
     if (!_routeVisible) {
       setState(() => _routeVisible = true);
-      debugPrint('📺 FeedScreen.didPopNext → route visible again');
     }
   }
 
@@ -115,7 +111,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     final theme = Theme.of(context);
 
     final feedVisible = widget.isVisible && _appActive && _routeVisible;
-
     return Scaffold(
       extendBodyBehindAppBar: true,
       backgroundColor: Colors.black,
@@ -148,6 +143,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
           return PageView.builder(
             scrollDirection: Axis.vertical,
+            allowImplicitScrolling: true, // THE TIKTOK TRICK: Pre-loads next video
             itemCount: videos.length,
             itemBuilder: (context, index) {
               final video = videos[index];
@@ -189,7 +185,15 @@ class VideoFeedItem extends StatefulWidget {
   final bool isActive;
   final bool feedVisible;
   final VoidCallback? onLikeToggled;
-  const VideoFeedItem({super.key, required this.video, required this.isActive, required this.feedVisible, this.onLikeToggled});
+  
+  // NOTE: Constructor kept EXACTLY the same to support VideoPlayerScreen
+  const VideoFeedItem({
+    super.key, 
+    required this.video, 
+    required this.isActive, 
+    required this.feedVisible, 
+    this.onLikeToggled
+  });
 
   @override
   State<VideoFeedItem> createState() => _VideoFeedItemState();
@@ -201,24 +205,24 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   final _saveService = SaveService();
   final _repostService = RepostService();
 
-  VideoPlayerController? _controller;
+  // UPGRADE: Using Cached Controller
+  CachedVideoPlayerPlusController? _controller;
+  
   bool _isLiked = false;
   int _likeCount = 0;
   int _commentsCount = 0;
   int _shareCount = 0;
   
-  // --- STATE VARIABLES ---
   bool _isSaved = false;
   int _saveCount = 0;
   bool _isReposted = false;
   int _repostCount = 0;
   
   bool _loading = true;
-
-  // --- STOPWATCH VARIABLES (Monetization Engine) ---
+  // --- STOPWATCH VARIABLES ---
   Timer? _watchTimer;
   int _secondsWatched = 0;
-  bool _hasRecordedView = false; // Initial view count
+  bool _hasRecordedView = false;
 
   @override
   void initState() {
@@ -234,7 +238,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   void didUpdateWidget(covariant VideoFeedItem oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.video.id != widget.video.id) {
-      _flushWatchTime(); // Flush old video data before switching
+      _flushWatchTime();
       _disposeController();
       _loading = true;
       _init();
@@ -245,11 +249,15 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Future<void> _init() async {
     try {
       final playableUrl = await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
-      _controller = VideoPlayerController.networkUrl(Uri.parse(playableUrl))
-        ..setLooping(true);
+      
+      // UPGRADE: Enable Caching
+      _controller = CachedVideoPlayerPlusController.networkUrl(
+        Uri.parse(playableUrl),
+        invalidateCacheIfOlderThan: const Duration(days: 30), // The TikTok Trick
+      )..setLooping(true);
+      
       await _controller!.initialize();
       
-      // We only record the initial "View" count once per session
       if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView) {
         _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
         _hasRecordedView = true;
@@ -289,25 +297,20 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     if (shouldPlay) {
       _controller!.play();
       _maybeEnableWakelock();
-      _startWatchTimer(); // Start counting money
+      _startWatchTimer();
     } else {
       _controller!.pause();
       _maybeDisableWakelock();
-      _stopWatchTimer(); // Pause counting
+      _stopWatchTimer();
     }
     setState(() {});
   }
 
-  // --- STOPWATCH LOGIC ---
   void _startWatchTimer() {
     if (_watchTimer != null && _watchTimer!.isActive) return;
-    
     _watchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      // Only count if actually playing
       if (_controller != null && _controller!.value.isPlaying) {
         _secondsWatched++;
-        // Optional: Debug print to see it working
-        // debugPrint('⏱️ Watched ${widget.video.id}: $_secondsWatched sec');
       }
     });
   }
@@ -319,8 +322,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   Future<void> _flushWatchTime() async {
     _stopWatchTimer();
-    
-    // Don't spam DB with tiny views (< 3 seconds)
     if (_secondsWatched < 3) {
       _secondsWatched = 0;
       return;
@@ -328,16 +329,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
     try {
       final uid = supabase.auth.currentUser?.id;
-      // We send this to Supabase. 
-      // Note: We are inserting into a raw 'video_views' log or updating. 
-      // For MVP, we simply insert a record that this user watched X seconds.
-      // We will create this specific RPC or Table logic in SQL phase.
       if (uid != null) {
          await supabase.from('video_views').insert({
            'video_id': widget.video.id,
            'viewer_id': uid,
            'author_id': widget.video.authorAuthUserId,
-           'duration_seconds': _secondsWatched, // The golden metric
+           'duration_seconds': _secondsWatched,
            'created_at': DateTime.now().toIso8601String(),
          });
       }
@@ -345,11 +342,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     } catch (e) {
       debugPrint('❌ Failed to flush watch time: $e');
     } finally {
-      _secondsWatched = 0; // Reset for next loop/video
+      _secondsWatched = 0;
     }
   }
-
-  // --- EXISTING ACTIONS ---
 
   Future<void> _toggleLike() async {
     try {
@@ -472,7 +467,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   @override
   void dispose() {
     WakelockPlus.disable();
-    _flushWatchTime(); // Save any pending seconds before destroy
+    _flushWatchTime();
     _disposeController();
     super.dispose();
   }
@@ -493,11 +488,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     final h = size.height;
     final double railHeight = h <= 640
         ? h * 0.44
-        : (h <= 780
-            ? h * 0.41
-            : (h <= 900
-                ? h * 0.38
-                : h * 0.36));
+        : (h <= 780 ? h * 0.41 : (h <= 900 ? h * 0.38 : h * 0.36));
     final double bottomGuard = padding.bottom + 88.0;
     
     final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
@@ -525,7 +516,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     child: SizedBox(
                       width: _controller!.value.size.width,
                       height: _controller!.value.size.height,
-                      child: VideoPlayer(_controller!),
+                      // UPGRADE: Using Cached Widget
+                      child: CachedVideoPlayerPlus(_controller!),
                     ),
                   )
                 : (widget.video.coverImageUrl != null
@@ -568,7 +560,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     margin: const EdgeInsets.only(bottom: 8),
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2), // Semi-transparent glass
+                      color: Colors.white.withValues(alpha: 0.2), 
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Row(
@@ -890,8 +882,7 @@ class _CommentsSheetState extends State<_CommentsSheet> {
   late Future<List<CommentModel>> _loader;
   bool _posting = false;
   late int _commentsCount;
-  CommentModel? _replyingTo; 
-
+  CommentModel? _replyingTo;
   final List<String> _quickEmojis = ['🔥', '😂', '😍', '👏', '😢', '😮', '💯', '🙏'];
   @override
   void initState() {
@@ -1250,10 +1241,10 @@ class _CommentRowState extends State<_CommentRow> {
                             style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600),
                           ),
                           if (_loadingReplies)
-                             const Padding(
+                            const Padding(
                                padding: EdgeInsets.only(left: 8.0),
                                child: SizedBox(width: 10, height: 10, child: CircularProgressIndicator(strokeWidth: 2)),
-                             )
+                            )
                         ],
                       ),
                     ),
@@ -1292,7 +1283,7 @@ class _CommentRowState extends State<_CommentRow> {
               separatorBuilder: (_,__) => const SizedBox(height: 16),
               itemBuilder: (ctx, i) {
                 final r = c.replies[i];
-                 return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
+                return _ReplyRow(reply: r, onReplyTap: widget.onReplyTap);
               },
             ),
           )
