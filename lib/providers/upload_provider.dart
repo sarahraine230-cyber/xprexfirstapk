@@ -39,6 +39,7 @@ class UploadState {
 
 // The Background Worker
 class UploadNotifier extends StateNotifier<UploadState> {
+  // Pass initial state to super constructor
   UploadNotifier() : super(UploadState());
 
   final _storage = StorageService();
@@ -78,6 +79,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         // Listen to progress (maps 0-100 to 0.10-0.40 global progress)
         _subscription = VideoCompress.compressProgress$.subscribe((progress) {
           final mapped = 0.10 + (progress / 100 * 0.30);
+          // Check mounted/active not needed in StateNotifier, but safe to set state
           state = state.copyWith(progress: mapped);
         });
 
@@ -146,9 +148,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
       
       // 8. SUCCESS
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
-      
-      // Auto-hide success message after 3 seconds could be handled by UI, 
-      // but simpler to just reset state here or let UI handle it.
 
     } catch (e) {
       debugPrint('❌ Critical Upload Failure: $e');
