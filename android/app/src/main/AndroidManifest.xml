@@ -9,8 +9,8 @@
     <application
         android:label="XpreX"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
-        <activity
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"> <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
