@@ -4,8 +4,8 @@ import 'package:xprex/screens/feed_screen.dart';
 import 'package:xprex/screens/search_screen.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/screens/profile_screen.dart';
+import 'package:xprex/providers/upload_provider.dart'; // IMPORT PROVIDER
 
-// Global key + helper to allow other screens to switch tabs (e.g., after upload)
 final GlobalKey<_MainShellState> mainShellKey = GlobalKey<_MainShellState>();
 void setMainTabIndex(int index) => mainShellKey.currentState?.setIndex(index);
 
@@ -19,43 +19,17 @@ class MainShell extends ConsumerStatefulWidget {
 class _MainShellState extends ConsumerState<MainShell> {
   int _currentIndex = 0;
   
-  // We make _feedKey non-final so we can change it to force a hard reset
   Key _feedKey = const PageStorageKey('feed');
-  
   final _searchKey = const PageStorageKey('search');
   final _uploadKey = const PageStorageKey('upload');
   final _profileKey = const PageStorageKey('profile');
 
-  // Logic to handle navigation taps
   void _onItemTapped(int index) {
-    // 1. TAP-TO-REFRESH LOGIC
-    // If tapping "Feed" (index 0) while already ON "Feed"...
     if (index == 0 && _currentIndex == 0) {
-      debugPrint('🔄 Tap-to-Refresh triggered');
-      
-      // A. Force the "Brain" algorithm to re-run
-      ref.invalidate(feedVideosProvider);
-      
-      // B. Force the UI to reset to the top (Index 0)
-      // By assigning a new UniqueKey, Flutter destroys the old FeedScreen 
-      // and builds a new one, resetting the PageView to the start.
       setState(() {
         _feedKey = UniqueKey();
       });
-
-      // C. Visual Feedback
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Refreshing feed...'), 
-          duration: Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return; 
     }
-
-    // 2. Normal Navigation
     setState(() => _currentIndex = index);
   }
 
@@ -64,47 +38,36 @@ class _MainShellState extends ConsumerState<MainShell> {
     final theme = Theme.of(context);
     
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Stack(
         children: [
-          // Index 0: Feed
-          // We pass the dynamic _feedKey here. When it changes, this widget resets.
-          FeedScreen(key: _feedKey, isVisible: _currentIndex == 0),
+          // 1. The Main Content
+          IndexedStack(
+            index: _currentIndex,
+            children: [
+              FeedScreen(key: _feedKey, isVisible: _currentIndex == 0),
+              SearchScreen(key: _searchKey),
+              UploadScreen(key: _uploadKey),
+              ProfileScreen(key: _profileKey),
+            ],
+          ),
           
-          // Index 1: Search
-          SearchScreen(key: _searchKey),
-          
-          // Index 2: Upload
-          UploadScreen(key: _uploadKey),
-          
-          // Index 3: Profile
-          ProfileScreen(key: _profileKey),
+          // 2. The Global Upload Progress Overlay
+          const _UploadStatusOverlay(),
         ],
       ),
       
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: _onItemTapped, // Use our smart handler
+        onTap: _onItemTapped,
         type: BottomNavigationBarType.fixed,
         selectedItemColor: theme.colorScheme.primary,
         unselectedItemColor: theme.colorScheme.onSurfaceVariant,
+        backgroundColor: Colors.black,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home), 
-            label: 'Feed'
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search), 
-            label: 'Discover'
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.add_circle_outline), 
-            label: 'Upload'
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person), 
-            label: 'Profile'
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Feed'),
+          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Discover'),
+          BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline), label: 'Upload'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -113,5 +76,77 @@ class _MainShellState extends ConsumerState<MainShell> {
   void setIndex(int index) {
     if (index == _currentIndex) return;
     setState(() => _currentIndex = index);
+  }
+}
+
+class _UploadStatusOverlay extends ConsumerWidget {
+  const _UploadStatusOverlay();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uploadState = ref.watch(uploadProvider);
+
+    // If not uploading and no error, hide
+    if (!uploadState.isUploading && uploadState.errorMessage == null) {
+      return const SizedBox.shrink();
+    }
+
+    // If Error, show SnackBar-like error (you might want a proper snackbar, but this works globally)
+    if (uploadState.errorMessage != null) {
+      // In a real app, use a Toast or showDialog. 
+      // For now, we rely on the console log or transient UI. 
+      // Returning empty because the provider resets 'isUploading' on error, 
+      // but keeps 'errorMessage' if we wanted to show it.
+      // Let's hide it to prevent blocking UI, user will retry.
+      return const SizedBox.shrink();
+    }
+
+    // Show Progress Bar
+    return Positioned(
+      bottom: 0, 
+      left: 0, 
+      right: 0,
+      child: Container(
+        color: Colors.grey[900],
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 40, 
+              height: 40,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CircularProgressIndicator(
+                    value: uploadState.progress, 
+                    color: Colors.cyanAccent, 
+                    strokeWidth: 3,
+                    backgroundColor: Colors.white24,
+                  ),
+                  const Icon(Icons.upload, color: Colors.white, size: 20),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    uploadState.status,
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${(uploadState.progress * 100).toStringAsFixed(0)}%',
+                    style: const TextStyle(color: Colors.white70, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
