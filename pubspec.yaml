@@ -15,7 +15,7 @@ dependencies:
   google_fonts: ^6.1.0
   
   # State & Routing
-  flutter_riverpod: ^3.0.0
+  flutter_riverpod: ^2.6.1  # FIXED: Changed from 3.0.0 (invalid) to 2.6.1 (stable)
   go_router: ^17.0.0
   
   # Backend
@@ -23,7 +23,7 @@ dependencies:
   http: ^1.0.0
   
   # R2 / S3 Client
-  minio: ^3.5.8  # FIXED: Corrected from 6.0.0 to actual stable version
+  minio: ^3.5.8
   
   # Video & Media
   video_player: '>=2.9.2'
