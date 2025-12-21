@@ -10,10 +10,7 @@ class Secrets {
   // The Bucket Name you created
   static const String r2BucketName = 'xprex-videos'; 
 
-  // --- CRITICAL STEP FOR YOU ---
-  // Go to Cloudflare Dashboard -> R2 -> Select Bucket -> Settings -> Public Access
-  // Copy the "R2.dev subdomain" (or your Custom Domain if you connected one).
-  // It should look like: https://pub-xxxxxxxx.r2.dev
-  // DO NOT include a trailing slash.
-  static const String r2PublicDomain = 'https://pub-6a33f747461a43d7a06b0cd298966ab6.r2.dev'; 
+  // --- PUBLIC DOMAIN ---
+  // Your professional custom domain for instant CDN delivery.
+  static const String r2PublicDomain = 'https://media.getxprex.com'; 
 }
