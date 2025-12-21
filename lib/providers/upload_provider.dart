@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_compress/video_compress.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
@@ -12,7 +11,7 @@ import 'package:xprex/services/auth_service.dart';
 class UploadState {
   final bool isUploading;
   final double progress;
-  final String status; // "Compressing...", "Uploading...", "Success"
+  final String status; // "Uploading...", "Success"
   final String? errorMessage;
 
   UploadState({
@@ -39,12 +38,10 @@ class UploadState {
 
 // The Background Worker
 class UploadNotifier extends StateNotifier<UploadState> {
-  // Pass initial state to super constructor
   UploadNotifier() : super(UploadState());
 
   final _storage = StorageService();
   final _videoService = VideoService();
-  Subscription? _subscription;
 
   Future<void> startUpload({
     required File videoFile,
@@ -59,10 +56,8 @@ class UploadNotifier extends StateNotifier<UploadState> {
     
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      File fileToUpload = videoFile;
-      bool compressionSucceeded = false;
-
-      // 2. GENERATE THUMBNAIL (Always from original)
+      
+      // 2. GENERATE THUMBNAIL (From original)
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
         imageFormat: ImageFormat.JPEG,
@@ -71,58 +66,22 @@ class UploadNotifier extends StateNotifier<UploadState> {
       );
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
-      // 3. TRY COMPRESSION (The Fallback Strategy)
-      state = state.copyWith(status: 'Optimizing...', progress: 0.10);
-      try {
-        await VideoCompress.deleteAllCache();
-        
-        // Listen to progress (maps 0-100 to 0.10-0.40 global progress)
-        _subscription = VideoCompress.compressProgress$.subscribe((progress) {
-          final mapped = 0.10 + (progress / 100 * 0.30);
-          // Check mounted/active not needed in StateNotifier, but safe to set state
-          state = state.copyWith(progress: mapped);
-        });
-
-        final MediaInfo? info = await VideoCompress.compressVideo(
-          videoFile.path,
-          quality: VideoQuality.MediumQuality,
-          deleteOrigin: false,
-          includeAudio: true,
-        );
-
-        if (info != null && info.file != null) {
-          fileToUpload = info.file!;
-          compressionSucceeded = true;
-          debugPrint('✅ Compression success: ${videoFile.lengthSync()} -> ${fileToUpload.lengthSync()}');
-        } else {
-          debugPrint('⚠️ Compression returned null info. Using original.');
-        }
-      } catch (e) {
-        debugPrint('⚠️ Compression Failed: $e. Fallback to original file.');
-        // We do NOT stop. We proceed with the original file.
-      } finally {
-        _subscription?.unsubscribe();
-        _subscription = null;
-      }
-
-      // 4. UPLOAD VIDEO (R2)
-      state = state.copyWith(
-        status: compressionSucceeded ? 'Uploading Optimized...' : 'Uploading Original...', 
-        progress: 0.40
-      );
+      // 3. UPLOAD RAW VIDEO (R2)
+      // No compression. Pure speed.
+      state = state.copyWith(status: 'Uploading Video...', progress: 0.10);
 
       final String videoPath = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
-        file: fileToUpload,
+        file: videoFile,
         onProgress: (sent, total) {
-          // Map upload to 0.40 -> 0.90 global progress
-          final mapped = 0.40 + ((sent / total) * 0.50);
+          // Map upload to 0.10 -> 0.90 global progress
+          final mapped = 0.10 + ((sent / total) * 0.80);
           state = state.copyWith(progress: mapped);
         },
       );
 
-      // 5. UPLOAD THUMBNAIL
+      // 4. UPLOAD THUMBNAIL
       state = state.copyWith(status: 'Finishing up...', progress: 0.95);
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
         userId: userId,
@@ -130,7 +89,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         bytes: thumbBytes,
       );
 
-      // 6. SAVE METADATA
+      // 5. SAVE METADATA
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoPath,
@@ -141,12 +100,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         tags: tags,
       );
 
-      // 7. CLEANUP
-      if (compressionSucceeded) {
-        await VideoCompress.deleteAllCache();
-      }
-      
-      // 8. SUCCESS
+      // 6. SUCCESS
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
 
     } catch (e) {
