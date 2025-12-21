@@ -39,6 +39,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   Future<void> _pickVideo() async {
     // 500MB SAFETY LIMIT + 60s Duration
+    // Note: We keep the duration limit for now to ensure quick uploads
     final video = await _picker.pickVideo(
       source: ImageSource.gallery,
       maxDuration: const Duration(seconds: 60), 
@@ -48,6 +49,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       final file = File(video.path);
       final sizeInMb = file.lengthSync() / (1024 * 1024);
       
+      // Strict 500MB Limit (Prevents 4K madness)
       if (sizeInMb > 500) {
          if (mounted) {
            ScaffoldMessenger.of(context).showSnackBar(
@@ -105,7 +107,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       return;
     }
 
-    // 1. Trigger Background Upload
+    // 1. Trigger Background Upload (Raw)
     ref.read(uploadProvider.notifier).startUpload(
       videoFile: File(_pickedVideo!.path), 
       title: _titleController.text.trim(), 
@@ -130,7 +132,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     setMainTabIndex(0);
     
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Posting video... Check progress below.')),
+      const SnackBar(content: Text('Posting video...')),
     );
   }
 
