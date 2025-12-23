@@ -5,14 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
-// import 'package:xprex/services/auth_service.dart'; // Unused in this file, but fine to keep if needed
 
 // State class to hold UI data
 class UploadState {
   final bool isUploading;
   final double progress;
   final String status;
-  // "Uploading...", "Success"
   final String? errorMessage;
 
   UploadState({
@@ -32,9 +30,19 @@ class UploadState {
       isUploading: isUploading ?? this.isUploading,
       progress: progress ?? this.progress,
       status: status ?? this.status,
-      errorMessage: errorMessage, // Null resets error
+      errorMessage: errorMessage,
     );
   }
+}
+
+// Helper function for background isolation
+Future<Uint8List?> _generateThumbnailInBackground(String path) async {
+  return await VideoThumbnail.thumbnailData(
+    video: path,
+    imageFormat: ImageFormat.JPEG,
+    maxWidth: 480,
+    quality: 75,
+  );
 }
 
 // The Background Worker
@@ -50,7 +58,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
     required String description,
     required List<String> tags,
     required String userId,
-    required int categoryId, // <--- NEW: Category ID Required
+    required int categoryId,
     required int durationSeconds,
   }) async {
     // 1. Reset State
@@ -59,17 +67,13 @@ class UploadNotifier extends StateNotifier<UploadState> {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // 2. GENERATE THUMBNAIL (From original)
-      final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
-        video: videoFile.path,
-        imageFormat: ImageFormat.JPEG,
-        maxWidth: 480,
-        quality: 75,
-      );
+      // 2. GENERATE THUMBNAIL (IN BACKGROUND ISOLATE)
+      // This prevents the UI from freezing
+      final Uint8List? thumbBytes = await compute(_generateThumbnailInBackground, videoFile.path);
+      
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
       // 3. UPLOAD RAW VIDEO (R2)
-      // No compression. Pure speed.
       state = state.copyWith(status: 'Uploading Video...', progress: 0.10);
 
       final String videoPath = await _storage.uploadVideoWithProgress(
@@ -77,7 +81,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
         timestamp: timestamp,
         file: videoFile,
         onProgress: (sent, total) {
-          // Map upload to 0.10 -> 0.90 global progress
           final mapped = 0.10 + ((sent / total) * 0.80);
           state = state.copyWith(progress: mapped);
         },
@@ -91,7 +94,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         bytes: thumbBytes,
       );
 
-      // 5. SAVE METADATA (Now with Category)
+      // 5. SAVE METADATA
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoPath,
@@ -100,7 +103,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         coverImageUrl: thumbnailUrl,
         duration: durationSeconds,
         tags: tags,
-        categoryId: categoryId, // <--- Saving Category
+        categoryId: categoryId,
       );
 
       // 6. SUCCESS
@@ -115,7 +118,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
   }
 }
 
-// Global Provider Definition
 final uploadProvider = StateNotifierProvider<UploadNotifier, UploadState>((ref) {
   return UploadNotifier();
 });
