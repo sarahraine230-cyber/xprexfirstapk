@@ -1,13 +1,20 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:xprex/screens/feed_screen.dart';
-import 'package:xprex/screens/search_screen.dart';
-import 'package:xprex/screens/upload_screen.dart';
-import 'package:xprex/screens/profile_screen.dart';
-import 'package:xprex/providers/upload_provider.dart'; // IMPORT PROVIDER
+import 'package:image_picker/image_picker.dart';
+import 'package:video_player/video_player.dart';
+import 'package:xprex/screens/feed/feed_screen.dart';
+import 'package:xprex/screens/profile/profile_screen.dart';
+import 'package:xprex/screens/upload/upload_screen.dart';
+import 'package:xprex/services/auth_service.dart';
 
+// Global key to control navigation from anywhere
 final GlobalKey<_MainShellState> mainShellKey = GlobalKey<_MainShellState>();
-void setMainTabIndex(int index) => mainShellKey.currentState?.setIndex(index);
+
+// Helper to switch tabs globally
+void setMainTabIndex(int index) {
+  mainShellKey.currentState?.setIndex(index);
+}
 
 class MainShell extends ConsumerStatefulWidget {
   const MainShell({super.key});
@@ -17,135 +24,145 @@ class MainShell extends ConsumerStatefulWidget {
 }
 
 class _MainShellState extends ConsumerState<MainShell> {
-  int _currentIndex = 0;
-  
-  Key _feedKey = const PageStorageKey('feed');
-  final _searchKey = const PageStorageKey('search');
-  final _uploadKey = const PageStorageKey('upload');
-  final _profileKey = const PageStorageKey('profile');
+  int _selectedIndex = 0;
+  final _authService = AuthService();
+  final _picker = ImagePicker();
+
+  // Only Home and Profile are actual tabs now
+  static const List<Widget> _tabOptions = <Widget>[
+    FeedScreen(),
+    SizedBox.shrink(), // Placeholder for Index 1 (Upload)
+    ProfileScreen(),
+  ];
+
+  void setIndex(int index) {
+    if (index == 1) return; // Don't allow programmatically setting to the placeholder
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  // --- THE BOUNCER LOGIC (Moves here) ---
+  Future<void> _handleUploadTap() async {
+    // 1. Check Auth
+    final user = _authService.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please login to upload')));
+      // Optional: Navigate to login screen here
+      return;
+    }
+
+    // 2. Pick Video (Soft limit)
+    final XFile? video = await _picker.pickVideo(
+      source: ImageSource.gallery,
+      maxDuration: const Duration(seconds: 60),
+    );
+
+    if (video == null) return; // User cancelled
+
+    // 3. Strict Checks (Duration & Size)
+    final file = File(video.path);
+    VideoPlayerController? controller;
+    try {
+      controller = VideoPlayerController.file(file);
+      await controller.initialize();
+      final duration = controller.value.duration.inSeconds;
+      final sizeInMb = file.lengthSync() / (1024 * 1024);
+      await controller.dispose(); // Done checking
+
+      if (duration > 61) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              backgroundColor: Colors.red,
+              content: Text('Video is ${duration}s. Max 60s allowed.'),
+              duration: const Duration(seconds: 4)));
+        }
+        return;
+      }
+      if (sizeInMb > 500) {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(content: Text('File too large (>500MB)')));
+         }
+        return;
+      }
+
+      // 4. SUCCESS! Navigate to Metadata Screen
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => UploadScreen(videoFile: file),
+          ),
+        );
+      }
+
+    } catch (e) {
+      debugPrint("Error checking video: $e");
+      await controller?.dispose();
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+             const SnackBar(content: Text('Error reading video file')));
+      }
+    }
+  }
 
   void _onItemTapped(int index) {
-    if (index == 0 && _currentIndex == 0) {
+    if (index == 1) {
+      // If "+" is tapped, run the action, don't switch tabs
+      _handleUploadTap();
+    } else {
+      // Otherwise switch tabs normally
       setState(() {
-        _feedKey = UniqueKey();
+        _selectedIndex = index;
       });
     }
-    setState(() => _currentIndex = index);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
-      body: Stack(
-        children: [
-          // 1. The Main Content
-          IndexedStack(
-            index: _currentIndex,
-            children: [
-              FeedScreen(key: _feedKey, isVisible: _currentIndex == 0),
-              SearchScreen(key: _searchKey),
-              UploadScreen(key: _uploadKey),
-              ProfileScreen(key: _profileKey),
-            ],
-          ),
-          
-          // 2. The Global Upload Progress Overlay
-          const _UploadStatusOverlay(),
-        ],
+      key: mainShellKey,
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: _tabOptions,
       ),
-      
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
+        currentIndex: _selectedIndex,
         onTap: _onItemTapped,
-        type: BottomNavigationBarType.fixed,
+        backgroundColor: isDark ? Colors.black : Colors.white,
         selectedItemColor: theme.colorScheme.primary,
-        unselectedItemColor: theme.colorScheme.onSurfaceVariant,
-        backgroundColor: Colors.black,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Feed'),
-          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Discover'),
-          BottomNavigationBarItem(icon: Icon(Icons.add_circle_outline), label: 'Upload'),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        unselectedItemColor: Colors.grey,
+        showSelectedLabels: false,
+        showUnselectedLabels: false,
+        type: BottomNavigationBarType.fixed,
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined, size: 28),
+            activeIcon: Icon(Icons.home, size: 28),
+            label: 'Home',
+          ),
+          // THE UPLOAD ACTION BUTTON
+          BottomNavigationBarItem(
+            icon: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.add, color: isDark ? Colors.black : Colors.white, size: 28),
+            ),
+            label: 'Upload',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline, size: 28),
+            activeIcon: Icon(Icons.person, size: 28),
+            label: 'Profile',
+          ),
         ],
-      ),
-    );
-  }
-
-  void setIndex(int index) {
-    if (index == _currentIndex) return;
-    setState(() => _currentIndex = index);
-  }
-}
-
-class _UploadStatusOverlay extends ConsumerWidget {
-  const _UploadStatusOverlay();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final uploadState = ref.watch(uploadProvider);
-
-    // If not uploading and no error, hide
-    if (!uploadState.isUploading && uploadState.errorMessage == null) {
-      return const SizedBox.shrink();
-    }
-
-    // If Error, show SnackBar-like error (you might want a proper snackbar, but this works globally)
-    if (uploadState.errorMessage != null) {
-      // In a real app, use a Toast or showDialog. 
-      // For now, we rely on the console log or transient UI. 
-      // Returning empty because the provider resets 'isUploading' on error, 
-      // but keeps 'errorMessage' if we wanted to show it.
-      // Let's hide it to prevent blocking UI, user will retry.
-      return const SizedBox.shrink();
-    }
-
-    // Show Progress Bar
-    return Positioned(
-      bottom: 0, 
-      left: 0, 
-      right: 0,
-      child: Container(
-        color: Colors.grey[900],
-        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 40, 
-              height: 40,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  CircularProgressIndicator(
-                    value: uploadState.progress, 
-                    color: Colors.cyanAccent, 
-                    strokeWidth: 3,
-                    backgroundColor: Colors.white24,
-                  ),
-                  const Icon(Icons.upload, color: Colors.white, size: 20),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    uploadState.status,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${(uploadState.progress * 100).toStringAsFixed(0)}%',
-                    style: const TextStyle(color: Colors.white70, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
