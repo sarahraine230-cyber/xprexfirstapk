@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/providers/upload_provider.dart';
+// Note: We don't need MainShell import here anymore as we just pop() on success
 
 class UploadScreen extends ConsumerStatefulWidget {
   // NOW REQUIRES THE FILE BE PASSED IN
@@ -32,9 +33,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   void initState() {
     super.initState();
     _fetchCategories();
-    // Initialize the player with the passed file
+    // Initialize the player with the passed file immediately
     _playerController = VideoPlayerController.file(widget.videoFile)
       ..initialize().then((_) {
+        // Ensure the video loops and plays so the user can see what they picked
         setState(() {});
         _playerController!.setLooping(true);
         _playerController!.play();
@@ -88,10 +90,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       durationSeconds: _playerController?.value.duration.inSeconds ?? 0,
     );
 
-    // Close this screen
+    // Close this screen and go back to feed
     _playerController?.pause();
     if (mounted) {
-      Navigator.of(context).pop(); // Close modal
+      Navigator.of(context).pop(); // Close the upload form
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posting video...')));
     }
   }
