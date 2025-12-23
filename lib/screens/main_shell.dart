@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-import 'package:xprex/screens/feed/feed_screen.dart';
-import 'package:xprex/screens/profile/profile_screen.dart';
-import 'package:xprex/screens/upload/upload_screen.dart';
+// FIXED IMPORTS (Flat Structure)
+import 'package:xprex/screens/feed_screen.dart';
+import 'package:xprex/screens/profile_screen.dart';
+import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/services/auth_service.dart';
 
 // Global key to control navigation from anywhere
@@ -28,7 +29,8 @@ class _MainShellState extends ConsumerState<MainShell> {
   final _authService = AuthService();
   final _picker = ImagePicker();
 
-  // Only Home and Profile are actual tabs now
+  // Only Home and Profile are actual tabs now. 
+  // We use SizedBox.shrink() for the middle tab because we handle the tap manually.
   static const List<Widget> _tabOptions = <Widget>[
     FeedScreen(),
     SizedBox.shrink(), // Placeholder for Index 1 (Upload)
@@ -42,14 +44,13 @@ class _MainShellState extends ConsumerState<MainShell> {
     });
   }
 
-  // --- THE BOUNCER LOGIC (Moves here) ---
+  // --- THE BOUNCER LOGIC ---
   Future<void> _handleUploadTap() async {
     // 1. Check Auth
     final user = _authService.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please login to upload')));
-      // Optional: Navigate to login screen here
       return;
     }
 
@@ -64,6 +65,14 @@ class _MainShellState extends ConsumerState<MainShell> {
     // 3. Strict Checks (Duration & Size)
     final file = File(video.path);
     VideoPlayerController? controller;
+    
+    // Show a loading indicator while we check the file
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Checking video...'), duration: Duration(milliseconds: 500))
+      );
+    }
+
     try {
       controller = VideoPlayerController.file(file);
       await controller.initialize();
@@ -88,7 +97,7 @@ class _MainShellState extends ConsumerState<MainShell> {
         return;
       }
 
-      // 4. SUCCESS! Navigate to Metadata Screen
+      // 4. SUCCESS! Navigate to Metadata Screen with the file
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
