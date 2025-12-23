@@ -12,8 +12,8 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
-import 'package:xprex/theme.dart';
-import 'package:xprex/widgets/comment_sheet.dart'; // We will create this next
+import 'package:xprex/widgets/comment_sheet.dart';
+import 'package:xprex/widgets/social_rail.dart'; // <--- IMPORT THE NEW RAIL
 
 class VideoFeedItem extends StatefulWidget {
   final VideoModel video;
@@ -41,11 +41,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   CachedVideoPlayerPlusController? _controller;
   
+  // State for Social Actions
   bool _isLiked = false;
   int _likeCount = 0;
   int _commentsCount = 0;
   int _shareCount = 0;
-  
   bool _isSaved = false;
   int _saveCount = 0;
   bool _isReposted = false;
@@ -106,10 +106,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
         _videoService.getShareCount(widget.video.id).then((count) {
           if (mounted) setState(() => _shareCount = count);
         });
-      } else {
-        _videoService.getShareCount(widget.video.id).then((count) {
-          if (mounted) setState(() => _shareCount = count);
-        });
       }
       _updatePlayState();
     } catch (e) {
@@ -121,9 +117,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   void _updatePlayState() {
     if (_controller == null) return;
-    final shouldPlay = widget.feedVisible && widget.isActive;
-    
-    if (shouldPlay) {
+    if (widget.feedVisible && widget.isActive) {
       _controller!.play();
       _maybeEnableWakelock();
       _startWatchTimer();
@@ -132,7 +126,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _maybeDisableWakelock();
       _stopWatchTimer();
     }
-    // No setState here to avoid unnecessary rebuilds, the video texture handles itself
   }
 
   void _startWatchTimer() {
@@ -155,7 +148,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _secondsWatched = 0;
       return;
     }
-
     try {
       final uid = supabase.auth.currentUser?.id;
       if (uid != null) {
@@ -174,97 +166,74 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     }
   }
 
+  // --- ACTIONS ---
   Future<void> _toggleLike() async {
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return _showAuthSnack('like');
+    
+    setState(() {
+      _isLiked = !_isLiked;
+      _likeCount += _isLiked ? 1 : -1;
+    });
+    widget.onLikeToggled?.call();
     try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to like')));
-        return;
-      }
-      final previousLiked = _isLiked;
-      setState(() {
-        _isLiked = !previousLiked;
-        _likeCount += _isLiked ? 1 : -1;
-      });
-      widget.onLikeToggled?.call();
-
-      final liked = await _videoService.toggleLike(widget.video.id, uid);
-      if (liked != _isLiked && mounted) {
-        setState(() {
-          _isLiked = liked;
-          _likeCount += liked ? 1 : -1;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLiked = !_isLiked;
-          _likeCount += _isLiked ? 1 : -1;
-        });
-      }
+      await _videoService.toggleLike(widget.video.id, uid);
+    } catch (_) {
+      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     }
   }
 
   Future<void> _toggleSave() async {
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return _showAuthSnack('save');
+    
+    setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
     try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to save')));
-        return;
-      }
-      
-      final prev = _isSaved;
-      setState(() {
-        _isSaved = !prev;
-        _saveCount += _isSaved ? 1 : -1;
-      });
-      final saved = await _saveService.toggleSave(widget.video.id, uid);
-      
-      if (mounted && saved != _isSaved) {
-        setState(() {
-          _isSaved = saved;
-          _saveCount += saved ? 1 : -1; 
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-           _isSaved = !_isSaved;
-           _saveCount += _isSaved ? 1 : -1;
-        });
-      }
+      await _saveService.toggleSave(widget.video.id, uid);
+    } catch (_) {
+      setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
     }
   }
 
   Future<void> _toggleRepost() async {
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return _showAuthSnack('repost');
+
+    setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
     try {
-      final uid = supabase.auth.currentUser?.id;
-      if (uid == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to repost')));
-        return;
-      }
-      
-      final prev = _isReposted;
-      setState(() {
-        _isReposted = !prev;
-        _repostCount += _isReposted ? 1 : -1;
-      });
-      final reposted = await _repostService.toggleRepost(widget.video.id, uid);
-      
-      if (mounted && reposted != _isReposted) {
-        setState(() {
-          _isReposted = reposted;
-          _repostCount += reposted ? 1 : -1;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isReposted = !_isReposted;
-          _repostCount += _isReposted ? 1 : -1;
-        });
-      }
+      await _repostService.toggleRepost(widget.video.id, uid);
+    } catch (_) {
+      setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
     }
+  }
+  
+  void _showAuthSnack(String action) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Please sign in to $action')));
+  }
+
+  void _openComments() {
+    _controller?.pause();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CommentsSheet(
+        videoId: widget.video.id,
+        initialCount: _commentsCount,
+        onNewComment: () => setState(() => _commentsCount++),
+      ),
+    ).whenComplete(() {
+      if (widget.feedVisible && widget.isActive) _controller?.play();
+    });
+  }
+
+  Future<void> _handleShare() async {
+    final deepLink = AppLinks.videoLink(widget.video.id);
+    final url = deepLink.isNotEmpty ? deepLink : await _storage.resolveVideoUrl(widget.video.storagePath);
+    await Share.share(url);
+    setState(() => _shareCount++);
+    final uid = supabase.auth.currentUser?.id;
+    if (uid != null) _videoService.recordShare(widget.video.id, uid);
   }
 
   @override
@@ -275,89 +244,22 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   }
 
   void _disposeController() {
-    try {
-      _controller?.dispose();
-    } catch (_) {}
+    try { _controller?.dispose(); } catch (_) {}
     _controller = null;
-  }
-
-  void _openComments() {
-    final wasPlaying = _controller?.value.isPlaying == true;
-    try {
-      _controller?.pause();
-      _maybeDisableWakelock();
-    } catch (_) {}
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return CommentsSheet(
-          videoId: widget.video.id,
-          initialCount: _commentsCount,
-          onNewComment: () {
-            setState(() => _commentsCount += 1);
-          },
-        );
-      },
-    ).whenComplete(() {
-      if (wasPlaying && widget.feedVisible && widget.isActive) {
-        try {
-          _controller?.play();
-          _maybeEnableWakelock();
-        } catch (_) {}
-      }
-    });
-  }
-
-  Future<void> _handleShare() async {
-    try {
-      final deepLink = AppLinks.videoLink(widget.video.id);
-      final url = deepLink.isNotEmpty
-          ? deepLink
-          : await _storage.resolveVideoUrl(widget.video.storagePath, expiresIn: 60 * 60);
-      await Share.share(url);
-      final uid = supabase.auth.currentUser?.id;
-      if (uid != null) {
-        await _videoService.recordShare(widget.video.id, uid);
-      }
-      setState(() => _shareCount += 1);
-    } catch (e) {
-      debugPrint('❌ share failed: $e');
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final neon = Theme.of(context).extension<NeonAccentTheme>();
     final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
-    final h = size.height;
-    final double railHeight = h <= 640
-        ? h * 0.44
-        : (h <= 780 ? h * 0.41 : (h <= 900 ? h * 0.38 : h * 0.36));
-    final double bottomGuard = padding.bottom + 88.0;
-    
-    final double _previous = (58.0 * (h / 800.0)).clamp(56.0, 64.0);
-    final double iconSize = ((_previous * 1.82).clamp(90.0, 120.0)) * 2.0;
-    
-    const double baseIcon = 32.0;
-    const double baseSmallGap = 6.0;
-    const double baseGroupGap = 14.0;
-    
-    final double scaleRatio = iconSize / baseIcon;
-    final double smallGap = (baseSmallGap * scaleRatio).clamp(5.0, 8.0);
-    final double groupGap = (baseGroupGap * scaleRatio).clamp(12.0, 18.0);
-    final authorName = (widget.video.authorDisplayName != null && widget.video.authorDisplayName!.trim().isNotEmpty)
-        ? widget.video.authorDisplayName!
-        : (widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : 'Unknown');
-        
+    final railHeight = size.height * 0.4;
+    final bottomGuard = padding.bottom + 88.0;
+
     return Container(
       color: Colors.black,
       child: Stack(
         children: [
+          // 1. VIDEO PLAYER
           Positioned.fill(
             child: _controller != null && _controller!.value.isInitialized
                 ? FittedBox(
@@ -372,31 +274,21 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     ? Image.network(widget.video.coverImageUrl!, fit: BoxFit.cover)
                     : Container(color: Colors.black)),
           ),
-          // Tap to Play/Pause
+          
+          // 2. TAP TO PAUSE
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
-                  if (_controller == null) return;
-                  if (_controller!.value.isPlaying) {
-                    _controller!.pause();
-                    _maybeDisableWakelock();
-                    _stopWatchTimer();
-                  } else {
-                    if (widget.feedVisible && widget.isActive) {
-                      _controller!.play();
-                      _maybeEnableWakelock();
-                      _startWatchTimer();
-                    }
-                  }
-                  // No setState needed for video toggle
+                   if (_controller == null) return;
+                   _controller!.value.isPlaying ? _controller!.pause() : _controller!.play();
                 },
               ),
             ),
           ),
           
-          // --- BOTTOM LEFT SECTION ---
+          // 3. BOTTOM INFO
           Positioned(
             bottom: 80,
             left: 16,
@@ -404,168 +296,47 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.video.repostedByUsername != null)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2), 
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.repeat, color: Colors.white, size: 12),
-                        const SizedBox(width: 4),
-                        Text(
-                          '${widget.video.repostedByUsername} reposted',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                Row(
-                  children: [
-                    GestureDetector(
-                      onTap: () async {
-                        try {
-                          _controller?.pause();
-                          _maybeDisableWakelock();
-                        } catch (_) {}
-                        if (widget.video.authorAuthUserId.isNotEmpty) {
-                          await context.push('/u/${widget.video.authorAuthUserId}');
-                          try { if (widget.feedVisible && widget.isActive) _controller?.play(); } catch (_) {}
-                        }
-                      },
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.white.withValues(alpha: 0.15),
-                        backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
-                            ? NetworkImage(widget.video.authorAvatarUrl!)
-                            : null,
-                        child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
-                            ? const Icon(Icons.person_outline, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          try {
-                            _controller?.pause();
-                            _maybeDisableWakelock();
-                          } catch (_) {}
-                          if (widget.video.authorAuthUserId.isNotEmpty) {
-                            await context.push('/u/${widget.video.authorAuthUserId}');
-                            try { if (widget.feedVisible && widget.isActive) _controller?.play(); } catch (_) {}
-                          }
-                        },
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(authorName, style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
-                            if (widget.video.authorDisplayName == null || widget.video.authorDisplayName!.trim().isEmpty)
-                              Text(widget.video.authorUsername != null ? '@${widget.video.authorUsername}' : '', style: theme.textTheme.labelSmall?.copyWith(color: Colors.white.withValues(alpha: 0.8))),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                Row(children: [
+                  CircleAvatar(radius: 18, backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50')),
+                  const SizedBox(width: 8),
+                  Text('@${widget.video.authorUsername ?? "User"}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ]),
                 const SizedBox(height: 8),
-                Text(widget.video.title, style: theme.textTheme.titleLarge?.copyWith(color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
-                if (widget.video.description != null)
-                  Text(widget.video.description!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
+                Text(widget.video.title, style: const TextStyle(color: Colors.white, fontSize: 16)),
               ],
             ),
           ),
           
-          // --- RIGHT RAIL ---
+          // 4. SOCIAL RAIL (MODULAR WIDGET)
           Positioned(
-            right: 12,
-            bottom: (bottomGuard - (railHeight * 0.20)).clamp(padding.bottom + 12.0, double.infinity),
+            right: 8,
+            bottom: bottomGuard,
             child: SizedBox(
-              height: railHeight,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.bottomCenter,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _NeonRailButton(
-                      icon: _isLiked ? Icons.favorite : Icons.favorite_border,
-                      size: iconSize,
-                      onTap: _toggleLike,
-                      color: Colors.white,
-                      glow: neon?.purple ?? theme.colorScheme.primary,
-                      background: Colors.transparent,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _likeCount, glowColor: neon?.purple ?? theme.colorScheme.primary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.comment,
-                      size: iconSize,
-                      onTap: _openComments,
-                      color: Colors.white,
-                      glow: neon?.cyan ?? theme.colorScheme.secondary,
-                      background: Colors.transparent,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _commentsCount, glowColor: neon?.cyan ?? theme.colorScheme.secondary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.share,
-                      size: iconSize,
-                      onTap: _handleShare,
-                      color: Colors.white,
-                      glow: neon?.blue ?? theme.colorScheme.tertiary,
-                      background: Colors.transparent,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _shareCount, glowColor: neon?.blue ?? theme.colorScheme.tertiary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: _isSaved ? Icons.bookmark : Icons.bookmark_border,
-                      size: iconSize,
-                      onTap: _toggleSave,
-                      color: Colors.white,
-                      glow: neon?.blue ?? theme.colorScheme.primary,
-                      background: Colors.transparent,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _saveCount, glowColor: neon?.blue ?? theme.colorScheme.primary, textScale: 2.0),
-                    SizedBox(height: groupGap),
-                    _NeonRailButton(
-                      icon: Icons.repeat,
-                      size: iconSize,
-                      onTap: _toggleRepost,
-                      color: Colors.white,
-                      glow: neon?.purple ?? theme.colorScheme.secondary,
-                      background: Colors.transparent,
-                    ),
-                    SizedBox(height: smallGap),
-                    _countBadge(context, _repostCount, glowColor: neon?.purple ?? theme.colorScheme.secondary, textScale: 2.0),
-                  ],
-                ),
+              width: 60,
+              child: SocialRail(
+                isLiked: _isLiked,
+                likeCount: _likeCount,
+                onLike: _toggleLike,
+                commentsCount: _commentsCount,
+                onComment: _openComments,
+                shareCount: _shareCount,
+                onShare: _handleShare,
+                isSaved: _isSaved,
+                saveCount: _saveCount,
+                onSave: _toggleSave,
+                isReposted: _isReposted,
+                repostCount: _repostCount,
+                onRepost: _toggleRepost,
               ),
             ),
           ),
-          if (_loading)
-            const Center(child: CircularProgressIndicator(color: Colors.white)),
+          
+          if (_loading) const Center(child: CircularProgressIndicator(color: Colors.white)),
         ],
       ),
     );
   }
 }
-
-// --- HELPER WIDGETS ---
 
 void _maybeEnableWakelock() {
   if (kIsWeb) return;
@@ -575,76 +346,4 @@ void _maybeEnableWakelock() {
 void _maybeDisableWakelock() {
   if (kIsWeb) return;
   try { WakelockPlus.disable(); } catch (_) {}
-}
-
-Widget _countBadge(BuildContext context, int count, {Color? glowColor, double textScale = 1.0}) {
-  return Text(
-    '$count',
-    textAlign: TextAlign.center,
-    style: TextStyle(
-      color: Colors.white,
-      fontSize: 10.0 * textScale,
-      fontWeight: FontWeight.w600,
-      letterSpacing: 0.0,
-      height: 0.98,
-      shadows: [
-        if (glowColor != null)
-          BoxShadow(color: glowColor.withValues(alpha: 0.6), blurRadius: 4, spreadRadius: 2),
-      ],
-    ),
-  );
-}
-
-class _NeonRailButton extends StatefulWidget {
-  final IconData icon;
-  final double size;
-  final VoidCallback onTap;
-  final Color color;
-  final Color glow;
-  final Color background;
-
-  const _NeonRailButton({
-    required this.icon,
-    required this.size,
-    required this.onTap,
-    required this.color,
-    required this.glow,
-    required this.background,
-  });
-
-  @override
-  State<_NeonRailButton> createState() => _NeonRailButtonState();
-}
-
-class _NeonRailButtonState extends State<_NeonRailButton> {
-  bool _pressed = false;
-  @override
-  Widget build(BuildContext context) {
-    final double containerSize = widget.size + (18 * (widget.size / 36.0));
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapCancel: () => setState(() => _pressed = false),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTap: widget.onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedScale(
-        scale: _pressed ? 1.07 : 1.0,
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOutCubic,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          width: containerSize,
-          height: containerSize,
-        decoration: const BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.transparent,
-        ),
-          child: Center(
-            child: Icon(widget.icon, size: widget.size, color: widget.color),
-          ),
-        ),
-      ),
-    );
-  }
 }
