@@ -3,16 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-// FIXED IMPORTS (Flat Structure)
 import 'package:xprex/screens/feed_screen.dart';
+import 'package:xprex/screens/search_screen.dart'; // Ensure this exists
 import 'package:xprex/screens/profile_screen.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/services/auth_service.dart';
+import 'package:xprex/providers/upload_provider.dart'; // Needed for overlay
 
-// Global key to control navigation from anywhere
 final GlobalKey<_MainShellState> mainShellKey = GlobalKey<_MainShellState>();
 
-// Helper to switch tabs globally
 void setMainTabIndex(int index) {
   mainShellKey.currentState?.setIndex(index);
 }
@@ -29,16 +28,8 @@ class _MainShellState extends ConsumerState<MainShell> {
   final _authService = AuthService();
   final _picker = ImagePicker();
 
-  // Only Home and Profile are actual tabs now. 
-  // We use SizedBox.shrink() for the middle tab because we handle the tap manually.
-  static const List<Widget> _tabOptions = <Widget>[
-    FeedScreen(),
-    SizedBox.shrink(), // Placeholder for Index 1 (Upload)
-    ProfileScreen(),
-  ];
-
   void setIndex(int index) {
-    if (index == 1) return; // Don't allow programmatically setting to the placeholder
+    if (index == 2) return; // Don't navigate to the placeholder upload tab
     setState(() {
       _selectedIndex = index;
     });
@@ -46,7 +37,6 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   // --- THE BOUNCER LOGIC ---
   Future<void> _handleUploadTap() async {
-    // 1. Check Auth
     final user = _authService.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -54,31 +44,28 @@ class _MainShellState extends ConsumerState<MainShell> {
       return;
     }
 
-    // 2. Pick Video (Soft limit)
     final XFile? video = await _picker.pickVideo(
       source: ImageSource.gallery,
       maxDuration: const Duration(seconds: 60),
     );
 
-    if (video == null) return; // User cancelled
+    if (video == null) return;
 
-    // 3. Strict Checks (Duration & Size)
-    final file = File(video.path);
-    VideoPlayerController? controller;
-    
-    // Show a loading indicator while we check the file
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Checking video...'), duration: Duration(milliseconds: 500))
       );
     }
 
+    final file = File(video.path);
+    VideoPlayerController? controller;
+
     try {
       controller = VideoPlayerController.file(file);
       await controller.initialize();
       final duration = controller.value.duration.inSeconds;
       final sizeInMb = file.lengthSync() / (1024 * 1024);
-      await controller.dispose(); // Done checking
+      await controller.dispose();
 
       if (duration > 61) {
         if (mounted) {
@@ -97,7 +84,6 @@ class _MainShellState extends ConsumerState<MainShell> {
         return;
       }
 
-      // 4. SUCCESS! Navigate to Metadata Screen with the file
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -117,11 +103,9 @@ class _MainShellState extends ConsumerState<MainShell> {
   }
 
   void _onItemTapped(int index) {
-    if (index == 1) {
-      // If "+" is tapped, run the action, don't switch tabs
+    if (index == 2) {
       _handleUploadTap();
     } else {
-      // Otherwise switch tabs normally
       setState(() {
         _selectedIndex = index;
       });
@@ -135,43 +119,115 @@ class _MainShellState extends ConsumerState<MainShell> {
 
     return Scaffold(
       key: mainShellKey,
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _tabOptions,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _selectedIndex,
+            children: [
+              // Tab 0: Feed (Is Active ONLY if index is 0)
+              FeedScreen(isVisible: _selectedIndex == 0),
+              
+              // Tab 1: Discover
+              const SearchScreen(),
+              
+              // Tab 2: Placeholder for Upload (never shown)
+              const SizedBox.shrink(),
+              
+              // Tab 3: Profile
+              const ProfileScreen(),
+            ],
+          ),
+          
+          // The Upload Progress Overlay
+          const _UploadStatusOverlay(),
+        ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
-        backgroundColor: isDark ? Colors.black : Colors.white,
-        selectedItemColor: theme.colorScheme.primary,
+        backgroundColor: Colors.black, // Force Black for that Premium look
+        selectedItemColor: Colors.white,
         unselectedItemColor: Colors.grey,
-        showSelectedLabels: false,
-        showUnselectedLabels: false,
+        showSelectedLabels: true,
+        showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
         items: [
           const BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined, size: 28),
-            activeIcon: Icon(Icons.home, size: 28),
+            icon: Icon(Icons.home_filled),
             label: 'Home',
           ),
-          // THE UPLOAD ACTION BUTTON
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.search),
+            label: 'Discover',
+          ),
+          // THE CUSTOM UPLOAD BUTTON
           BottomNavigationBarItem(
             icon: Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                shape: BoxShape.circle,
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
               ),
-              child: Icon(Icons.add, color: isDark ? Colors.black : Colors.white, size: 28),
+              child: const Icon(Icons.add, color: Colors.black, size: 20),
             ),
-            label: 'Upload',
+            label: '',
           ),
           const BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline, size: 28),
-            activeIcon: Icon(Icons.person, size: 28),
+            icon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _UploadStatusOverlay extends ConsumerWidget {
+  const _UploadStatusOverlay();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uploadState = ref.watch(uploadProvider);
+    
+    if (!uploadState.isUploading && uploadState.errorMessage == null) {
+      return const SizedBox.shrink();
+    }
+
+    if (uploadState.errorMessage != null) {
+      return const SizedBox.shrink(); // Errors handled by SnackBar usually
+    }
+
+    return Positioned(
+      top: MediaQuery.of(context).padding.top + 10,
+      left: 16, 
+      right: 16,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.grey[900],
+          borderRadius: BorderRadius.circular(8),
+          boxShadow: [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24, height: 24,
+              child: CircularProgressIndicator(
+                value: uploadState.progress, 
+                color: Colors.cyanAccent, 
+                strokeWidth: 3,
+                backgroundColor: Colors.white24,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                "${uploadState.status} ${(uploadState.progress * 100).toStringAsFixed(0)}%",
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
