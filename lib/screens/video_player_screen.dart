@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/screens/feed_screen.dart'; // Needed for VideoFeedItem
+import 'package:xprex/widgets/feed_item.dart'; // <--- UPDATED IMPORT (Points to the new modular file)
 
 class VideoPlayerScreen extends StatefulWidget {
   final List<VideoModel> videos;
@@ -52,7 +52,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           setState(() => _activeIndex = index);
         },
         itemBuilder: (context, index) {
-          // Reuse the feed item logic
+          // Reuse the modular feed item logic
           return VideoFeedItem(
             video: widget.videos[index],
             isActive: index == _activeIndex,
