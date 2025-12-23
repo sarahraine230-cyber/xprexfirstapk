@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
-import 'package:xprex/services/auth_service.dart';
+// import 'package:xprex/services/auth_service.dart'; // Unused in this file, but fine to keep if needed
 
 // State class to hold UI data
 class UploadState {
   final bool isUploading;
   final double progress;
-  final String status; // "Uploading...", "Success"
+  final String status;
+  // "Uploading...", "Success"
   final String? errorMessage;
 
   UploadState({
@@ -49,14 +50,15 @@ class UploadNotifier extends StateNotifier<UploadState> {
     required String description,
     required List<String> tags,
     required String userId,
+    required int categoryId, // <--- NEW: Category ID Required
     required int durationSeconds,
   }) async {
     // 1. Reset State
     state = UploadState(isUploading: true, progress: 0.05, status: 'Preparing...');
-    
+
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      
+
       // 2. GENERATE THUMBNAIL (From original)
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
@@ -89,7 +91,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         bytes: thumbBytes,
       );
 
-      // 5. SAVE METADATA
+      // 5. SAVE METADATA (Now with Category)
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoPath,
@@ -98,11 +100,11 @@ class UploadNotifier extends StateNotifier<UploadState> {
         coverImageUrl: thumbnailUrl,
         duration: durationSeconds,
         tags: tags,
+        categoryId: categoryId, // <--- Saving Category
       );
 
       // 6. SUCCESS
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
-
     } catch (e) {
       debugPrint('❌ Critical Upload Failure: $e');
       state = state.copyWith(
