@@ -5,7 +5,6 @@ import 'package:xprex/models/video_model.dart';
 
 class VideoService {
   final SupabaseClient _supabase = supabase;
-  
   static bool _sharesFeatureAvailable = true;
   static bool _savesFeatureAvailable = true;
   static bool _repostsFeatureAvailable = true;
@@ -39,7 +38,6 @@ class VideoService {
   }
 
   // --- ANALYTICS: FULL DASHBOARD (Dynamic Date Range) ---
-  // UPDATED: Now accepts 'days' to pass to the database
   Future<Map<String, dynamic>> getAnalyticsDashboard({int days = 30}) async {
     try {
       final uid = _supabase.auth.currentUser?.id;
@@ -47,9 +45,8 @@ class VideoService {
       
       final data = await _supabase.rpc('get_analytics_dashboard', params: {
         'target_user_id': uid,
-        'days_range': days, // Pass the days to the SQL function
+        'days_range': days, 
       });
-      
       return data as Map<String, dynamic>;
     } catch (e) {
       debugPrint('❌ Error fetching analytics dashboard: $e');
@@ -83,7 +80,6 @@ class VideoService {
         'get_for_you_feed',
         params: {'viewer_id': uid, 'limit_val': limit, 'offset_val': offset},
       );
-
       final videos = (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -103,7 +99,6 @@ class VideoService {
         'get_following_feed',
         params: {'viewer_id': uid, 'limit_val': limit, 'offset_val': offset},
       );
-
       return (response as List)
           .map((json) => VideoModel.fromJson(json as Map<String, dynamic>))
           .toList();
@@ -144,6 +139,7 @@ class VideoService {
     }
   }
 
+  // --- UPDATED: createVideo NOW ACCEPTS categoryId ---
   Future<VideoModel> createVideo({
     required String authorAuthUserId,
     required String storagePath,
@@ -151,6 +147,7 @@ class VideoService {
     String? description,
     String? coverImageUrl,
     required int duration,
+    required int categoryId, // <--- NEW REQUIREMENT
     List<String> tags = const [],
   }) async {
     try {
@@ -163,16 +160,15 @@ class VideoService {
         'cover_image_url': coverImageUrl,
         'duration': duration,
         'tags': tags,
+        'category_id': categoryId, // <--- SAVING TO DB
         'created_at': now.toIso8601String(),
         'updated_at': now.toIso8601String(),
       };
-      
       final response = await _supabase
           .from('videos')
           .insert(data)
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .single();
-          
       debugPrint('✅ Video created: $title');
       return VideoModel.fromJson(response);
     } catch (e) {
