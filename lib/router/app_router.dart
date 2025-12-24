@@ -21,33 +21,54 @@ import 'package:xprex/screens/bank_details_screen.dart';
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // This watcher causes the provider to rebuild whenever auth state changes
+  final authStateAsync = ref.watch(authStateProvider);
   
   return GoRouter(
     initialLocation: '/',
-    refreshListenable: authState,
-    // 2. REGISTER THE OBSERVER HERE
+    // REMOVED refreshListenable: authStateAsync
+    // Reason: AsyncValue is not a Listenable. 
+    // Since we use ref.watch above, this provider rebuilds automatically on change.
+    
     observers: [routeObserver],
     
     redirect: (context, state) {
-      final isAuth = authState.isAuthenticated;
+      // 1. Handle Loading/Error States
+      if (authStateAsync.isLoading || authStateAsync.hasError) {
+        // If we are already on a splash screen, stay there.
+        if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
+          return null;
+        }
+        return '/brand-splash';
+      }
+
+      // 2. Unwrap the Data safely
+      final authState = authStateAsync.valueOrNull;
+      final session = authState?.session;
+      final isAuth = session != null;
+      final user = session?.user;
+
+      // 3. Define Path Variables
       final isSplash = state.uri.path == '/splash';
       final isBrandSplash = state.uri.path == '/brand-splash';
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
       final isVerify = state.uri.path == '/verify-email';
       
+      // 4. Redirect Logic
       if (!isAuth) {
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
         return '/brand-splash';
       }
 
-      final user = authState.user;
+      // Check for Username/Profile Setup
       if (user != null && user.userMetadata?['username'] == null) {
         if (state.uri.path != '/profile-setup') return '/profile-setup';
       }
 
+      // If authenticated but on auth screens, go Home
       if (isSplash || isBrandSplash || isLogin || isSignup) return '/';
+      
       return null;
     },
     routes: [
@@ -102,7 +123,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/monetization/video-earnings',
         builder: (context, state) {
-          final period = state.extra as String; 
+          final period = state.extra as String? ?? 'Monthly'; 
           return VideoEarningsScreen(period: period);
         },
       ),
