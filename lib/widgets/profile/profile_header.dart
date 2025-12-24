@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart'; // Added SharePlus
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/creator_hub_screen.dart';
-import 'package:xprex/screens/settings/settings_screen.dart';
 import 'package:xprex/screens/follow_list_screen.dart';
 
 class ProfileHeader extends StatelessWidget {
   final dynamic profile; 
   final ThemeData theme;
-
+  
   const ProfileHeader({
     super.key,
     required this.profile,
@@ -17,130 +16,176 @@ class ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 20, bottom: 20),
-      child: Column(
-        children: [
-          // 1. Avatar
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            backgroundImage: profile.avatarUrl != null 
-                ? NetworkImage(profile.avatarUrl!) 
-                : null,
-            child: profile.avatarUrl == null 
-                ? Icon(Icons.person, size: 50, color: theme.colorScheme.onSurfaceVariant) 
-                : null,
-          ),
-          const SizedBox(height: 16),
-          
-          // 2. Name & Handle
-          Text('@${profile.username}', style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey)),
-          const SizedBox(height: 8),
-          Text(profile.displayName, style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          
-          const SizedBox(height: 16),
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Column(
+          children: [
+            // 1. Avatar
+            CircleAvatar(
+              radius: 50,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              backgroundImage: profile.avatarUrl != null 
+                  ? NetworkImage(profile.avatarUrl!) 
+                  : null,
+              child: profile.avatarUrl == null 
+                  ? Icon(Icons.person, size: 50, color: theme.colorScheme.onSurfaceVariant) 
+                  : null,
+            ),
+            const SizedBox(height: 16),
+            
+            // 2. Name & Handle
+            Text(
+              profile.displayName,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                fontSize: 22,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            Text(
+              '@${profile.username}',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            
+            const SizedBox(height: 16),
 
-          // 3. Stats (FIXED: Using correct API and Real Data)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _StatButton(
-                label: 'Following', 
-                // Restore real count from profile object
-                count: profile.followingCount ?? 0, 
-                // FIX: Use named parameters 'userId' and 'type'
-                onTap: () => Navigator.push(
-                  context, 
-                  MaterialPageRoute(
-                    builder: (_) => FollowListScreen(
-                      userId: profile.authUserId, 
-                      type: 'following',
-                    ),
+            // 3. STATS ROW (CLICKABLE)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Followers
+                InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (ctx) => FollowListScreen(
+                          userId: profile.authUserId, 
+                          type: 'followers'
+                        ),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    '${profile.followersCount} followers',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
-              ),
-              const SizedBox(width: 24),
-              _StatButton(
-                label: 'Followers', 
-                // Restore real count
-                count: profile.followersCount ?? 0, 
-                // FIX: Use named parameters 'userId' and 'type'
-                onTap: () => Navigator.push(
-                  context, 
-                  MaterialPageRoute(
-                    builder: (_) => FollowListScreen(
-                      userId: profile.authUserId, 
-                      type: 'followers',
-                    ),
+                
+                const SizedBox(width: 8),
+                const Text('·'),
+                const SizedBox(width: 8),
+                
+                // Following
+                InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (ctx) => FollowListScreen(
+                          userId: profile.authUserId, 
+                          type: 'following'
+                        ),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    '${profile.followingCount} following',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
-              ),
-              const SizedBox(width: 24),
-              // Likes usually don't have a navigation screen in this context, keeping as column
-              _StatColumn(
-                label: 'Likes', 
-                count: profile.likesCount ?? 0
-              ),
-            ],
-          ),
+              ],
+            ),
 
-          const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
-          // 4. Action Buttons
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileSetupScreen())), 
-                child: const Text('Edit Profile')
+            // 4. BIO
+            if (profile.bio != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                child: Text(
+                  profile.bio!,
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CreatorHubScreen())), 
-                icon: const Icon(Icons.bar_chart),
-                tooltip: 'Creator Hub',
-              ),
-              IconButton(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())), 
-                icon: const Icon(Icons.settings),
-                tooltip: 'Settings',
-              ),
-            ],
-          ),
-        ],
+
+            const SizedBox(height: 24),
+
+            // 5. ACTION ROW: Creator Hub | Share | Edit
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // HERO BUTTON: Creator Hub
+                FilledButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => const CreatorHubScreen()),
+                    );
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFE60023), // Pinterest Red
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                  child: const Text(
+                    'Creator Hub', 
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                  
+                // Share Button
+                InkWell(
+                  onTap: () {
+                    Share.share('Check out my profile on XpreX: @${profile.username}');
+                  },
+                  borderRadius: BorderRadius.circular(30),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                    ),
+                    child: Icon(Icons.share, size: 20, color: theme.colorScheme.onSurface),
+                  ),
+                ),
+                
+                const SizedBox(width: 8),
+
+                // Edit Button
+                InkWell(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => ProfileSetupScreen(originalProfile: profile),
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(30),
+                  child: Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                    ),
+                    child: Icon(Icons.edit, size: 20, color: theme.colorScheme.onSurface),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
       ),
-    );
-  }
-}
-
-class _StatButton extends StatelessWidget {
-  final String label;
-  final int count;
-  final VoidCallback onTap;
-  const _StatButton({required this.label, required this.count, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: _StatColumn(label: label, count: count),
-    );
-  }
-}
-
-class _StatColumn extends StatelessWidget {
-  final String label;
-  final int count;
-  const _StatColumn({required this.label, required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text('$count', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
-      ],
     );
   }
 }
