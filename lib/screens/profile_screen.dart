@@ -62,7 +62,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'videos',
-          filter: 'author_auth_user_id=eq.$userId',
+          // FIX: Use PostgresChangeFilter object instead of String
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'author_auth_user_id',
+            value: userId,
+          ),
           callback: (payload) {
             // Logic: If a video updates, refresh the 'Created' list
             if (mounted) {
