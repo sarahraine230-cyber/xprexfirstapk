@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:xprex/models/user_profile.dart'; // Ensure this exists or use whatever model you have
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/creator_hub_screen.dart';
 import 'package:xprex/screens/settings/settings_screen.dart';
-import 'package:xprex/screens/follow_list_screen.dart'; // Restored Import
+import 'package:xprex/screens/follow_list_screen.dart';
 
 class ProfileHeader extends StatelessWidget {
-  final dynamic profile; // Accepting dynamic to fit your specific Profile Model
+  final dynamic profile; 
   final ThemeData theme;
 
   const ProfileHeader({
@@ -42,29 +41,53 @@ class ProfileHeader extends StatelessWidget {
           
           const SizedBox(height: 16),
 
-          // 3. Stats (Restored Navigation to Follow List)
+          // 3. Stats (FIXED: Using correct API and Real Data)
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _StatButton(
                 label: 'Following', 
-                count: 0, // Hook up real stats later if needed
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FollowListScreen(initialTab: 0))),
+                // Restore real count from profile object
+                count: profile.followingCount ?? 0, 
+                // FIX: Use named parameters 'userId' and 'type'
+                onTap: () => Navigator.push(
+                  context, 
+                  MaterialPageRoute(
+                    builder: (_) => FollowListScreen(
+                      userId: profile.authUserId, 
+                      type: 'following',
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 24),
               _StatButton(
                 label: 'Followers', 
-                count: 0, 
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FollowListScreen(initialTab: 1))),
+                // Restore real count
+                count: profile.followersCount ?? 0, 
+                // FIX: Use named parameters 'userId' and 'type'
+                onTap: () => Navigator.push(
+                  context, 
+                  MaterialPageRoute(
+                    builder: (_) => FollowListScreen(
+                      userId: profile.authUserId, 
+                      type: 'followers',
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 24),
-              _StatColumn(label: 'Likes', count: 0),
+              // Likes usually don't have a navigation screen in this context, keeping as column
+              _StatColumn(
+                label: 'Likes', 
+                count: profile.likesCount ?? 0
+              ),
             ],
           ),
 
           const SizedBox(height: 16),
 
-          // 4. Action Buttons (Restored Layout)
+          // 4. Action Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
