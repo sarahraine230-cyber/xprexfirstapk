@@ -40,7 +40,6 @@ class UploadState {
 class UploadNotifier extends StateNotifier<UploadState> {
   // We need 'Ref' to invalidate other providers
   final Ref ref; 
-
   UploadNotifier(this.ref) : super(UploadState());
 
   final _storage = StorageService();
@@ -56,10 +55,9 @@ class UploadNotifier extends StateNotifier<UploadState> {
     required int durationSeconds,
   }) async {
     state = UploadState(isUploading: true, progress: 0.05, status: 'Preparing...');
-
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-
+      
       // Main Thread Thumbnail Generation
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
@@ -67,7 +65,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
         maxWidth: 480,
         quality: 75,
       );
-      
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
       // Upload Video
@@ -103,11 +100,12 @@ class UploadNotifier extends StateNotifier<UploadState> {
       );
 
       // --- AUTO-REFRESH TRIGGER ---
-      // 1. Refresh the Feed (so the new video might appear there)
-      ref.invalidate(feedVideosProvider);
       
-      // 2. Refresh the User's Profile
-      // FIX: Changed 'userVideosProvider' to 'createdVideosProvider' to match the new Profile Screen
+      // NOTE: We REMOVED the Feed refresh here.
+      // This prevents the feed from pulling the video while it's still processing.
+      // The feed was already refreshed immediately when the user tapped "Post".
+      
+      // 2. Refresh the User's Profile (This DOES show the processing video, which is good)
       ref.invalidate(createdVideosProvider(userId));
 
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
