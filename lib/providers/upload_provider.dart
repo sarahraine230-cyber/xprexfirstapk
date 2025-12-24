@@ -35,16 +35,6 @@ class UploadState {
   }
 }
 
-// Helper function for background isolation
-Future<Uint8List?> _generateThumbnailInBackground(String path) async {
-  return await VideoThumbnail.thumbnailData(
-    video: path,
-    imageFormat: ImageFormat.JPEG,
-    maxWidth: 480,
-    quality: 75,
-  );
-}
-
 // The Background Worker
 class UploadNotifier extends StateNotifier<UploadState> {
   UploadNotifier() : super(UploadState());
@@ -67,9 +57,14 @@ class UploadNotifier extends StateNotifier<UploadState> {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // 2. GENERATE THUMBNAIL (IN BACKGROUND ISOLATE)
-      // This prevents the UI from freezing
-      final Uint8List? thumbBytes = await compute(_generateThumbnailInBackground, videoFile.path);
+      // 2. GENERATE THUMBNAIL (ON MAIN THREAD)
+      // We removed 'compute' because plugins cannot run in background isolates easily.
+      final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
+        video: videoFile.path,
+        imageFormat: ImageFormat.JPEG,
+        maxWidth: 480,
+        quality: 75,
+      );
       
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
