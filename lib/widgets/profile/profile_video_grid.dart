@@ -5,7 +5,7 @@ import 'package:xprex/screens/video_player_screen.dart';
 class ProfileVideoGrid extends StatelessWidget {
   final List<VideoModel> videos;
   
-  // NEW: Optional context to pass to the player
+  // Receives the context
   final String? repostContextUsername;
   
   const ProfileVideoGrid({
@@ -17,7 +17,7 @@ class ProfileVideoGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (videos.isEmpty) {
-      // We handle empty state in the parent usually, but good fallback
+      // We handle empty state in the parent usually
       return const SizedBox.shrink();
     }
     
@@ -42,7 +42,7 @@ class ProfileVideoGrid extends StatelessWidget {
                 builder: (_) => VideoPlayerScreen(
                   videos: videos, 
                   initialIndex: index,
-                  // INJECTION: Passing the context to the player
+                  // HANDOFF: Passes it to the Player!
                   repostContextUsername: repostContextUsername,
                 ),
               ));
