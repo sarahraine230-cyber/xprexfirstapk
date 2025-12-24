@@ -3,7 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/widgets/feed_item.dart'; // Imports the UI from Step 1
+import 'package:xprex/widgets/feed_item.dart';
+
+// 1. Define a global RouteObserver (You should ideally register this in MaterialApp)
+final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
@@ -18,9 +21,10 @@ class FeedScreen extends ConsumerStatefulWidget {
   ConsumerState<FeedScreen> createState() => _FeedScreenState();
 }
 
-class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver {
+class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
   int _activeIndex = 0;
   bool _appActive = true;
+  bool _screenVisible = true; // Tracks if covered by another screen (like Upload)
 
   @override
   void initState() {
@@ -29,14 +33,50 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Subscribe to the RouteObserver to know when we are covered
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+       // Ideally we subscribe here, but without main.dart access, we'll rely on isVisible
+       // If you added routeObserver to main.dart, uncomment below:
+       // routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    // Called when a new screen (Upload) is pushed on top
+    setState(() => _screenVisible = false);
+  }
+
+  @override
+  void didPopNext() {
+    // Called when the top screen (Upload) is popped, revealing us again
+    setState(() => _screenVisible = true);
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     setState(() => _appActive = state == AppLifecycleState.resumed);
   }
 
   @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    // routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final videosAsync = ref.watch(feedVideosProvider);
-    final feedVisible = widget.isVisible && _appActive;
+    
+    // LOGIC: Play ONLY if Tab is selected + App is active + Not covered by Upload screen
+    // Note: Since we haven't wired up routeObserver in main.dart yet, 
+    // we assume _screenVisible is true, but rely on 'isVisible' from MainShell.
+    // MainShell doesn't change index when pushing Upload, so we rely on lifecycle mostly.
+    final shouldPlay = widget.isVisible && _appActive && _screenVisible;
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -51,7 +91,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
           if (videos.isEmpty) return const Center(child: Text('No videos yet', style: TextStyle(color: Colors.white)));
           return PageView.builder(
             scrollDirection: Axis.vertical,
-            allowImplicitScrolling: true,
+            allowImplicitScrolling: false, // Set to FALSE to save resources
             itemCount: videos.length,
             onPageChanged: (i) => setState(() => _activeIndex = i),
             itemBuilder: (context, index) {
@@ -59,7 +99,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                 key: ValueKey(videos[index].id),
                 video: videos[index],
                 isActive: index == _activeIndex,
-                feedVisible: feedVisible,
+                feedVisible: shouldPlay, // Pass the strict logic down
                 onLikeToggled: () => ref.invalidate(feedVideosProvider),
               );
             },
