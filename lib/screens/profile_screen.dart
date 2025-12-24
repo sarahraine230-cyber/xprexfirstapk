@@ -17,20 +17,16 @@ import 'package:xprex/screens/analytics_screen.dart';
 import 'package:xprex/screens/settings/settings_screen.dart';
 
 // --- DATA PROVIDERS ---
-
-// 1. Created Videos (We refresh this one on upload)
 final createdVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
   final service = VideoService();
   return await service.getUserVideos(userId);
 });
 
-// 2. Saved Videos
 final savedVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
   final service = SaveService();
   return await service.getSavedVideos(userId);
 });
 
-// 3. Reposted Videos
 final repostedVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
   final service = RepostService();
   return await service.getRepostedVideos(userId);
@@ -63,13 +59,12 @@ class ProfileScreen extends ConsumerWidget {
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
                   SliverAppBar(
-                    // Adjusted height to fit the full header content (Avatar + Bio + Big Buttons)
                     expandedHeight: 420, 
                     pinned: true,
                     elevation: 0,
                     backgroundColor: theme.colorScheme.surface,
                     
-                    // --- RESTORED: Stats Button (Top Left) ---
+                    // Stats Button
                     leading: IconButton(
                       icon: const Icon(Icons.bar_chart_rounded),
                       color: theme.colorScheme.onSurface,
@@ -82,7 +77,7 @@ class ProfileScreen extends ConsumerWidget {
                       },
                     ),
 
-                    // --- RESTORED: Settings Button (Top Right) ---
+                    // Settings Button
                     actions: [
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
@@ -99,7 +94,6 @@ class ProfileScreen extends ConsumerWidget {
 
                     flexibleSpace: FlexibleSpaceBar(
                       background: Padding(
-                        // Add padding to avoid overlapping the AppBar buttons
                         padding: const EdgeInsets.only(top: 60.0), 
                         child: ProfileHeader(profile: profile, theme: theme),
                       ),
@@ -125,7 +119,13 @@ class ProfileScreen extends ConsumerWidget {
                 children: [
                   _VideoTab(provider: createdVideosProvider(profile.authUserId)),
                   _VideoTab(provider: savedVideosProvider(profile.authUserId)),
-                  _VideoTab(provider: repostedVideosProvider(profile.authUserId)),
+                  
+                  // --- THE CRITICAL FIX ---
+                  // We explicitly tell the tab: "Everything here is reposted by this user"
+                  _VideoTab(
+                    provider: repostedVideosProvider(profile.authUserId),
+                    repostContextUsername: profile.username, 
+                  ),
                 ],
               ),
             ),
@@ -140,13 +140,24 @@ class ProfileScreen extends ConsumerWidget {
 
 class _VideoTab extends ConsumerWidget {
   final ProviderListenable<AsyncValue<List<VideoModel>>> provider;
-  const _VideoTab({required this.provider});
+  
+  // New Parameter: Catches the username passed from above
+  final String? repostContextUsername;
+
+  const _VideoTab({
+    required this.provider, 
+    this.repostContextUsername
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final asyncVideos = ref.watch(provider);
     return asyncVideos.when(
-      data: (videos) => ProfileVideoGrid(videos: videos),
+      data: (videos) => ProfileVideoGrid(
+        videos: videos,
+        // Passes it down to the Grid
+        repostContextUsername: repostContextUsername,
+      ),
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, s) => Center(child: Text('Error loading videos: $e')),
     );
