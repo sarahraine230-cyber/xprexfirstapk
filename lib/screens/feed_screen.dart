@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/widgets/feed_item.dart';
-// IMPORT THE ROUTER TO GET THE OBSERVER
 import 'package:xprex/router/app_router.dart'; 
+
+// --- NEW: THE NUCLEAR KEY PROVIDER ---
+// We increment this integer to force a complete rebuild of the Feed
+final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
 
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
@@ -23,7 +26,7 @@ class FeedScreen extends ConsumerStatefulWidget {
 class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
   int _activeIndex = 0;
   bool _appActive = true;
-  bool _screenVisible = true; // True by default
+  bool _screenVisible = true; 
 
   @override
   void initState() {
@@ -31,11 +34,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
   }
 
-  // --- CONNECT TO TRAFFIC CONTROLLER ---
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Subscribe to the global observer
     final route = ModalRoute.of(context);
     if (route is ModalRoute<void>) {
       routeObserver.subscribe(this, route);
@@ -45,17 +46,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    routeObserver.unsubscribe(this); // Unsubscribe
+    routeObserver.unsubscribe(this);
     super.dispose();
   }
 
-  // Called when a new screen (Upload) covers this one
   @override
   void didPushNext() {
     setState(() => _screenVisible = false);
   }
 
-  // Called when the top screen (Upload) is popped off
   @override
   void didPopNext() {
     setState(() => _screenVisible = true);
@@ -69,8 +68,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   @override
   Widget build(BuildContext context) {
     final videosAsync = ref.watch(feedVideosProvider);
+    // LISTEN TO THE NUCLEAR KEY
+    final refreshKey = ref.watch(feedRefreshKeyProvider);
     
-    // PLAY ONLY IF: Tab Selected AND App Active AND No Screen Covering Us
     final shouldPlay = widget.isVisible && _appActive && _screenVisible;
 
     return Scaffold(
@@ -84,9 +84,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
       body: videosAsync.when(
         data: (videos) {
           if (videos.isEmpty) return const Center(child: Text('No videos yet', style: TextStyle(color: Colors.white)));
+          
           return PageView.builder(
+            // NUCLEAR OPTION: This Key forces a complete rebuild when changed
+            key: ValueKey(refreshKey), 
+            
             scrollDirection: Axis.vertical,
-            // CRITICAL: Disable implicit scrolling to save resources for Upload Screen
             allowImplicitScrolling: false, 
             itemCount: videos.length,
             onPageChanged: (i) => setState(() => _activeIndex = i),
@@ -95,7 +98,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                 key: ValueKey(videos[index].id),
                 video: videos[index],
                 isActive: index == _activeIndex,
-                feedVisible: shouldPlay, // Pass strict logic down
+                feedVisible: shouldPlay, 
                 onLikeToggled: () => ref.invalidate(feedVideosProvider),
               );
             },
