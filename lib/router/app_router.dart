@@ -21,32 +21,26 @@ import 'package:xprex/screens/bank_details_screen.dart';
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // This watcher causes the provider to rebuild whenever auth state changes
+  // Watch the provider so the router rebuilds on auth changes
   final authStateAsync = ref.watch(authStateProvider);
   
   return GoRouter(
     initialLocation: '/',
-    // REMOVED refreshListenable: authStateAsync
-    // Reason: AsyncValue is not a Listenable. 
-    // Since we use ref.watch above, this provider rebuilds automatically on change.
-    
     observers: [routeObserver],
     
     redirect: (context, state) {
       // 1. Handle Loading/Error States
       if (authStateAsync.isLoading || authStateAsync.hasError) {
-        // If we are already on a splash screen, stay there.
         if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
           return null;
         }
         return '/brand-splash';
       }
 
-      // 2. Unwrap the Data safely
+      // 2. Unwrap Data
       final authState = authStateAsync.valueOrNull;
       final session = authState?.session;
       final isAuth = session != null;
-      final user = session?.user;
 
       // 3. Define Path Variables
       final isSplash = state.uri.path == '/splash';
@@ -57,15 +51,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       
       // 4. Redirect Logic
       if (!isAuth) {
+        // If not logged in, allow these screens
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
+        // Otherwise send to Splash
         return '/brand-splash';
       }
 
-      // Check for Username/Profile Setup
-      if (user != null && user.userMetadata?['username'] == null) {
-        if (state.uri.path != '/profile-setup') return '/profile-setup';
-      }
-
+      // --- CRITICAL FIX: REMOVED THE PROFILE SETUP TRAP ---
+      // We no longer check for user metadata here. 
+      // If the user is authenticated, we trust they are good to go.
+      
       // If authenticated but on auth screens, go Home
       if (isSplash || isBrandSplash || isLogin || isSignup) return '/';
       
