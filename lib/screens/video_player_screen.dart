@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/widgets/feed_item.dart'; // <--- UPDATED IMPORT (Points to the new modular file)
+import 'package:xprex/widgets/feed_item.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final List<VideoModel> videos;
@@ -35,15 +35,27 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 1. Get the current video to check its status
+    final currentVideo = widget.videos[_activeIndex];
+    
+    // 2. Check if it is a repost
+    final isRepost = currentVideo.repostedByUsername != null;
+
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      // A generic AppBar that floats on top
+      
+      // 3. Dynamic AppBar
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
+        centerTitle: true,
         leading: const BackButton(color: Colors.white),
+        
+        // Only show the badge if it's a repost
+        title: isRepost ? _buildRepostBadge(currentVideo) : null,
       ),
+      
       body: PageView.builder(
         controller: _pageController,
         scrollDirection: Axis.vertical,
@@ -52,16 +64,54 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           setState(() => _activeIndex = index);
         },
         itemBuilder: (context, index) {
-          // Reuse the modular feed item logic
           return VideoFeedItem(
             video: widget.videos[index],
             isActive: index == _activeIndex,
-            feedVisible: true, // Always play since we are on the player screen
+            feedVisible: true, 
             onLikeToggled: () {
-              // Optional: You could update local state here if needed
+              // Optional: Update local state if needed
             },
           );
         },
+      ),
+    );
+  }
+
+  // 4. The "Instagram-Style" Repost Header Widget
+  Widget _buildRepostBadge(VideoModel video) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.3), // Semi-transparent "Glass" effect
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.repeat, color: Colors.white, size: 14),
+          const SizedBox(width: 8),
+          const Text(
+            "Reposted",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+          // Optionally show the username if available
+          if (video.repostedByUsername != null) ...[
+            const SizedBox(width: 4),
+            Text(
+              "by @${video.repostedByUsername}",
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.8),
+                fontSize: 12,
+              ),
+            ),
+          ]
+        ],
       ),
     );
   }
