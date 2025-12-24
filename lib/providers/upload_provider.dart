@@ -6,7 +6,6 @@ import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
 
-// State class to hold UI data
 class UploadState {
   final bool isUploading;
   final double progress;
@@ -35,7 +34,6 @@ class UploadState {
   }
 }
 
-// The Background Worker
 class UploadNotifier extends StateNotifier<UploadState> {
   UploadNotifier() : super(UploadState());
 
@@ -51,14 +49,12 @@ class UploadNotifier extends StateNotifier<UploadState> {
     required int categoryId,
     required int durationSeconds,
   }) async {
-    // 1. Reset State
     state = UploadState(isUploading: true, progress: 0.05, status: 'Preparing...');
 
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // 2. GENERATE THUMBNAIL (ON MAIN THREAD)
-      // We removed 'compute' because plugins cannot run in background isolates easily.
+      // FIXED: Run on Main Thread (No 'compute') to prevent plugin crash
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
         imageFormat: ImageFormat.JPEG,
@@ -68,9 +64,8 @@ class UploadNotifier extends StateNotifier<UploadState> {
       
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
-      // 3. UPLOAD RAW VIDEO (R2)
+      // Upload Video
       state = state.copyWith(status: 'Uploading Video...', progress: 0.10);
-
       final String videoPath = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
@@ -81,7 +76,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         },
       );
 
-      // 4. UPLOAD THUMBNAIL
+      // Upload Thumbnail
       state = state.copyWith(status: 'Finishing up...', progress: 0.95);
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
         userId: userId,
@@ -89,7 +84,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         bytes: thumbBytes,
       );
 
-      // 5. SAVE METADATA
+      // Save Metadata
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoPath,
@@ -101,7 +96,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
         categoryId: categoryId,
       );
 
-      // 6. SUCCESS
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
     } catch (e) {
       debugPrint('❌ Critical Upload Failure: $e');
