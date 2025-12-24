@@ -1,12 +1,11 @@
 buildscript {
-    // FIX: Downgraded from the non-existent '2.2.10' to the stable '1.9.24'
     ext.kotlin_version = '1.9.24'
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        // Match AGP here to avoid older classpaths being pulled in by legacy plugins
+        // AGP 8.6.1 works perfectly with Gradle 8.10.2
         classpath 'com.android.tools.build:gradle:8.6.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}"
     }
@@ -20,9 +19,9 @@ allprojects {
 }
 
 rootProject.buildDir = "../build"
-// Ensure every Kotlin compile task (app + all plugins) targets JVM 17
+
+// Ensure every Kotlin compile task targets JVM 17
 subprojects { project ->
-    // Force Kotlin stdlib artifacts to match the Gradle plugin version to prevent metadata mismatches
     configurations.configureEach { cfg ->
         resolutionStrategy.eachDependency { details ->
             if (details.requested.group == 'org.jetbrains.kotlin' && details.requested.name.startsWith('kotlin-stdlib')) {
@@ -39,19 +38,14 @@ subprojects { project ->
     }
 }
 
-// Ensure every Java compile task (app + all plugins) targets Java 17.
-// This fixes: Inconsistent JVM-target compatibility detected for tasks
-// 'compileDebugJavaWithJavac' (11) and 'compileDebugKotlin' (17)
+// Ensure every Java compile task targets Java 17
 subprojects { project ->
     tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
-        // Target Java 17 without using the unsupported '--release' flag on Android.
-        // AGP configures the bootclasspath; using '--release' breaks that.
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-        // Do NOT set options.release here. See https://issuetracker.google.com/278800528
     }
 
-    // For Android modules, also set compileOptions at the Android extension level when available
+    // For Android modules, also set compileOptions at the Android extension level
     afterEvaluate {
         if (project.plugins.hasPlugin("com.android.application") || project.plugins.hasPlugin("com.android.library")) {
             try {
@@ -62,8 +56,7 @@ subprojects { project ->
                     }
                 }
             } catch (Throwable ignored) {
-                // Some plugin versions may not expose android DSL here;
-                // JavaCompile fallback above still applies
+                // Fallback for plugins that don't expose the android block yet
             }
         }
     }
@@ -74,11 +67,9 @@ subprojects { project ->
         if (project.plugins.hasPlugin("com.android.application") ||
                 project.plugins.hasPlugin("com.android.library")) {
             project.extensions.findByName("android")?.with {
-                // Ensure all subprojects compile with SDK 35
                 if (hasProperty('compileSdk')) {
                     compileSdk = 35
                 } else {
-                    // Fallback for older plugin DSLs
                     compileSdkVersion 35
                 }
             }
@@ -103,10 +94,4 @@ subprojects {
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
-}
-
-def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
-if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
