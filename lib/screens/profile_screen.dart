@@ -12,6 +12,9 @@ import 'package:xprex/models/video_model.dart';
 // WIDGETS
 import 'package:xprex/widgets/profile/profile_header.dart';
 import 'package:xprex/widgets/profile/profile_video_grid.dart';
+// SCREENS
+import 'package:xprex/screens/analytics_screen.dart';
+import 'package:xprex/screens/settings/settings_screen.dart';
 
 // --- DATA PROVIDERS ---
 
@@ -32,7 +35,6 @@ final repostedVideosProvider = FutureProvider.family<List<VideoModel>, String>((
   final service = RepostService();
   return await service.getRepostedVideos(userId);
 });
-
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -61,17 +63,55 @@ class ProfileScreen extends ConsumerWidget {
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
                   SliverAppBar(
-                    expandedHeight: 330, 
+                    // Adjusted height to fit the full header content (Avatar + Bio + Big Buttons)
+                    expandedHeight: 420, 
                     pinned: true,
+                    elevation: 0,
                     backgroundColor: theme.colorScheme.surface,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: ProfileHeader(profile: profile, theme: theme),
+                    
+                    // --- RESTORED: Stats Button (Top Left) ---
+                    leading: IconButton(
+                      icon: const Icon(Icons.bar_chart_rounded),
+                      color: theme.colorScheme.onSurface,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => const AnalyticsScreen(),
+                          ),
+                        );
+                      },
                     ),
+
+                    // --- RESTORED: Settings Button (Top Right) ---
+                    actions: [
+                      IconButton(
+                        icon: const Icon(Icons.settings_outlined),
+                        color: theme.colorScheme.onSurface,
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const SettingsScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+
+                    flexibleSpace: FlexibleSpaceBar(
+                      background: Padding(
+                        // Add padding to avoid overlapping the AppBar buttons
+                        padding: const EdgeInsets.only(top: 60.0), 
+                        child: ProfileHeader(profile: profile, theme: theme),
+                      ),
+                    ),
+                    
                     bottom: TabBar(
-                      indicatorColor: theme.colorScheme.primary,
+                      indicatorColor: theme.colorScheme.onSurface,
                       labelColor: theme.colorScheme.onSurface,
                       unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.bold),
+                      indicatorSize: TabBarIndicatorSize.label,
+                      indicatorWeight: 3,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                       tabs: const [
                         Tab(text: "Created"),
                         Tab(text: "Saved"),
@@ -83,7 +123,6 @@ class ProfileScreen extends ConsumerWidget {
               },
               body: TabBarView(
                 children: [
-                  // FIXED: Passing the provider, not the value
                   _VideoTab(provider: createdVideosProvider(profile.authUserId)),
                   _VideoTab(provider: savedVideosProvider(profile.authUserId)),
                   _VideoTab(provider: repostedVideosProvider(profile.authUserId)),
@@ -99,18 +138,13 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// FIXED WIDGET: Accepts the Provider Definition
 class _VideoTab extends ConsumerWidget {
-  // Use ProviderListenable to accept any kind of provider
   final ProviderListenable<AsyncValue<List<VideoModel>>> provider;
-  
   const _VideoTab({required this.provider});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Watch the provider here inside the widget
     final asyncVideos = ref.watch(provider);
-
     return asyncVideos.when(
       data: (videos) => ProfileVideoGrid(videos: videos),
       loading: () => const Center(child: CircularProgressIndicator()),
