@@ -6,11 +6,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/providers/upload_provider.dart';
-// Note: We don't need MainShell import here anymore as we just pop() on success
+// IMPORT FEED SCREEN TO ACCESS THE PROVIDER
+import 'package:xprex/screens/feed_screen.dart';
 
 class UploadScreen extends ConsumerStatefulWidget {
-  // NOW REQUIRES THE FILE BE PASSED IN
-  final File videoFile; 
+  final File videoFile;
   const UploadScreen({super.key, required this.videoFile});
 
   @override
@@ -78,6 +78,11 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     
     final user = _authService.currentUser;
     if (user == null) return;
+
+    // --- CRITICAL FIX: REFRESH FEED IMMEDIATELY ---
+    // This resets the Feed Screen, preventing the "Blank Screen" bug
+    // and giving the user a fresh feed feeling instantly.
+    ref.invalidate(feedVideosProvider);
 
     // Trigger Upload using the passed file
     ref.read(uploadProvider.notifier).startUpload(
