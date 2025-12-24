@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
+// IMPORT SCREENS TO ACCESS THEIR PROVIDERS
+import 'package:xprex/screens/feed_screen.dart';
+import 'package:xprex/screens/profile_screen.dart';
 
 class UploadState {
   final bool isUploading;
@@ -35,7 +38,10 @@ class UploadState {
 }
 
 class UploadNotifier extends StateNotifier<UploadState> {
-  UploadNotifier() : super(UploadState());
+  // We need 'Ref' to invalidate other providers
+  final Ref ref; 
+
+  UploadNotifier(this.ref) : super(UploadState());
 
   final _storage = StorageService();
   final _videoService = VideoService();
@@ -54,7 +60,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
 
-      // FIXED: Run on Main Thread (No 'compute') to prevent plugin crash
+      // Main Thread Thumbnail Generation
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
         imageFormat: ImageFormat.JPEG,
@@ -96,6 +102,12 @@ class UploadNotifier extends StateNotifier<UploadState> {
         categoryId: categoryId,
       );
 
+      // --- AUTO-REFRESH TRIGGER ---
+      // 1. Refresh the Feed (so the new video might appear there)
+      ref.invalidate(feedVideosProvider);
+      // 2. Refresh the User's Profile (so they see it in their grid)
+      ref.invalidate(userVideosProvider(userId));
+
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
     } catch (e) {
       debugPrint('❌ Critical Upload Failure: $e');
@@ -108,5 +120,5 @@ class UploadNotifier extends StateNotifier<UploadState> {
 }
 
 final uploadProvider = StateNotifierProvider<UploadNotifier, UploadState>((ref) {
-  return UploadNotifier();
+  return UploadNotifier(ref); // Pass Ref to Notifier
 });
