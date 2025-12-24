@@ -9,13 +9,13 @@ import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 // MODELS
 import 'package:xprex/models/video_model.dart';
-// WIDGETS (The Atomic Modules we built)
+// WIDGETS
 import 'package:xprex/widgets/profile/profile_header.dart';
 import 'package:xprex/widgets/profile/profile_video_grid.dart';
 
-// --- DATA PROVIDERS (Restoring the 3 Data Streams) ---
+// --- DATA PROVIDERS ---
 
-// 1. Created Videos (Refreshable for Uploads)
+// 1. Created Videos (We refresh this one on upload)
 final createdVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
   final service = VideoService();
   return await service.getUserVideos(userId);
@@ -39,7 +39,6 @@ class ProfileScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 1. Get Current User Profile
     final profileAsync = ref.watch(currentUserProfileProvider);
     final theme = Theme.of(context);
     
@@ -61,15 +60,13 @@ class ProfileScreen extends ConsumerWidget {
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
-                  // --- HEADER (Bio, Stats, Buttons) ---
                   SliverAppBar(
-                    expandedHeight: 320, 
+                    expandedHeight: 330, 
                     pinned: true,
                     backgroundColor: theme.colorScheme.surface,
                     flexibleSpace: FlexibleSpaceBar(
                       background: ProfileHeader(profile: profile, theme: theme),
                     ),
-                    // --- TABS (Restored Original Labels) ---
                     bottom: TabBar(
                       indicatorColor: theme.colorScheme.primary,
                       labelColor: theme.colorScheme.onSurface,
@@ -86,13 +83,9 @@ class ProfileScreen extends ConsumerWidget {
               },
               body: TabBarView(
                 children: [
-                  // --- TAB 1: CREATED (With Processing Badge) ---
+                  // FIXED: Passing the provider, not the value
                   _VideoTab(provider: createdVideosProvider(profile.authUserId)),
-                  
-                  // --- TAB 2: SAVED ---
                   _VideoTab(provider: savedVideosProvider(profile.authUserId)),
-                  
-                  // --- TAB 3: REPOSTS ---
                   _VideoTab(provider: repostedVideosProvider(profile.authUserId)),
                 ],
               ),
@@ -106,16 +99,17 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-// Helper Widget to handle Loading/Error states for each tab
+// FIXED WIDGET: Accepts the Provider Definition
 class _VideoTab extends ConsumerWidget {
-  final AsyncValue<List<VideoModel>> provider;
+  // Use ProviderListenable to accept any kind of provider
+  final ProviderListenable<AsyncValue<List<VideoModel>>> provider;
   
   const _VideoTab({required this.provider});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // We watch the specific provider passed to this tab
-    final asyncVideos = ref.watch(provider as ProviderListenable<AsyncValue<List<VideoModel>>>);
+    // Watch the provider here inside the widget
+    final asyncVideos = ref.watch(provider);
 
     return asyncVideos.when(
       data: (videos) => ProfileVideoGrid(videos: videos),
