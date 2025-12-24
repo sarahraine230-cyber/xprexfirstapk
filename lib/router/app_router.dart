@@ -14,46 +14,61 @@ import 'package:xprex/screens/user_profile_screen.dart';
 import 'package:xprex/screens/monetization/video_earnings_screen.dart';
 import 'package:xprex/screens/monetization/payout_history_screen.dart';
 import 'package:xprex/screens/monetization/ad_manager_screen.dart';
-// --- NEW IMPORTS FOR CREATOR ONBOARDING ---
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 
-final RouteObserver<PageRoute<dynamic>> routeObserver = RouteObserver<PageRoute<dynamic>>();
+// 1. GLOBAL OBSERVER DEFINITION
+final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // Watch the provider so the router rebuilds on auth changes
+  final authStateAsync = ref.watch(authStateProvider);
   
   return GoRouter(
-    initialLocation: '/brand',
+    initialLocation: '/',
     observers: [routeObserver],
+    
     redirect: (context, state) {
-      final path = state.uri.path;
-      
-      return authState.when(
-        data: (auth) {
-          final isAuthenticated = auth.session != null;
-          final isEmailVerified = auth.session?.user.emailConfirmedAt != null;
-          
-          // Allow brand and splash routes for all users
-          final isAllowedPublic = path == '/brand' || path == '/splash';
-
-          if (!isAuthenticated && !path.startsWith('/login') && !path.startsWith('/signup') && !isAllowedPublic) {
-            return '/login';
-          }
-          
-          if (isAuthenticated && !isEmailVerified && path != '/email-verification') {
-            return '/email-verification';
-          }
-          
+      // 1. Handle Loading/Error States
+      if (authStateAsync.isLoading || authStateAsync.hasError) {
+        if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
           return null;
-        },
-        loading: () => null,
-        error: (_, __) => '/login',
-      );
+        }
+        return '/brand-splash';
+      }
+
+      // 2. Unwrap Data
+      final authState = authStateAsync.valueOrNull;
+      final session = authState?.session;
+      final isAuth = session != null;
+
+      // 3. Define Path Variables
+      final isSplash = state.uri.path == '/splash';
+      final isBrandSplash = state.uri.path == '/brand-splash';
+      final isLogin = state.uri.path == '/login';
+      final isSignup = state.uri.path == '/signup';
+      final isVerify = state.uri.path == '/verify-email';
+      
+      // 4. Redirect Logic
+      if (!isAuth) {
+        // If not logged in, allow these screens
+        if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
+        // Otherwise send to Splash
+        return '/brand-splash';
+      }
+
+      // --- CRITICAL FIX: REMOVED THE PROFILE SETUP TRAP ---
+      // We no longer check for user metadata here. 
+      // If the user is authenticated, we trust they are good to go.
+      
+      // If authenticated but on auth screens, go Home
+      if (isSplash || isBrandSplash || isLogin || isSignup) return '/';
+      
+      return null;
     },
     routes: [
       GoRoute(
-        path: '/brand',
+        path: '/brand-splash',
         builder: (context, state) => const BrandSplashScreen(),
       ),
       GoRoute(
@@ -69,7 +84,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
-        path: '/email-verification',
+        path: '/verify-email',
         builder: (context, state) => const EmailVerificationScreen(),
       ),
       GoRoute(
@@ -88,13 +103,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/u/:id',
         builder: (context, state) {
           final id = state.pathParameters['id'];
-          if (id == null) {
-            return const SplashScreen();
-          }
+          if (id == null) return const SplashScreen();
           return UserProfileScreen(userId: id);
         },
       ),
-      // --- NEW CREATOR ONBOARDING ROUTES ---
       GoRoute(
         path: '/verify',
         builder: (context, state) => const VerificationRequestScreen(),
@@ -103,12 +115,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/setup/bank',
         builder: (context, state) => const BankDetailsScreen(),
       ),
-      // --- MONETIZATION VIDEO SCREEN ROUTE ---
       GoRoute(
         path: '/monetization/video-earnings',
         builder: (context, state) {
-          // We extract the 'period' string passed as an object
-          final period = state.extra as String; 
+          final period = state.extra as String? ?? 'Monthly'; 
           return VideoEarningsScreen(period: period);
         },
       ),
@@ -116,10 +126,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/monetization/payout-history',
         builder: (context, state) => const PayoutHistoryScreen(),
       ),
-GoRoute(
-  path: '/monetization/ad-manager',
-  builder: (context, state) => const AdManagerScreen(),
-),
+      GoRoute(
+        path: '/monetization/ad-manager',
+        builder: (context, state) => const AdManagerScreen(),
+      ),
     ],
   );
 });

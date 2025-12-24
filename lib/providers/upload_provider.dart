@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/video_service.dart';
-import 'package:xprex/services/auth_service.dart';
+// IMPORT SCREENS TO ACCESS THEIR PROVIDERS
+import 'package:xprex/screens/feed_screen.dart';
+import 'package:xprex/screens/profile_screen.dart';
 
-// State class to hold UI data
 class UploadState {
   final bool isUploading;
   final double progress;
-  final String status; // "Uploading...", "Success"
+  final String status;
   final String? errorMessage;
 
   UploadState({
@@ -31,14 +32,16 @@ class UploadState {
       isUploading: isUploading ?? this.isUploading,
       progress: progress ?? this.progress,
       status: status ?? this.status,
-      errorMessage: errorMessage, // Null resets error
+      errorMessage: errorMessage,
     );
   }
 }
 
-// The Background Worker
 class UploadNotifier extends StateNotifier<UploadState> {
-  UploadNotifier() : super(UploadState());
+  // We need 'Ref' to invalidate other providers
+  final Ref ref; 
+
+  UploadNotifier(this.ref) : super(UploadState());
 
   final _storage = StorageService();
   final _videoService = VideoService();
@@ -49,39 +52,37 @@ class UploadNotifier extends StateNotifier<UploadState> {
     required String description,
     required List<String> tags,
     required String userId,
+    required int categoryId,
     required int durationSeconds,
   }) async {
-    // 1. Reset State
     state = UploadState(isUploading: true, progress: 0.05, status: 'Preparing...');
-    
+
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      
-      // 2. GENERATE THUMBNAIL (From original)
+
+      // Main Thread Thumbnail Generation
       final Uint8List? thumbBytes = await VideoThumbnail.thumbnailData(
         video: videoFile.path,
         imageFormat: ImageFormat.JPEG,
         maxWidth: 480,
         quality: 75,
       );
+      
       if (thumbBytes == null) throw Exception('Failed to generate thumbnail');
 
-      // 3. UPLOAD RAW VIDEO (R2)
-      // No compression. Pure speed.
+      // Upload Video
       state = state.copyWith(status: 'Uploading Video...', progress: 0.10);
-
       final String videoPath = await _storage.uploadVideoWithProgress(
         userId: userId,
         timestamp: timestamp,
         file: videoFile,
         onProgress: (sent, total) {
-          // Map upload to 0.10 -> 0.90 global progress
           final mapped = 0.10 + ((sent / total) * 0.80);
           state = state.copyWith(progress: mapped);
         },
       );
 
-      // 4. UPLOAD THUMBNAIL
+      // Upload Thumbnail
       state = state.copyWith(status: 'Finishing up...', progress: 0.95);
       final String thumbnailUrl = await _storage.uploadThumbnailBytes(
         userId: userId,
@@ -89,7 +90,7 @@ class UploadNotifier extends StateNotifier<UploadState> {
         bytes: thumbBytes,
       );
 
-      // 5. SAVE METADATA
+      // Save Metadata
       await _videoService.createVideo(
         authorAuthUserId: userId,
         storagePath: videoPath,
@@ -98,11 +99,18 @@ class UploadNotifier extends StateNotifier<UploadState> {
         coverImageUrl: thumbnailUrl,
         duration: durationSeconds,
         tags: tags,
+        categoryId: categoryId,
       );
 
-      // 6. SUCCESS
-      state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
+      // --- AUTO-REFRESH TRIGGER ---
+      // 1. Refresh the Feed (so the new video might appear there)
+      ref.invalidate(feedVideosProvider);
+      
+      // 2. Refresh the User's Profile
+      // FIX: Changed 'userVideosProvider' to 'createdVideosProvider' to match the new Profile Screen
+      ref.invalidate(createdVideosProvider(userId));
 
+      state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
     } catch (e) {
       debugPrint('❌ Critical Upload Failure: $e');
       state = state.copyWith(
@@ -113,7 +121,6 @@ class UploadNotifier extends StateNotifier<UploadState> {
   }
 }
 
-// Global Provider Definition
 final uploadProvider = StateNotifierProvider<UploadNotifier, UploadState>((ref) {
-  return UploadNotifier();
+  return UploadNotifier(ref); // Pass Ref to Notifier
 });

@@ -1,15 +1,17 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-import 'package:xprex/screens/main_shell.dart'; // To switch tabs
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/services/auth_service.dart';
-import 'package:xprex/providers/upload_provider.dart'; // IMPORT PROVIDER
+import 'package:xprex/providers/upload_provider.dart';
+// Note: We don't need MainShell import here anymore as we just pop() on success
 
 class UploadScreen extends ConsumerStatefulWidget {
-  const UploadScreen({super.key});
+  // NOW REQUIRES THE FILE BE PASSED IN
+  final File videoFile; 
+  const UploadScreen({super.key, required this.videoFile});
 
   @override
   ConsumerState<UploadScreen> createState() => _UploadScreenState();
@@ -19,14 +21,45 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   final _tagController = TextEditingController();
-  final _picker = ImagePicker();
   final _authService = AuthService();
 
-  XFile? _pickedVideo;
   VideoPlayerController? _playerController;
-  
   final List<String> _tags = [];
-  static const int _maxTags = 5;
+  List<Map<String, dynamic>> _categories = [];
+  int? _selectedCategoryId;
+  bool _isLoadingCategories = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchCategories();
+    // Initialize the player with the passed file immediately
+    _playerController = VideoPlayerController.file(widget.videoFile)
+      ..initialize().then((_) {
+        // Ensure the video loops and plays so the user can see what they picked
+        setState(() {});
+        _playerController!.setLooping(true);
+        _playerController!.play();
+      });
+  }
+
+  Future<void> _fetchCategories() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('categories')
+          .select('id, name')
+          .order('name');
+      if (mounted) {
+        setState(() {
+          _categories = List<Map<String, dynamic>>.from(data);
+          _isLoadingCategories = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching categories: $e');
+      if (mounted) setState(() => _isLoadingCategories = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -37,203 +70,115 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     super.dispose();
   }
 
-  Future<void> _pickVideo() async {
-    // 500MB SAFETY LIMIT + 60s Duration
-    // Note: We keep the duration limit for now to ensure quick uploads
-    final video = await _picker.pickVideo(
-      source: ImageSource.gallery,
-      maxDuration: const Duration(seconds: 60), 
-    );
-    
-    if (video != null) {
-      final file = File(video.path);
-      final sizeInMb = file.lengthSync() / (1024 * 1024);
-      
-      // Strict 500MB Limit (Prevents 4K madness)
-      if (sizeInMb > 500) {
-         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text('Video too large (${sizeInMb.toStringAsFixed(0)}MB). Limit is 500MB.')),
-           );
-         }
-         return;
-      }
-
-      _playerController?.dispose();
-      setState(() {
-        _pickedVideo = video;
-      });
-
-      final controller = VideoPlayerController.file(file);
-      await controller.initialize();
-      
-      setState(() {
-        _playerController = controller;
-        _playerController!.setLooping(true);
-        _playerController!.play();
-      });
-    }
-  }
-
-  void _togglePlayPause() {
-    if (_playerController == null || !_playerController!.value.isInitialized) return;
-    setState(() {
-      _playerController!.value.isPlaying ? _playerController!.pause() : _playerController!.play();
-    });
-  }
-
-  void _addTag(String value) {
-    final tag = value.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    if (tag.isNotEmpty && !_tags.contains(tag) && _tags.length < _maxTags) {
-      setState(() {
-        _tags.add(tag);
-        _tagController.clear();
-      });
-    }
-  }
-
-  void _removeTag(String tag) {
-    setState(() {
-      _tags.remove(tag);
-    });
-  }
-
   Future<void> _handlePost() async {
-    if (_pickedVideo == null || _titleController.text.isEmpty) return;
-    
-    final user = _authService.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please login first')));
+    if (_titleController.text.isEmpty || _selectedCategoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add a Title and Category')));
       return;
     }
+    
+    final user = _authService.currentUser;
+    if (user == null) return;
 
-    // 1. Trigger Background Upload (Raw)
+    // Trigger Upload using the passed file
     ref.read(uploadProvider.notifier).startUpload(
-      videoFile: File(_pickedVideo!.path), 
+      videoFile: widget.videoFile, 
       title: _titleController.text.trim(), 
       description: _descController.text.trim(), 
       tags: _tags, 
       userId: user.id, 
+      categoryId: _selectedCategoryId!,
       durationSeconds: _playerController?.value.duration.inSeconds ?? 0,
     );
 
-    // 2. Clear UI
+    // Close this screen and go back to feed
     _playerController?.pause();
-    setState(() {
-      _pickedVideo = null;
-      _playerController = null;
-      _titleController.clear();
-      _descController.clear();
-      _tags.clear();
-    });
+    if (mounted) {
+      Navigator.of(context).pop(); // Close the upload form
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posting video...')));
+    }
+  }
 
-    // 3. Navigate AWAY immediately (TikTok Style)
-    // Switch to Feed (Index 0)
-    setMainTabIndex(0);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Posting video...')),
-    );
+  Future<void> _launchHelp() async {
+    final Uri url = Uri.parse('https://creator-guide.pages.dev');
+    if (!await launchUrl(url)) debugPrint("Could not launch guide");
+  }
+
+  void _addTag(String value) {
+    if (value.isNotEmpty && _tags.length < 5) {
+      setState(() { _tags.add(value.trim()); _tagController.clear(); });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    
     return Scaffold(
-      appBar: AppBar(title: const Text('New Post')),
+      appBar: AppBar(
+        title: const Text('Add Details'),
+        actions: [
+            TextButton(
+              onPressed: (_playerController != null && _playerController!.value.isInitialized) ? _handlePost : null,
+              child: const Text("POST", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            )
+        ],
+      ),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- V5 VERTICAL PREVIEW UI ---
-              GestureDetector(
-                onTap: _pickedVideo == null ? _pickVideo : _togglePlayPause,
-                child: Container(
-                  height: 400, // Fixed height for vertical look
-                  decoration: BoxDecoration(
-                    color: Colors.grey[900],
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey[800]!),
+              // --- ROW: Preview + Title ---
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 100, height: 150,
+                    decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
+                    child: _playerController != null && _playerController!.value.isInitialized
+                       ? ClipRRect(borderRadius: BorderRadius.circular(8), child: VideoPlayer(_playerController!))
+                       : const Center(child: CircularProgressIndicator()),
                   ),
-                  child: _pickedVideo != null && _playerController != null && _playerController!.value.isInitialized
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: AspectRatio(
-                            aspectRatio: _playerController!.value.aspectRatio,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                VideoPlayer(_playerController!),
-                                if (!_playerController!.value.isPlaying)
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 32),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.video_library, size: 48, color: theme.colorScheme.primary),
-                            const SizedBox(height: 12),
-                            const Text('Select Video', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 4),
-                            const Text('Max 500MB • 60s', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                          ],
-                        ),
-                ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: TextField(
+                      controller: _titleController,
+                      decoration: const InputDecoration(hintText: 'Write a catchy title...', border: InputBorder.none),
+                      maxLines: 3,
+                    ),
+                  )
+                ],
               ),
+              const Divider(height: 32),
 
-              const SizedBox(height: 24),
-              TextField(
-                controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _descController,
-                decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
-                maxLines: 3,
+              // --- CATEGORY ---
+              DropdownButtonFormField<int>(
+                decoration: const InputDecoration(labelText: 'Category (Required)', border: OutlineInputBorder()),
+                value: _selectedCategoryId,
+                items: _categories.map((cat) => DropdownMenuItem<int>(
+                  value: cat['id'] as int,
+                  child: Text(cat['name']),
+                )).toList(),
+                onChanged: (val) => setState(() => _selectedCategoryId = val),
+                hint: _isLoadingCategories ? const Text("Loading...") : const Text("Select Category"),
               ),
               const SizedBox(height: 16),
 
-              // Tags
+              // --- TAGS ---
               TextField(
                 controller: _tagController,
-                enabled: _tags.length < _maxTags,
                 decoration: InputDecoration(
-                  labelText: _tags.length < _maxTags ? 'Tags (Optional)' : 'Max tags reached',
+                  labelText: 'Tags (Optional)',
                   suffixIcon: IconButton(icon: const Icon(Icons.add), onPressed: () => _addTag(_tagController.text)),
                   border: const OutlineInputBorder(),
                 ),
                 onSubmitted: _addTag,
               ),
-              const SizedBox(height: 8),
-              if (_tags.isNotEmpty)
-                Wrap(
-                  spacing: 8,
-                  children: _tags.map((t) => Chip(
-                    label: Text('#$t'),
-                    deleteIcon: const Icon(Icons.close, size: 16),
-                    onDeleted: () => _removeTag(t),
-                  )).toList(),
-                ),
-
-              const SizedBox(height: 32),
-              FilledButton(
-                onPressed: _pickedVideo == null ? null : _handlePost,
-                child: const Padding(
-                  padding: EdgeInsets.all(16.0),
-                  child: Text('POST NOW', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
+              if (_tags.isNotEmpty) Wrap(spacing: 8, children: _tags.map((t) => Chip(label: Text('#$t'), onDeleted: () => setState(() => _tags.remove(t)))).toList()),
+              
+              const SizedBox(height: 20),
+              GestureDetector(
+                onTap: _launchHelp,
+                child: const Text("💡 Tips for going viral", style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline)),
               ),
-              const SizedBox(height: 50),
             ],
           ),
         ),

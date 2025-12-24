@@ -1,19 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
+// SERVICES
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
+// MODELS
 import 'package:xprex/models/video_model.dart';
-import 'package:xprex/screens/video_player_screen.dart';
-import 'package:xprex/screens/profile_setup_screen.dart';
-import 'package:xprex/screens/follow_list_screen.dart';
-import 'package:xprex/screens/creator_hub_screen.dart';
+// WIDGETS
+import 'package:xprex/widgets/profile/profile_header.dart';
+import 'package:xprex/widgets/profile/profile_video_grid.dart';
+// SCREENS
 import 'package:xprex/screens/analytics_screen.dart';
-import 'package:xprex/screens/settings/settings_screen.dart'; // NEW: Settings Import
+import 'package:xprex/screens/settings/settings_screen.dart';
+
+// --- DATA PROVIDERS ---
+final createdVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
+  final service = VideoService();
+  return await service.getUserVideos(userId);
+});
+
+final savedVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
+  final service = SaveService();
+  return await service.getSavedVideos(userId);
+});
+
+final repostedVideosProvider = FutureProvider.family<List<VideoModel>, String>((ref, userId) async {
+  final service = RepostService();
+  return await service.getRepostedVideos(userId);
+});
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -23,30 +40,31 @@ class ProfileScreen extends ConsumerWidget {
     final profileAsync = ref.watch(currentUserProfileProvider);
     final theme = Theme.of(context);
     
-    // Services
-    final videoService = VideoService();
-    final saveService = SaveService();
-    final repostService = RepostService();
-
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       body: profileAsync.when(
         data: (profile) {
           if (profile == null) {
-            return const Center(child: Text('Profile not found'));
+            return Center(
+              child: ElevatedButton(
+                onPressed: () => context.go('/login'),
+                child: const Text('Login to view profile'),
+              ),
+            );
           }
 
           return DefaultTabController(
-            length: 3,
+            length: 3, 
             child: NestedScrollView(
               headerSliverBuilder: (context, innerBoxIsScrolled) {
                 return [
-                  // 1. Pinterest-Style AppBar (Minimal)
                   SliverAppBar(
-                    backgroundColor: theme.colorScheme.surface,
-                    elevation: 0,
+                    expandedHeight: 420, 
                     pinned: true,
-                    // Stats Button -> Analytics
+                    elevation: 0,
+                    backgroundColor: theme.colorScheme.surface,
+                    
+                    // Stats Button
                     leading: IconButton(
                       icon: const Icon(Icons.bar_chart_rounded),
                       color: theme.colorScheme.onSurface,
@@ -58,8 +76,9 @@ class ProfileScreen extends ConsumerWidget {
                         );
                       },
                     ),
+
+                    // Settings Button
                     actions: [
-                      // Settings Button -> Settings Menu
                       IconButton(
                         icon: const Icon(Icons.settings_outlined),
                         color: theme.colorScheme.onSurface,
@@ -72,356 +91,75 @@ class ProfileScreen extends ConsumerWidget {
                         },
                       ),
                     ],
-                  ),
 
-                  // 2. The Profile Content
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Column(
-                        children: [
-                          // Avatar
-                          CircleAvatar(
-                            radius: 50,
-                            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                            backgroundImage: profile.avatarUrl != null ? NetworkImage(profile.avatarUrl!) : null,
-                            child: profile.avatarUrl == null ? Icon(Icons.person, size: 50, color: theme.colorScheme.onSurfaceVariant) : null,
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          // Name & Handle
-                          Text(
-                            profile.displayName,
-                            style: theme.textTheme.headlineMedium?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 22,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          Text(
-                            '@${profile.username}',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 16),
-
-                          // STATS ROW (CLICKABLE)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              // Followers
-                              InkWell(
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (ctx) => FollowListScreen(
-                                        userId: profile.authUserId, 
-                                        type: 'followers'
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Text(
-                                  '${profile.followersCount} followers',
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                              
-                              const SizedBox(width: 8),
-                              const Text('·'),
-                              const SizedBox(width: 8),
-                               
-                              // Following
-                              InkWell(
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (ctx) => FollowListScreen(
-                                        userId: profile.authUserId, 
-                                        type: 'following'
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: Text(
-                                  '${profile.followingCount} following',
-                                  style: const TextStyle(fontWeight: FontWeight.w600),
-                                ),
-                              ),
-                            ],
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          // BIO
-                          if (profile.bio != null)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-                              child: Text(
-                                profile.bio!,
-                                style: theme.textTheme.bodyMedium,
-                                textAlign: TextAlign.center,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-
-                          const SizedBox(height: 24),
-
-                          // ACTION ROW: Creator Hub | Share | Edit
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                                // HERO BUTTON: Creator Hub
-                              FilledButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (context) => const CreatorHubScreen()),
-                                  );
-                                },
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: const Color(0xFFE60023), // Pinterest Red
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Creator Hub', 
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                               
-                              // Share Button
-                              InkWell(
-                                onTap: () {
-                                  Share.share('Check out my profile on XpreX: @${profile.username}');
-                                },
-                                borderRadius: BorderRadius.circular(30),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: theme.colorScheme.outlineVariant),
-                                  ),
-                                  child: Icon(Icons.share, size: 20, color: theme.colorScheme.onSurface),
-                                ),
-                              ),
-                              
-                              const SizedBox(width: 8),
-
-                              // Edit Button
-                              InkWell(
-                                onTap: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (context) => ProfileSetupScreen(originalProfile: profile),
-                                    ),
-                                  );
-                                },
-                                borderRadius: BorderRadius.circular(30),
-                                child: Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: theme.colorScheme.outlineVariant),
-                                  ),
-                                  child: Icon(Icons.edit, size: 20, color: theme.colorScheme.onSurface),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                        ],
+                    flexibleSpace: FlexibleSpaceBar(
+                      background: Padding(
+                        padding: const EdgeInsets.only(top: 60.0), 
+                        child: ProfileHeader(profile: profile, theme: theme),
                       ),
                     ),
-                  ),
-
-                  // 3. Tab Bar
-                  SliverPersistentHeader(
-                    delegate: _SliverAppBarDelegate(
-                      TabBar(
-                        labelColor: theme.colorScheme.onSurface,
-                        unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
-                        indicatorColor: theme.colorScheme.onSurface,
-                        indicatorSize: TabBarIndicatorSize.label,
-                        indicatorWeight: 3,
-                        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                        tabs: const [
-                          Tab(text: "Created"),
-                          Tab(text: "Saved"),
-                          Tab(text: "Reposts"),
-                        ],
-                      ),
+                    
+                    bottom: TabBar(
+                      indicatorColor: theme.colorScheme.onSurface,
+                      labelColor: theme.colorScheme.onSurface,
+                      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                      indicatorSize: TabBarIndicatorSize.label,
+                      indicatorWeight: 3,
+                      labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      tabs: const [
+                        Tab(text: "Created"),
+                        Tab(text: "Saved"),
+                        Tab(text: "Reposts"),
+                      ],
                     ),
-                    pinned: true,
                   ),
                 ];
               },
-              // The Tab Views
               body: TabBarView(
                 children: [
-                  _VideoGrid(loader: videoService.getUserVideos(profile.authUserId)),
-                  _VideoGrid(loader: saveService.getSavedVideos(profile.authUserId), emptyMsg: "No saved videos"),
-                  _VideoGrid(loader: repostService.getRepostedVideos(profile.authUserId), emptyMsg: "No reposts yet"),
+                  _VideoTab(provider: createdVideosProvider(profile.authUserId)),
+                  _VideoTab(provider: savedVideosProvider(profile.authUserId)),
+                  
+                  // --- THE CRITICAL FIX ---
+                  // We explicitly tell the tab: "Everything here is reposted by this user"
+                  _VideoTab(
+                    provider: repostedVideosProvider(profile.authUserId),
+                    repostContextUsername: profile.username, 
+                  ),
                 ],
               ),
             ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => Center(child: Text('Error: $error')),
+        error: (e, s) => Center(child: Text('Error: $e')),
       ),
     );
   }
-
-  Widget _buildStat(String label, String value, ThemeData theme) {
-    return Column(
-      children: [
-        Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-      ],
-    );
-  }
 }
 
-// Reusable Grid with Tap-to-Play
-class _VideoGrid extends StatelessWidget {
-  final Future<List<VideoModel>> loader;
-  final String emptyMsg;
-  const _VideoGrid({required this.loader, this.emptyMsg = 'No videos yet'});
+class _VideoTab extends ConsumerWidget {
+  final ProviderListenable<AsyncValue<List<VideoModel>>> provider;
+  
+  // New Parameter: Catches the username passed from above
+  final String? repostContextUsername;
+
+  const _VideoTab({
+    required this.provider, 
+    this.repostContextUsername
+  });
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return FutureBuilder<List<VideoModel>>(
-      future: loader,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final videos = snap.data ?? [];
-
-        if (videos.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.grid_on, size: 48, color: theme.colorScheme.surfaceContainerHighest),
-                const SizedBox(height: 8),
-                Text(emptyMsg, style: theme.textTheme.bodyMedium),
-              ],
-            ),
-          );
-        }
-
-        return GridView.builder(
-          padding: const EdgeInsets.all(2),
-          itemCount: videos.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 2,
-            mainAxisSpacing: 2,
-            childAspectRatio: 9 / 16,
-          ),
-          itemBuilder: (context, index) {
-            final v = videos[index];
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => VideoPlayerScreen(
-                      videos: videos,
-                      initialIndex: index,
-                    ),
-                  ),
-                );
-              },
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (v.coverImageUrl != null)
-                      Image.network(v.coverImageUrl!, fit: BoxFit.cover)
-                    else
-                      Container(color: theme.colorScheme.surfaceContainerHighest),
-                    
-                    if (v.repostedByUsername != null)
-                      Positioned(
-                        top: 4, left: 4,
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
-                          child: const Icon(Icons.repeat, color: Colors.white, size: 10),
-                        ),
-                      ),
-
-                    Align(
-                      alignment: Alignment.bottomLeft,
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(4.0),
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                             begin: Alignment.bottomCenter,
-                             end: Alignment.topCenter,
-                             colors: [Colors.black54, Colors.transparent],
-                          )
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.play_arrow, color: Colors.white, size: 12),
-                            const SizedBox(width: 2),
-                            Expanded(
-                              child: Text(
-                                '${v.playbackCount}',
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncVideos = ref.watch(provider);
+    return asyncVideos.when(
+      data: (videos) => ProfileVideoGrid(
+        videos: videos,
+        // Passes it down to the Grid
+        repostContextUsername: repostContextUsername,
+      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, s) => Center(child: Text('Error loading videos: $e')),
     );
-  }
-}
-
-class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
-  final TabBar _tabBar;
-  _SliverAppBarDelegate(this._tabBar);
-
-  @override
-  double get minExtent => _tabBar.preferredSize.height;
-  @override
-  double get maxExtent => _tabBar.preferredSize.height;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final theme = Theme.of(context);
-    return Container(
-      color: theme.colorScheme.surface,
-      child: _tabBar,
-    );
-  }
-
-  @override
-  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) {
-    return false;
   }
 }

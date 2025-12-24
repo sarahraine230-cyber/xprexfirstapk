@@ -9,25 +9,26 @@ class VideoModel {
   final int playbackCount;
   final int likesCount;
   final int commentsCount;
-  // --- COUNTERS ---
   final int savesCount;
   final int repostsCount;
   
   final DateTime createdAt;
   final DateTime updatedAt;
   
-  // --- RECOMMENDATION ENGINE ---
   final List<String> tags;
 
-  // --- AUTHOR INFO ---
   String? authorUsername;
   String? authorDisplayName;
   String? authorAvatarUrl;
   bool? isLikedByCurrentUser;
 
-  // --- REPOST INFO (RPC) ---
   final String? repostedByUsername;
   final String? repostedByAvatarUrl;
+
+  // --- NEW: PROCESSING CHECK ---
+  // If the path DOES NOT end in '_optimized.mp4', it's still raw/processing.
+  // (Adjust this string match if your backend naming convention differs)
+  bool get isProcessing => !storagePath.endsWith('_optimized.mp4');
 
   VideoModel({
     required this.id,
@@ -44,7 +45,6 @@ class VideoModel {
     this.repostsCount = 0,
     required this.createdAt,
     required this.updatedAt,
-    // --- DEFAULTS ---
     this.tags = const [],
     
     this.authorUsername,
@@ -56,111 +56,35 @@ class VideoModel {
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
-    final video = VideoModel(
-      id: json['id'] as String,
+    // Safely handle profiles relation
+    final profile = json['profiles'] as Map<String, dynamic>?;
+
+    return VideoModel(
+      id: json['id'].toString(),
       authorAuthUserId: json['author_auth_user_id'] as String,
       storagePath: json['storage_path'] as String,
       coverImageUrl: json['cover_image_url'] as String?,
-      title: json['title'] as String,
+      title: json['title'] as String? ?? '',
       description: json['description'] as String?,
-      duration: json['duration'] as int,
+      duration: json['duration'] as int? ?? 0,
       playbackCount: json['playback_count'] as int? ?? 0,
       likesCount: json['likes_count'] as int? ?? 0,
       commentsCount: json['comments_count'] as int? ?? 0,
       savesCount: json['saves_count'] as int? ?? 0,
       repostsCount: json['reposts_count'] as int? ?? 0,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      createdAt: DateTime.parse(json['created_at']),
+      updatedAt: DateTime.parse(json['updated_at']),
+      tags: json['tags'] != null ? List<String>.from(json['tags']) : [],
       
-      // --- MAP TAGS ---
-      // Safely handle nulls and convert dynamic list to List<String>
-      tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
-
-      // --- MAP RPC FIELDS (For Feed) ---
+      authorUsername: profile?['username'] as String?,
+      authorDisplayName: profile?['display_name'] as String?,
+      authorAvatarUrl: profile?['avatar_url'] as String?,
+      
+      // Handle Supabase's "empty list if no match" quirk for relations
+      isLikedByCurrentUser: false, // Populated via separate check usually
+      
       repostedByUsername: json['reposted_by_username'] as String?,
       repostedByAvatarUrl: json['reposted_by_avatar_url'] as String?,
     );
-
-    // 1. Handle nested profiles (Standard Query)
-    if (json.containsKey('profiles')) {
-      final profile = json['profiles'] as Map<String, dynamic>?;
-      if (profile != null) {
-        video.authorUsername = profile['username'] as String?;
-        video.authorDisplayName = profile['display_name'] as String?;
-        video.authorAvatarUrl = profile['avatar_url'] as String?;
-      }
-    }
-    
-    // 2. Handle flattened profile fields (RPC/Feed Query)
-    if (json.containsKey('author_username')) video.authorUsername = json['author_username'] as String?;
-    if (json.containsKey('author_display_name')) video.authorDisplayName = json['author_display_name'] as String?;
-    if (json.containsKey('author_avatar_url')) video.authorAvatarUrl = json['author_avatar_url'] as String?;
-    
-    return video;
   }
-
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'author_auth_user_id': authorAuthUserId,
-    'storage_path': storagePath,
-    'cover_image_url': coverImageUrl,
-    'title': title,
-    'description': description,
-    'duration': duration,
-    'playback_count': playbackCount,
-    'likes_count': likesCount,
-    'comments_count': commentsCount,
-    'saves_count': savesCount,
-    'reposts_count': repostsCount,
-    'created_at': createdAt.toIso8601String(),
-    'updated_at': updatedAt.toIso8601String(),
-    // --- SERIALIZE NEW FIELDS ---
-    'tags': tags,
-  };
-
-  VideoModel copyWith({
-    String? id,
-    String? authorAuthUserId,
-    String? storagePath,
-    String? coverImageUrl,
-    String? title,
-    String? description,
-    int? duration,
-    int? playbackCount,
-    int? likesCount,
-    int? commentsCount,
-    int? savesCount,
-    int? repostsCount,
-    DateTime? createdAt,
-    DateTime? updatedAt,
-    List<String>? tags,
-    String? authorUsername,
-    String? authorDisplayName,
-    String? authorAvatarUrl,
-    bool? isLikedByCurrentUser,
-    String? repostedByUsername,
-    String? repostedByAvatarUrl,
-  }) => VideoModel(
-    id: id ?? this.id,
-    authorAuthUserId: authorAuthUserId ?? this.authorAuthUserId,
-    storagePath: storagePath ?? this.storagePath,
-    coverImageUrl: coverImageUrl ?? this.coverImageUrl,
-    title: title ?? this.title,
-    description: description ?? this.description,
-    duration: duration ?? this.duration,
-    playbackCount: playbackCount ?? this.playbackCount,
-    likesCount: likesCount ?? this.likesCount,
-    commentsCount: commentsCount ?? this.commentsCount,
-    savesCount: savesCount ?? this.savesCount,
-    repostsCount: repostsCount ?? this.repostsCount,
-    createdAt: createdAt ?? this.createdAt,
-    updatedAt: updatedAt ?? this.updatedAt,
-    tags: tags ?? this.tags,
-    authorUsername: authorUsername ?? this.authorUsername,
-    authorDisplayName: authorDisplayName ?? this.authorDisplayName,
-    authorAvatarUrl: authorAvatarUrl ?? this.authorAvatarUrl,
-    isLikedByCurrentUser: isLikedByCurrentUser ?? this.isLikedByCurrentUser,
-    repostedByUsername: repostedByUsername ?? this.repostedByUsername,
-    repostedByAvatarUrl: repostedByAvatarUrl ?? this.repostedByAvatarUrl,
-  );
 }

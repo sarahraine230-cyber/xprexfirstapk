@@ -1,6 +1,9 @@
+import 'dart:io'; // <--- NEW IMPORT
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart'; // <--- NEW IMPORT
+import 'package:video_player/video_player.dart'; // <--- NEW IMPORT
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:xprex/services/video_service.dart';
@@ -8,7 +11,7 @@ import 'package:xprex/models/video_model.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/screens/monetization_screen.dart';
 import 'package:xprex/screens/analytics_screen.dart';
-import 'package:xprex/screens/pulse_screen.dart'; // Import Pulse
+import 'package:xprex/screens/pulse_screen.dart';
 
 class CreatorHubScreen extends ConsumerStatefulWidget {
   const CreatorHubScreen({super.key});
@@ -37,17 +40,14 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
   Future<void> _loadHubData() async {
     final userId = ref.read(authServiceProvider).currentUserId;
     if (userId == null) return;
-
     try {
       // 1. Fetch Real Stats (30 Days)
       final stats = await _videoService.getCreatorStats();
-      
       // 2. Fetch Recent Videos List (Client side filter for display)
       final allVideos = await _videoService.getUserVideos(userId);
       final now = DateTime.now();
       final cutoff = now.subtract(const Duration(days: 30));
       final recentList = allVideos.where((v) => v.createdAt.isAfter(cutoff)).toList();
-
       if (mounted) {
         setState(() {
           _followersCount = stats['followers'] as int? ?? 0;
@@ -68,7 +68,6 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Creator Hub')),
@@ -96,8 +95,57 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   icon: Icons.add, 
                   label: 'Creation', 
                   theme: theme,
-                  onTap: () {
-                    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const UploadScreen()));
+                  onTap: () async {
+                    // --- UPDATED: THE BOUNCER LOGIC ---
+                    
+                    // 1. Pick Video
+                    final picker = ImagePicker();
+                    final XFile? video = await picker.pickVideo(
+                      source: ImageSource.gallery,
+                      maxDuration: const Duration(seconds: 60),
+                    );
+
+                    if (video == null) return; // User cancelled
+
+                    // 2. Validate Duration & Size
+                    final file = File(video.path);
+                    final controller = VideoPlayerController.file(file);
+                    
+                    // Show quick loading snackbar
+                    if (context.mounted) {
+                       ScaffoldMessenger.of(context).showSnackBar(
+                         const SnackBar(content: Text('Checking video...'), duration: Duration(milliseconds: 500))
+                       );
+                    }
+
+                    await controller.initialize();
+                    final duration = controller.value.duration.inSeconds;
+                    final sizeInMb = file.lengthSync() / (1024 * 1024);
+                    await controller.dispose();
+
+                    if (duration > 61) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                          backgroundColor: Colors.red,
+                          content: Text('Video must be under 60 seconds'),
+                        ));
+                      }
+                      return;
+                    }
+                    
+                    if (sizeInMb > 500) {
+                       if (context.mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('File too large')));
+                       }
+                       return;
+                    }
+
+                    // 3. Go to Upload Screen (Now valid!)
+                    if (context.mounted) {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => UploadScreen(videoFile: file),
+                      ));
+                    }
                   }
                 ),
                 _HubTopButton(
@@ -105,7 +153,6 @@ class _CreatorHubScreenState extends ConsumerState<CreatorHubScreen> {
                   label: 'Pulse', 
                   theme: theme,
                   onTap: () {
-                    // --- UPDATED: NAVIGATE TO PULSE ---
                     Navigator.of(context).push(MaterialPageRoute(builder: (_) => const PulseScreen()));
                   }
                 ),
