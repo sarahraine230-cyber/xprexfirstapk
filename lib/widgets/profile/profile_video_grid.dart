@@ -5,12 +5,20 @@ import 'package:xprex/screens/video_player_screen.dart';
 class ProfileVideoGrid extends StatelessWidget {
   final List<VideoModel> videos;
   
-  const ProfileVideoGrid({super.key, required this.videos});
+  // NEW: Optional context to pass to the player
+  final String? repostContextUsername;
+  
+  const ProfileVideoGrid({
+    super.key, 
+    required this.videos,
+    this.repostContextUsername,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (videos.isEmpty) {
-      return const Center(child: Text("No videos yet"));
+      // We handle empty state in the parent usually, but good fallback
+      return const SizedBox.shrink();
     }
     
     return GridView.builder(
@@ -24,15 +32,19 @@ class ProfileVideoGrid extends StatelessWidget {
       itemCount: videos.length,
       itemBuilder: (context, index) {
         final v = videos[index];
-        // --- THE NEW LOGIC: Check for Processing ---
         final isProcessing = v.isProcessing; 
 
         return GestureDetector(
           onTap: isProcessing 
-            ? null // Disable tap if processing
+            ? null 
             : () {
               Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => VideoPlayerScreen(videos: videos, initialIndex: index),
+                builder: (_) => VideoPlayerScreen(
+                  videos: videos, 
+                  initialIndex: index,
+                  // INJECTION: Passing the context to the player
+                  repostContextUsername: repostContextUsername,
+                ),
               ));
             },
           child: Stack(
@@ -44,7 +56,7 @@ class ProfileVideoGrid extends StatelessWidget {
               else
                 Container(color: Colors.grey[900]),
               
-              // --- PROCESSING BADGE ---
+              // Processing Badge
               if (isProcessing)
                 Container(
                   color: Colors.black.withOpacity(0.7),
@@ -58,7 +70,7 @@ class ProfileVideoGrid extends StatelessWidget {
                   ),
                 ),
 
-              // View Count (Hide if processing)
+              // View Count
               if (!isProcessing)
                 Positioned(
                   bottom: 4, left: 4,
