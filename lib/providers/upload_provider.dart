@@ -105,8 +105,10 @@ class UploadNotifier extends StateNotifier<UploadState> {
       // --- AUTO-REFRESH TRIGGER ---
       // 1. Refresh the Feed (so the new video might appear there)
       ref.invalidate(feedVideosProvider);
-      // 2. Refresh the User's Profile (so they see it in their grid)
-      ref.invalidate(userVideosProvider(userId));
+      
+      // 2. Refresh the User's Profile
+      // FIX: Changed 'userVideosProvider' to 'createdVideosProvider' to match the new Profile Screen
+      ref.invalidate(createdVideosProvider(userId));
 
       state = state.copyWith(isUploading: false, status: 'Done', progress: 1.0);
     } catch (e) {
