@@ -54,6 +54,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Timer? _watchTimer;
   int _secondsWatched = 0;
   bool _hasRecordedView = false;
+  
+  // PAUSE ANIMATION STATE
+  bool _isPaused = false;
 
   @override
   void initState() {
@@ -118,6 +121,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     if (_controller == null) return;
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
+      // Ensure pause icon is hidden when feed auto-plays
+      if (mounted) setState(() => _isPaused = false);
       _maybeEnableWakelock();
       _startWatchTimer();
     } else {
@@ -251,8 +256,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Widget build(BuildContext context) {
     // Dynamic Bottom Padding Logic
     final padding = MediaQuery.viewPaddingOf(context);
-    final bottomNavHeight = 60.0; // Approximate height of main nav bar
-    final bottomInset = padding.bottom + bottomNavHeight + 10; 
+    // ADJUSTED GRAVITY: Lowered the offset from ~60+10 to ~50 total
+    // This pushes the metadata closer to the bottom nav bar.
+    final bottomInset = padding.bottom + 52.0; 
 
     return Container(
       color: Colors.black,
@@ -274,20 +280,47 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     : Container(color: Colors.black)),
           ),
           
-          // 2. TAP TO PAUSE
+          // 2. PAUSE ANIMATION OVERLAY (Center)
+          // Displays a Play icon when paused
+          Center(
+            child: AnimatedOpacity(
+              opacity: _isPaused ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.4),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded, 
+                  color: Colors.white, 
+                  size: 64,
+                ),
+              ),
+            ),
+          ),
+
+          // 3. TAP DETECTOR (For Pause/Play)
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
                    if (_controller == null) return;
-                   _controller!.value.isPlaying ? _controller!.pause() : _controller!.play();
+                   if (_controller!.value.isPlaying) {
+                     _controller!.pause();
+                     setState(() => _isPaused = true);
+                   } else {
+                     _controller!.play();
+                     setState(() => _isPaused = false);
+                   }
                 },
               ),
             ),
           ),
 
-          // 3. VIGNETTE LAYER (Cinematic Gradient)
+          // 4. VIGNETTE LAYER (Cinematic Gradient)
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -295,7 +328,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   colors: [
                     Colors.transparent,
                     Colors.black.withOpacity(0.1),
-                    Colors.black.withOpacity(0.6),
+                    Colors.black.withOpacity(0.7), // Slightly darker at bottom for text pop
                   ],
                   stops: const [0.6, 0.8, 1.0],
                   begin: Alignment.topCenter,
@@ -305,7 +338,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
-          // 4. BOTTOM METADATA (Left)
+          // 5. BOTTOM METADATA (Left)
           Positioned(
             bottom: bottomInset,
             left: 12,
@@ -372,7 +405,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
-          // 5. SOCIAL RAIL (Right)
+          // 6. SOCIAL RAIL (Right)
           Positioned(
             right: 8,
             bottom: bottomInset,
