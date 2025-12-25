@@ -13,7 +13,7 @@ import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/widgets/comment_sheet.dart';
-import 'package:xprex/widgets/social_rail.dart'; // <--- IMPORT THE NEW RAIL
+import 'package:xprex/widgets/social_rail.dart';
 
 class VideoFeedItem extends StatefulWidget {
   final VideoModel video;
@@ -41,7 +41,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   CachedVideoPlayerPlusController? _controller;
   
-  // State for Social Actions
   bool _isLiked = false;
   int _likeCount = 0;
   int _commentsCount = 0;
@@ -250,10 +249,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
+    // Dynamic Bottom Padding Logic
     final padding = MediaQuery.viewPaddingOf(context);
-    final railHeight = size.height * 0.4;
-    final bottomGuard = padding.bottom + 88.0;
+    final bottomNavHeight = 60.0; // Approximate height of main nav bar
+    final bottomInset = padding.bottom + bottomNavHeight + 10; 
 
     return Container(
       color: Colors.black,
@@ -287,32 +286,98 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
               ),
             ),
           ),
+
+          // 3. VIGNETTE LAYER (Cinematic Gradient)
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.1),
+                    Colors.black.withOpacity(0.6),
+                  ],
+                  stops: const [0.6, 0.8, 1.0],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+            ),
+          ),
           
-          // 3. BOTTOM INFO
+          // 4. BOTTOM METADATA (Left)
           Positioned(
-            bottom: 80,
-            left: 16,
-            right: 80,
+            bottom: bottomInset,
+            left: 12,
+            right: 80, // Leave room for rail
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  CircleAvatar(radius: 18, backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50')),
-                  const SizedBox(width: 8),
-                  Text('@${widget.video.authorUsername ?? "User"}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ]),
+                // Author Row
+                GestureDetector(
+                  onTap: () {
+                    if (widget.video.authorAuthUserId.isNotEmpty) {
+                      context.push('/u/${widget.video.authorAuthUserId}');
+                    }
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.white.withOpacity(0.1),
+                        backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50'),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
+                        style: const TextStyle(
+                          color: Colors.white, 
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 2)]
+                        )
+                      ),
+                    ],
+                  ),
+                ),
+                
                 const SizedBox(height: 8),
-                Text(widget.video.title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                
+                // Caption / Title
+                if (widget.video.title.isNotEmpty)
+                  Text(
+                    widget.video.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white, 
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 2)]
+                    )
+                  ),
+                  
+                // Tags (Optional)
+                if (widget.video.tags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      widget.video.tags.map((t) => '#$t').join(' '),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
               ],
             ),
           ),
           
-          // 4. SOCIAL RAIL (MODULAR WIDGET)
+          // 5. SOCIAL RAIL (Right)
           Positioned(
             right: 8,
-            bottom: bottomGuard,
+            bottom: bottomInset,
             child: SizedBox(
-              width: 60,
+              width: 50,
               child: SocialRail(
                 isLiked: _isLiked,
                 likeCount: _likeCount,
