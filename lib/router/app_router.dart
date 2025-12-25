@@ -25,12 +25,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final authStateAsync = ref.watch(authStateProvider);
   
   return GoRouter(
-    initialLocation: '/',
+    // FIX 1: Always start at the Brand Splash "Handshake"
+    initialLocation: '/brand-splash',
     observers: [routeObserver],
     
     redirect: (context, state) {
       // 1. Handle Loading/Error States
       if (authStateAsync.isLoading || authStateAsync.hasError) {
+        // If we are already on a splash, stay there.
         if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
           return null;
         }
@@ -48,21 +50,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
       final isVerify = state.uri.path == '/verify-email';
-      
+
       // 4. Redirect Logic
       if (!isAuth) {
         // If not logged in, allow these screens
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
-        // Otherwise send to Splash
+        // Otherwise send to Brand Splash first (which will redirect to Welcome Splash)
         return '/brand-splash';
       }
 
-      // --- CRITICAL FIX: REMOVED THE PROFILE SETUP TRAP ---
-      // We no longer check for user metadata here. 
-      // If the user is authenticated, we trust they are good to go.
-      
-      // If authenticated but on auth screens, go Home
-      if (isSplash || isBrandSplash || isLogin || isSignup) return '/';
+      // --- CRITICAL FIX ---
+      // If authenticated, we usually kick them to Home.
+      // BUT: We removed 'isBrandSplash' from this check.
+      // This allows the BrandSplashScreen to stay on screen for its full duration.
+      if (isSplash || isLogin || isSignup) return '/';
       
       return null;
     },
