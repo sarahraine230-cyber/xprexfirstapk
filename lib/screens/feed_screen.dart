@@ -3,7 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/widgets/feed_item.dart';
-import 'package:xprex/router/app_router.dart'; 
+import 'package:xprex/router/app_router.dart';
+// IMPORT NEW SCREENS
+import 'package:xprex/screens/search_screen.dart';
+import 'package:xprex/screens/pulse_screen.dart';
 
 // --- THE NUCLEAR KEY PROVIDER ---
 final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
@@ -112,7 +115,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               ),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.black.withOpacity(0.4), Colors.transparent],
+                  colors: [Colors.black.withOpacity(0.6), Colors.transparent],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
@@ -120,11 +123,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // LEFT: Search
+                  // LEFT: Search (WIRED UP)
                   IconButton(
                     icon: const Icon(Icons.search, color: Colors.white, size: 28),
                     onPressed: () {
-                      // TODO: Navigate to Search
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SearchScreen())
+                      );
                     },
                   ),
 
@@ -140,11 +145,13 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                     ],
                   ),
 
-                  // RIGHT: Notification
+                  // RIGHT: Notification (WIRED UP)
                   IconButton(
                     icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 28),
                     onPressed: () {
-                      // TODO: Navigate to Notifications
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const PulseScreen())
+                      );
                     },
                   ),
                 ],
