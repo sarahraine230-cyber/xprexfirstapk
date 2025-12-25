@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart'; // IMPORT SUPABASE
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 // SERVICES
@@ -32,11 +33,61 @@ final repostedVideosProvider = FutureProvider.family<List<VideoModel>, String>((
   return await service.getRepostedVideos(userId);
 });
 
-class ProfileScreen extends ConsumerWidget {
+// CONVERTED TO STATEFUL WIDGET FOR REALTIME SUBSCRIPTION
+class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends ConsumerState<ProfileScreen> {
+  RealtimeChannel? _videosSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupRealtimeSubscription();
+  }
+
+  void _setupRealtimeSubscription() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    // Listen for UPDATES on the 'videos' table for this user
+    // This catches when Coconut finishes processing and updates the storage path
+    _videosSubscription = Supabase.instance.client
+        .channel('public:videos:$userId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'videos',
+          // FIX: Use PostgresChangeFilter object instead of String
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'author_auth_user_id',
+            value: userId,
+          ),
+          callback: (payload) {
+            // Logic: If a video updates, refresh the 'Created' list
+            if (mounted) {
+              ref.invalidate(createdVideosProvider(userId));
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    if (_videosSubscription != null) {
+      Supabase.instance.client.removeChannel(_videosSubscription!);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profileAsync = ref.watch(currentUserProfileProvider);
     final theme = Theme.of(context);
     
@@ -119,9 +170,6 @@ class ProfileScreen extends ConsumerWidget {
                 children: [
                   _VideoTab(provider: createdVideosProvider(profile.authUserId)),
                   _VideoTab(provider: savedVideosProvider(profile.authUserId)),
-                  
-                  // --- THE CRITICAL FIX ---
-                  // We explicitly tell the tab: "Everything here is reposted by this user"
                   _VideoTab(
                     provider: repostedVideosProvider(profile.authUserId),
                     repostContextUsername: profile.username, 
@@ -140,8 +188,6 @@ class ProfileScreen extends ConsumerWidget {
 
 class _VideoTab extends ConsumerWidget {
   final ProviderListenable<AsyncValue<List<VideoModel>>> provider;
-  
-  // New Parameter: Catches the username passed from above
   final String? repostContextUsername;
 
   const _VideoTab({
@@ -155,7 +201,6 @@ class _VideoTab extends ConsumerWidget {
     return asyncVideos.when(
       data: (videos) => ProfileVideoGrid(
         videos: videos,
-        // Passes it down to the Grid
         repostContextUsername: repostContextUsername,
       ),
       loading: () => const Center(child: CircularProgressIndicator()),

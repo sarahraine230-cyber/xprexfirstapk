@@ -6,11 +6,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/providers/upload_provider.dart';
-// Note: We don't need MainShell import here anymore as we just pop() on success
+// IMPORT FEED SCREEN TO ACCESS THE KEY PROVIDER
+import 'package:xprex/screens/feed_screen.dart';
 
 class UploadScreen extends ConsumerStatefulWidget {
-  // NOW REQUIRES THE FILE BE PASSED IN
-  final File videoFile; 
+  final File videoFile;
   const UploadScreen({super.key, required this.videoFile});
 
   @override
@@ -33,10 +33,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   void initState() {
     super.initState();
     _fetchCategories();
-    // Initialize the player with the passed file immediately
     _playerController = VideoPlayerController.file(widget.videoFile)
       ..initialize().then((_) {
-        // Ensure the video loops and plays so the user can see what they picked
         setState(() {});
         _playerController!.setLooping(true);
         _playerController!.play();
@@ -79,7 +77,13 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     final user = _authService.currentUser;
     if (user == null) return;
 
-    // Trigger Upload using the passed file
+    // --- NUCLEAR FIX: HARD RESET THE FEED ---
+    // 1. Invalidate the data (fetch new videos)
+    ref.invalidate(feedVideosProvider);
+    // 2. Increment the Key (Force PageView Rebuild to kill blank screen)
+    ref.read(feedRefreshKeyProvider.notifier).state++;
+
+    // Trigger Upload
     ref.read(uploadProvider.notifier).startUpload(
       videoFile: widget.videoFile, 
       title: _titleController.text.trim(), 
@@ -90,10 +94,9 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       durationSeconds: _playerController?.value.duration.inSeconds ?? 0,
     );
 
-    // Close this screen and go back to feed
     _playerController?.pause();
     if (mounted) {
-      Navigator.of(context).pop(); // Close the upload form
+      Navigator.of(context).pop(); 
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posting video...')));
     }
   }
@@ -126,7 +129,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              // --- ROW: Preview + Title ---
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -148,8 +150,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 ],
               ),
               const Divider(height: 32),
-
-              // --- CATEGORY ---
               DropdownButtonFormField<int>(
                 decoration: const InputDecoration(labelText: 'Category (Required)', border: OutlineInputBorder()),
                 value: _selectedCategoryId,
@@ -161,8 +161,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 hint: _isLoadingCategories ? const Text("Loading...") : const Text("Select Category"),
               ),
               const SizedBox(height: 16),
-
-              // --- TAGS ---
               TextField(
                 controller: _tagController,
                 decoration: InputDecoration(
@@ -173,7 +171,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                 onSubmitted: _addTag,
               ),
               if (_tags.isNotEmpty) Wrap(spacing: 8, children: _tags.map((t) => Chip(label: Text('#$t'), onDeleted: () => setState(() => _tags.remove(t)))).toList()),
-              
               const SizedBox(height: 20),
               GestureDetector(
                 onTap: _launchHelp,

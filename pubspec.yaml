@@ -19,7 +19,8 @@ dependencies:
   go_router: ^17.0.0
   
   # Backend
-  supabase_flutter: '>=1.10.0'
+  # UPGRADED to ensure compatibility with PostgresChangeFilter
+  supabase_flutter: ^2.8.0
   http: ^1.0.0
   
   # R2 / S3 Client
