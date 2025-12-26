@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
+// IMPORT FEED SCREEN TO TURBO-CHARGE DATA LOADING
+import 'package:xprex/screens/feed_screen.dart';
 
 /// Lightweight branding splash shown on every app open.
 /// Uses the transparent logo asset for a seamless look.
@@ -28,6 +30,11 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
     );
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _controller.forward();
+
+    // --- TURBO CHARGE ---
+    // Start fetching feed data immediately in the background
+    // By the time the 2s timer ends, the data should be ready!
+    ref.read(feedVideosProvider);
 
     // Small brand pause before routing (The Handshake)
     _timer = Timer(const Duration(seconds: 2), _routeNext);
