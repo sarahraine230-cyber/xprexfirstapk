@@ -140,6 +140,18 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
   }
 
+  // --- MISSING MUSCLE RESTORED ---
+  void _maybeEnableWakelock() {
+    if (kIsWeb) return;
+    try { WakelockPlus.enable(); } catch (_) {}
+  }
+
+  void _maybeDisableWakelock() {
+    if (kIsWeb) return;
+    try { WakelockPlus.disable(); } catch (_) {}
+  }
+  // -------------------------------
+
   void _startWatchTimer() {
     if (_watchTimer != null && _watchTimer!.isActive) return;
     _watchTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
