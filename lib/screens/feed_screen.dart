@@ -11,6 +11,10 @@ import 'package:xprex/screens/pulse_screen.dart';
 // --- THE NUCLEAR KEY PROVIDER ---
 final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
 
+// --- NEW: SCROLL-TO-TOP SIGNAL ---
+// Incremented by MainShell when tapping 'Home' while already on Home
+final feedScrollSignalProvider = StateProvider<int>((ref) => 0);
+
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   final videoService = VideoService();
   return await videoService.getForYouFeed(limit: 20);
@@ -25,6 +29,9 @@ class FeedScreen extends ConsumerStatefulWidget {
 }
 
 class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
+  // We need a explicit controller to handle the Scroll-to-Top action
+  final PageController _pageController = PageController();
+  
   int _activeIndex = 0;
   bool _appActive = true;
   bool _screenVisible = true; 
@@ -51,6 +58,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -71,6 +79,20 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     final refreshKey = ref.watch(feedRefreshKeyProvider);
     final shouldPlay = widget.isVisible && _appActive && _screenVisible;
 
+    // LISTEN FOR SCROLL SIGNAL
+    ref.listen(feedScrollSignalProvider, (previous, next) {
+      if (next > (previous ?? 0) && _pageController.hasClients) {
+        // Smoothly scroll back to top if not already there
+        if (_activeIndex > 0) {
+          _pageController.animateToPage(
+            0, 
+            duration: const Duration(milliseconds: 500), 
+            curve: Curves.easeInOut
+          );
+        }
+      }
+    });
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -81,6 +103,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               if (videos.isEmpty) return const Center(child: Text('No videos yet', style: TextStyle(color: Colors.white)));
               
               return PageView.builder(
+                controller: _pageController, // Attached Controller
                 key: ValueKey(refreshKey),
                 scrollDirection: Axis.vertical,
                 allowImplicitScrolling: false, 
@@ -123,7 +146,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // LEFT: Search (WIRED UP)
+                  // LEFT: Search
                   IconButton(
                     icon: const Icon(Icons.search, color: Colors.white, size: 28),
                     onPressed: () {
@@ -145,7 +168,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                     ],
                   ),
 
-                  // RIGHT: Notification (WIRED UP)
+                  // RIGHT: Notification
                   IconButton(
                     icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 28),
                     onPressed: () {
