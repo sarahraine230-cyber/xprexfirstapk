@@ -13,7 +13,7 @@ import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
 import 'package:xprex/widgets/comment_sheet.dart';
-import 'package:xprex/widgets/social_rail.dart'; // <--- IMPORT THE NEW RAIL
+import 'package:xprex/widgets/social_rail.dart';
 
 class VideoFeedItem extends StatefulWidget {
   final VideoModel video;
@@ -33,7 +33,7 @@ class VideoFeedItem extends StatefulWidget {
   State<VideoFeedItem> createState() => _VideoFeedItemState();
 }
 
-class _VideoFeedItemState extends State<VideoFeedItem> {
+class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProviderStateMixin {
   final _storage = StorageService();
   final _videoService = VideoService();
   final _saveService = SaveService();
@@ -41,7 +41,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   CachedVideoPlayerPlusController? _controller;
   
-  // State for Social Actions
+  late AnimationController _playPauseController;
+  late Animation<double> _playPauseAnimation;
+
   bool _isLiked = false;
   int _likeCount = 0;
   int _commentsCount = 0;
@@ -55,10 +57,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Timer? _watchTimer;
   int _secondsWatched = 0;
   bool _hasRecordedView = false;
-
+  
   @override
   void initState() {
     super.initState();
+    _playPauseController = AnimationController(
+      vsync: this, 
+      duration: const Duration(milliseconds: 200),
+    );
+    _playPauseAnimation = CurvedAnimation(parent: _playPauseController, curve: Curves.easeOut);
+
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
     _saveCount = widget.video.savesCount;
@@ -119,6 +127,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     if (_controller == null) return;
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
+      _playPauseController.reverse(); 
       _maybeEnableWakelock();
       _startWatchTimer();
     } else {
@@ -126,6 +135,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
       _maybeDisableWakelock();
       _stopWatchTimer();
     }
+  }
+
+  void _maybeEnableWakelock() {
+    if (kIsWeb) return;
+    try { WakelockPlus.enable(); } catch (_) {}
+  }
+
+  void _maybeDisableWakelock() {
+    if (kIsWeb) return;
+    try { WakelockPlus.disable(); } catch (_) {}
   }
 
   void _startWatchTimer() {
@@ -166,45 +185,26 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     }
   }
 
-  // --- ACTIONS ---
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
-    
-    setState(() {
-      _isLiked = !_isLiked;
-      _likeCount += _isLiked ? 1 : -1;
-    });
+    setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     widget.onLikeToggled?.call();
-    try {
-      await _videoService.toggleLike(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
-    }
+    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); }
   }
 
   Future<void> _toggleSave() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('save');
-    
     setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    try {
-      await _saveService.toggleSave(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    }
+    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; }); }
   }
 
   Future<void> _toggleRepost() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('repost');
-
     setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    try {
-      await _repostService.toggleRepost(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    }
+    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; }); }
   }
   
   void _showAuthSnack(String action) {
@@ -240,6 +240,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   void dispose() {
     _flushWatchTime();
     _disposeController();
+    _playPauseController.dispose();
     super.dispose();
   }
 
@@ -250,10 +251,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     final padding = MediaQuery.viewPaddingOf(context);
-    final railHeight = size.height * 0.4;
-    final bottomGuard = padding.bottom + 88.0;
+    final bottomInset = padding.bottom + 52.0; 
 
     return Container(
       color: Colors.black,
@@ -275,44 +274,133 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     : Container(color: Colors.black)),
           ),
           
-          // 2. TAP TO PAUSE
+          // 2. TAP DETECTOR (For Pause/Play)
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
                    if (_controller == null) return;
-                   _controller!.value.isPlaying ? _controller!.pause() : _controller!.play();
+                   if (_controller!.value.isPlaying) {
+                     _controller!.pause();
+                     _playPauseController.forward();
+                   } else {
+                     _controller!.play();
+                     _playPauseController.reverse();
+                   }
                 },
               ),
             ),
           ),
+
+          // 3. PAUSE ANIMATION OVERLAY (Wrapped in IgnorePointer)
+          IgnorePointer(
+            child: Center(
+              child: FadeTransition(
+                opacity: _playPauseAnimation,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded, 
+                    color: Colors.white, 
+                    size: 64,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // 4. VIGNETTE LAYER (Wrapped in IgnorePointer)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.1),
+                      Colors.black.withOpacity(0.7), 
+                    ],
+                    stops: const [0.6, 0.8, 1.0],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                ),
+              ),
+            ),
+          ),
           
-          // 3. BOTTOM INFO
+          // 5. BOTTOM METADATA
           Positioned(
-            bottom: 80,
-            left: 16,
-            right: 80,
+            bottom: bottomInset,
+            left: 12,
+            right: 80, 
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(children: [
-                  CircleAvatar(radius: 18, backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50')),
-                  const SizedBox(width: 8),
-                  Text('@${widget.video.authorUsername ?? "User"}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ]),
+                GestureDetector(
+                  onTap: () {
+                    if (widget.video.authorAuthUserId.isNotEmpty) {
+                      context.push('/u/${widget.video.authorAuthUserId}');
+                    }
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: Colors.white.withOpacity(0.1),
+                        backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50'),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
+                        style: const TextStyle(
+                          color: Colors.white, 
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 2)]
+                        )
+                      ),
+                    ],
+                  ),
+                ),
                 const SizedBox(height: 8),
-                Text(widget.video.title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                if (widget.video.title.isNotEmpty)
+                  Text(
+                    widget.video.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white, 
+                      fontSize: 15,
+                      fontWeight: FontWeight.w400,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 2)]
+                    )
+                  ),
+                if (widget.video.tags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      widget.video.tags.map((t) => '#$t').join(' '),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
               ],
             ),
           ),
           
-          // 4. SOCIAL RAIL (MODULAR WIDGET)
+          // 6. SOCIAL RAIL
           Positioned(
             right: 8,
-            bottom: bottomGuard,
+            bottom: bottomInset,
             child: SizedBox(
-              width: 60,
+              width: 50,
               child: SocialRail(
                 isLiked: _isLiked,
                 likeCount: _likeCount,
@@ -331,19 +419,34 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
+          // 7. PROGRESS BAR (Manual Implementation)
+          if (_controller != null && _controller!.value.isInitialized)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 10, // Lifted 10px above bottom
+              height: 4, 
+              child: AnimatedBuilder(
+                animation: _controller!,
+                builder: (context, child) {
+                  final duration = _controller!.value.duration.inMilliseconds;
+                  final position = _controller!.value.position.inMilliseconds;
+                  double value = 0;
+                  if (duration > 0) value = position / duration;
+                  
+                  return LinearProgressIndicator(
+                    value: value,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                    minHeight: 4,
+                  );
+                },
+              ),
+            ),
+
           if (_loading) const Center(child: CircularProgressIndicator(color: Colors.white)),
         ],
       ),
     );
   }
-}
-
-void _maybeEnableWakelock() {
-  if (kIsWeb) return;
-  try { WakelockPlus.enable(); } catch (_) {}
-}
-
-void _maybeDisableWakelock() {
-  if (kIsWeb) return;
-  try { WakelockPlus.disable(); } catch (_) {}
 }

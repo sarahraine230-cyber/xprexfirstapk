@@ -1,9 +1,10 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
+// IMPORT FEED SCREEN TO TURBO-CHARGE DATA LOADING
+import 'package:xprex/screens/feed_screen.dart';
 
 /// Lightweight branding splash shown on every app open.
 /// Uses the transparent logo asset for a seamless look.
@@ -30,30 +31,34 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _controller.forward();
 
-    // Small brand pause before routing
+    // --- TURBO CHARGE ---
+    // Start fetching feed data immediately in the background
+    // By the time the 2s timer ends, the data should be ready!
+    ref.read(feedVideosProvider);
+
+    // Small brand pause before routing (The Handshake)
     _timer = Timer(const Duration(seconds: 2), _routeNext);
   }
 
   void _routeNext() {
+    // Check if the widget is still in the tree before acting
+    if (!mounted) return;
+
     final auth = ref.read(authServiceProvider);
     try {
       if (auth.isAuthenticated) {
         if (auth.isEmailVerified()) {
-          if (!mounted) return;
-          context.go('/');
+          context.go('/'); // Go to Feed
         } else {
-          if (!mounted) return;
           context.go('/email-verification');
         }
       } else {
-        if (!mounted) return;
         // Show existing welcome SplashScreen next for logged-out users
         context.go('/splash');
       }
     } catch (e) {
-      if (!mounted) return;
       // Fallback
-      context.go('/splash');
+      if (mounted) context.go('/splash');
     }
   }
 
@@ -83,11 +88,10 @@ class _BrandSplashScreenState extends ConsumerState<BrandSplashScreen>
                   // MAKE SURE YOU UPLOAD THIS FILE TO assets/images/
                   'assets/images/splash_logo.png', 
                   fit: BoxFit.contain,
-                  // Fallback: If you haven't uploaded it yet, this prevents a crash 
-                  // by showing an error icon instead of crashing the app.
+                  // Fallback to prevent crash if asset is missing
                   errorBuilder: (context, error, stackTrace) => const Icon(
-                    Icons.error_outline, 
-                    color: Colors.red, 
+                    Icons.flash_on, 
+                    color: Colors.white, 
                     size: 50
                   ),
                 ),

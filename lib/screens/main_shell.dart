@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:video_player/video_player.dart';
-import 'package:xprex/screens/feed_screen.dart';
-import 'package:xprex/screens/search_screen.dart'; // Ensure this exists
+import 'package:xprex/screens/feed_screen.dart'; // Import to access signal
+import 'package:xprex/screens/search_screen.dart';
 import 'package:xprex/screens/profile_screen.dart';
 import 'package:xprex/screens/upload_screen.dart';
 import 'package:xprex/services/auth_service.dart';
-import 'package:xprex/providers/upload_provider.dart'; // Needed for overlay
+import 'package:xprex/providers/upload_provider.dart';
 
 final GlobalKey<_MainShellState> mainShellKey = GlobalKey<_MainShellState>();
 
@@ -29,7 +29,7 @@ class _MainShellState extends ConsumerState<MainShell> {
   final _picker = ImagePicker();
 
   void setIndex(int index) {
-    if (index == 2) return; // Don't navigate to the placeholder upload tab
+    if (index == 2) return;
     setState(() {
       _selectedIndex = index;
     });
@@ -106,17 +106,20 @@ class _MainShellState extends ConsumerState<MainShell> {
     if (index == 2) {
       _handleUploadTap();
     } else {
-      setState(() {
-        _selectedIndex = index;
-      });
+      // --- LOGIC: TAP TO SCROLL TOP ---
+      if (index == 0 && _selectedIndex == 0) {
+        // If tapping Home while on Home -> Signal Feed to scroll up
+        ref.read(feedScrollSignalProvider.notifier).state++;
+      } else {
+        setState(() {
+          _selectedIndex = index;
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
     return Scaffold(
       key: mainShellKey,
       body: Stack(
@@ -124,43 +127,27 @@ class _MainShellState extends ConsumerState<MainShell> {
           IndexedStack(
             index: _selectedIndex,
             children: [
-              // Tab 0: Feed (Is Active ONLY if index is 0)
               FeedScreen(isVisible: _selectedIndex == 0),
-              
-              // Tab 1: Discover
               const SearchScreen(),
-              
-              // Tab 2: Placeholder for Upload (never shown)
-              const SizedBox.shrink(),
-              
-              // Tab 3: Profile
+              const SizedBox.shrink(), // Upload placeholder
               const ProfileScreen(),
             ],
           ),
-          
-          // The Upload Progress Overlay
           const _UploadStatusOverlay(),
         ],
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
-        backgroundColor: Colors.black, // Force Black for that Premium look
+        backgroundColor: Colors.black,
         selectedItemColor: Colors.white,
         unselectedItemColor: Colors.grey,
         showSelectedLabels: true,
         showUnselectedLabels: true,
         type: BottomNavigationBarType.fixed,
         items: [
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.home_filled),
-            label: 'Home',
-          ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.search),
-            label: 'Discover',
-          ),
-          // THE CUSTOM UPLOAD BUTTON
+          const BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+          const BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Discover'),
           BottomNavigationBarItem(
             icon: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -172,10 +159,7 @@ class _MainShellState extends ConsumerState<MainShell> {
             ),
             label: '',
           ),
-          const BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: 'Profile',
-          ),
+          const BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -188,14 +172,10 @@ class _UploadStatusOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final uploadState = ref.watch(uploadProvider);
-    
     if (!uploadState.isUploading && uploadState.errorMessage == null) {
       return const SizedBox.shrink();
     }
-
-    if (uploadState.errorMessage != null) {
-      return const SizedBox.shrink(); // Errors handled by SnackBar usually
-    }
+    if (uploadState.errorMessage != null) return const SizedBox.shrink();
 
     return Positioned(
       top: MediaQuery.of(context).padding.top + 10,
