@@ -275,7 +275,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
           ),
           
           // 2. TAP DETECTOR (For Pause/Play)
-          // MUST BE ABOVE VIDEO but BELOW VIGNETTE (if vignette ignores pointer)
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -420,22 +419,28 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 7. PROGRESS BAR (Lifted above home indicator)
+          // 7. PROGRESS BAR (Manual Implementation)
           if (_controller != null && _controller!.value.isInitialized)
             Positioned(
               left: 0,
               right: 0,
-              // FIX: Push it up slightly so it isn't covered by bottom nav
-              bottom: 0, 
-              height: 4, // Make it slightly thicker for visibility
-              child: VideoProgressIndicator(
-                _controller!,
-                allowScrubbing: false,
-                colors: VideoProgressColors(
-                  playedColor: Colors.white,
-                  bufferedColor: Colors.white.withOpacity(0.3),
-                  backgroundColor: Colors.transparent,
-                ),
+              bottom: 10, // Lifted 10px above bottom
+              height: 4, 
+              child: AnimatedBuilder(
+                animation: _controller!,
+                builder: (context, child) {
+                  final duration = _controller!.value.duration.inMilliseconds;
+                  final position = _controller!.value.position.inMilliseconds;
+                  double value = 0;
+                  if (duration > 0) value = position / duration;
+                  
+                  return LinearProgressIndicator(
+                    value: value,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                    minHeight: 4,
+                  );
+                },
               ),
             ),
 
