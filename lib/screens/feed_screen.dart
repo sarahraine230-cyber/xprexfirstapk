@@ -106,7 +106,9 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                 controller: _pageController, // Attached Controller
                 key: ValueKey(refreshKey),
                 scrollDirection: Axis.vertical,
-                allowImplicitScrolling: false, 
+                // --- THE TIKTOK TRICK RESTORED ---
+                // true = Pre-load next/prev pages. Smooth scrolling is back!
+                allowImplicitScrolling: true, 
                 itemCount: videos.length,
                 onPageChanged: (i) => setState(() => _activeIndex = i),
                 itemBuilder: (context, index) {
