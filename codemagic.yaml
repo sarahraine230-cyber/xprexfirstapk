@@ -14,6 +14,13 @@ workflows:
         script: |
           flutter pub get
 
+      # --- NEW: ICON GENERATOR STEP ---
+      # This ensures the custom icon is generated fresh for every build
+      - name: Generate App Icons
+        script: |
+          echo "🔮 Generating App Icons..."
+          dart run flutter_launcher_icons
+
       - name: Build Android APK (ARM64 only)
         script: |
           flutter build apk --release --target-platform android-arm64
