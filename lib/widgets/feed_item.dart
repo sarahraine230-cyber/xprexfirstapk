@@ -33,7 +33,7 @@ class VideoFeedItem extends StatefulWidget {
   State<VideoFeedItem> createState() => _VideoFeedItemState();
 }
 
-class _VideoFeedItemState extends State<VideoFeedItem> {
+class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProviderStateMixin {
   final _storage = StorageService();
   final _videoService = VideoService();
   final _saveService = SaveService();
@@ -41,6 +41,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   CachedVideoPlayerPlusController? _controller;
   
+  // Animation Controller for Play/Pause Icon
+  late AnimationController _playPauseController;
+  late Animation<double> _playPauseAnimation;
+
   bool _isLiked = false;
   int _likeCount = 0;
   int _commentsCount = 0;
@@ -55,12 +59,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   int _secondsWatched = 0;
   bool _hasRecordedView = false;
   
-  // PAUSE ANIMATION STATE
-  bool _isPaused = false;
-
   @override
   void initState() {
     super.initState();
+    // Setup Animation: 200ms fade
+    _playPauseController = AnimationController(
+      vsync: this, 
+      duration: const Duration(milliseconds: 200),
+    );
+    _playPauseAnimation = CurvedAnimation(parent: _playPauseController, curve: Curves.easeOut);
+
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
     _saveCount = widget.video.savesCount;
@@ -121,8 +129,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
     if (_controller == null) return;
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
-      // Ensure pause icon is hidden when feed auto-plays
-      if (mounted) setState(() => _isPaused = false);
+      // Auto-play means icon should be hidden
+      _playPauseController.reverse(); 
       _maybeEnableWakelock();
       _startWatchTimer();
     } else {
@@ -174,41 +182,23 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
-    
-    setState(() {
-      _isLiked = !_isLiked;
-      _likeCount += _isLiked ? 1 : -1;
-    });
+    setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     widget.onLikeToggled?.call();
-    try {
-      await _videoService.toggleLike(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
-    }
+    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); }
   }
 
   Future<void> _toggleSave() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('save');
-    
     setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    try {
-      await _saveService.toggleSave(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    }
+    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; }); }
   }
 
   Future<void> _toggleRepost() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('repost');
-
     setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    try {
-      await _repostService.toggleRepost(widget.video.id, uid);
-    } catch (_) {
-      setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    }
+    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; }); }
   }
   
   void _showAuthSnack(String action) {
@@ -244,6 +234,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
   void dispose() {
     _flushWatchTime();
     _disposeController();
+    _playPauseController.dispose();
     super.dispose();
   }
 
@@ -254,10 +245,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
 
   @override
   Widget build(BuildContext context) {
-    // Dynamic Bottom Padding Logic
     final padding = MediaQuery.viewPaddingOf(context);
-    // ADJUSTED GRAVITY: Lowered the offset from ~60+10 to ~50 total
-    // This pushes the metadata closer to the bottom nav bar.
     final bottomInset = padding.bottom + 52.0; 
 
     return Container(
@@ -281,11 +269,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
           ),
           
           // 2. PAUSE ANIMATION OVERLAY (Center)
-          // Displays a Play icon when paused
           Center(
-            child: AnimatedOpacity(
-              opacity: _isPaused ? 1.0 : 0.0,
-              duration: const Duration(milliseconds: 200),
+            child: FadeTransition(
+              opacity: _playPauseAnimation,
               child: Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
@@ -301,7 +287,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
 
-          // 3. TAP DETECTOR (For Pause/Play)
+          // 3. TAP DETECTOR
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -310,17 +296,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                    if (_controller == null) return;
                    if (_controller!.value.isPlaying) {
                      _controller!.pause();
-                     setState(() => _isPaused = true);
+                     _playPauseController.forward(); // Show Icon
                    } else {
                      _controller!.play();
-                     setState(() => _isPaused = false);
+                     _playPauseController.reverse(); // Hide Icon
                    }
                 },
               ),
             ),
           ),
 
-          // 4. VIGNETTE LAYER (Cinematic Gradient)
+          // 4. VIGNETTE LAYER
           Positioned.fill(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -328,7 +314,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                   colors: [
                     Colors.transparent,
                     Colors.black.withOpacity(0.1),
-                    Colors.black.withOpacity(0.7), // Slightly darker at bottom for text pop
+                    Colors.black.withOpacity(0.7), 
                   ],
                   stops: const [0.6, 0.8, 1.0],
                   begin: Alignment.topCenter,
@@ -342,12 +328,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
           Positioned(
             bottom: bottomInset,
             left: 12,
-            right: 80, // Leave room for rail
+            right: 80, 
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Author Row
                 GestureDetector(
                   onTap: () {
                     if (widget.video.authorAuthUserId.isNotEmpty) {
@@ -375,10 +360,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                     ],
                   ),
                 ),
-                
                 const SizedBox(height: 8),
-                
-                // Caption / Title
                 if (widget.video.title.isNotEmpty)
                   Text(
                     widget.video.title,
@@ -391,8 +373,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
                       shadows: [Shadow(color: Colors.black, blurRadius: 2)]
                     )
                   ),
-                  
-                // Tags (Optional)
                 if (widget.video.tags.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
@@ -429,19 +409,27 @@ class _VideoFeedItemState extends State<VideoFeedItem> {
             ),
           ),
           
+          // 7. PROGRESS BAR (Encouragement Bar)
+          if (_controller != null && _controller!.value.isInitialized)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              height: 2, // Minimal height
+              child: VideoProgressIndicator(
+                _controller!,
+                allowScrubbing: false, // Purely visual for now
+                colors: VideoProgressColors(
+                  playedColor: Colors.white,
+                  bufferedColor: Colors.white.withOpacity(0.3),
+                  backgroundColor: Colors.white.withOpacity(0.1),
+                ),
+              ),
+            ),
+
           if (_loading) const Center(child: CircularProgressIndicator(color: Colors.white)),
         ],
       ),
     );
   }
-}
-
-void _maybeEnableWakelock() {
-  if (kIsWeb) return;
-  try { WakelockPlus.enable(); } catch (_) {}
-}
-
-void _maybeDisableWakelock() {
-  if (kIsWeb) return;
-  try { WakelockPlus.disable(); } catch (_) {}
 }
