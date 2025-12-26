@@ -41,7 +41,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
 
   CachedVideoPlayerPlusController? _controller;
   
-  // Animation Controller for Play/Pause Icon
   late AnimationController _playPauseController;
   late Animation<double> _playPauseAnimation;
 
@@ -62,7 +61,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
-    // Setup Animation: 200ms fade
     _playPauseController = AnimationController(
       vsync: this, 
       duration: const Duration(milliseconds: 200),
@@ -129,7 +127,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (_controller == null) return;
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
-      // Auto-play means icon should be hidden
       _playPauseController.reverse(); 
       _maybeEnableWakelock();
       _startWatchTimer();
@@ -140,7 +137,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
   }
 
-  // --- MISSING MUSCLE RESTORED ---
   void _maybeEnableWakelock() {
     if (kIsWeb) return;
     try { WakelockPlus.enable(); } catch (_) {}
@@ -150,7 +146,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (kIsWeb) return;
     try { WakelockPlus.disable(); } catch (_) {}
   }
-  // -------------------------------
 
   void _startWatchTimer() {
     if (_watchTimer != null && _watchTimer!.isActive) return;
@@ -190,7 +185,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
   }
 
-  // --- ACTIONS ---
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
@@ -280,26 +274,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                     : Container(color: Colors.black)),
           ),
           
-          // 2. PAUSE ANIMATION OVERLAY (Center)
-          Center(
-            child: FadeTransition(
-              opacity: _playPauseAnimation,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.4),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded, 
-                  color: Colors.white, 
-                  size: 64,
-                ),
-              ),
-            ),
-          ),
-
-          // 3. TAP DETECTOR
+          // 2. TAP DETECTOR (For Pause/Play)
+          // MUST BE ABOVE VIDEO but BELOW VIGNETTE (if vignette ignores pointer)
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -308,35 +284,58 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                    if (_controller == null) return;
                    if (_controller!.value.isPlaying) {
                      _controller!.pause();
-                     _playPauseController.forward(); // Show Icon
+                     _playPauseController.forward();
                    } else {
                      _controller!.play();
-                     _playPauseController.reverse(); // Hide Icon
+                     _playPauseController.reverse();
                    }
                 },
               ),
             ),
           ),
 
-          // 4. VIGNETTE LAYER
+          // 3. PAUSE ANIMATION OVERLAY (Wrapped in IgnorePointer)
+          IgnorePointer(
+            child: Center(
+              child: FadeTransition(
+                opacity: _playPauseAnimation,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.4),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.play_arrow_rounded, 
+                    color: Colors.white, 
+                    size: 64,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // 4. VIGNETTE LAYER (Wrapped in IgnorePointer)
           Positioned.fill(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.1),
-                    Colors.black.withOpacity(0.7), 
-                  ],
-                  stops: const [0.6, 0.8, 1.0],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.1),
+                      Colors.black.withOpacity(0.7), 
+                    ],
+                    stops: const [0.6, 0.8, 1.0],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
                 ),
               ),
             ),
           ),
           
-          // 5. BOTTOM METADATA (Left)
+          // 5. BOTTOM METADATA
           Positioned(
             bottom: bottomInset,
             left: 12,
@@ -397,7 +396,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 6. SOCIAL RAIL (Right)
+          // 6. SOCIAL RAIL
           Positioned(
             right: 8,
             bottom: bottomInset,
@@ -421,20 +420,21 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 7. PROGRESS BAR (Encouragement Bar)
+          // 7. PROGRESS BAR (Lifted above home indicator)
           if (_controller != null && _controller!.value.isInitialized)
             Positioned(
-              bottom: 0,
               left: 0,
               right: 0,
-              height: 2, // Minimal height
+              // FIX: Push it up slightly so it isn't covered by bottom nav
+              bottom: 0, 
+              height: 4, // Make it slightly thicker for visibility
               child: VideoProgressIndicator(
                 _controller!,
-                allowScrubbing: false, // Purely visual for now
+                allowScrubbing: false,
                 colors: VideoProgressColors(
                   playedColor: Colors.white,
                   bufferedColor: Colors.white.withOpacity(0.3),
-                  backgroundColor: Colors.white.withOpacity(0.1),
+                  backgroundColor: Colors.transparent,
                 ),
               ),
             ),
