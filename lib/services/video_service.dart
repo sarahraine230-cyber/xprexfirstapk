@@ -14,7 +14,6 @@ class VideoService {
       if (data == null) return [];
 
       final List<dynamic> list = data as List<dynamic>;
-      // This line previously failed because .fromMap was missing
       return list.map((json) => VideoModel.fromMap(json)).toList();
       
     } catch (e) {
@@ -39,14 +38,13 @@ class VideoService {
     }
   }
 
-  // --- ANALYTICS METHODS (RESTORED) ---
+  // --- ANALYTICS METHODS ---
 
   Future<Map<String, dynamic>> getCreatorStats() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return {};
 
     try {
-      // Call the SQL function we created
       final data = await _supabase.rpc('get_creator_stats', params: {'target_user_id': userId});
       return data as Map<String, dynamic>;
     } catch (e) {
@@ -60,7 +58,6 @@ class VideoService {
     if (userId == null) return {};
 
     try {
-      // Call the SQL function we created
       final data = await _supabase.rpc(
         'get_analytics_dashboard', 
         params: {'target_user_id': userId, 'days_range': days}
@@ -72,7 +69,7 @@ class VideoService {
     }
   }
 
-  // --- OTHER METHODS ---
+  // --- PROFILE & VIDEO METHODS ---
   
   Future<List<VideoModel>> getUserVideos(String userId) async {
     final response = await _supabase
@@ -81,6 +78,33 @@ class VideoService {
         .eq('author_auth_user_id', userId)
         .order('created_at', ascending: false);
     return (response as List).map((e) => VideoModel.fromMap(e)).toList();
+  }
+
+  // --- SURGERY COMPLETE: Method Restored ---
+  Future<List<VideoModel>> getRepostedVideos(String userId) async {
+    try {
+      // Fetching from 'reposts' joining 'videos' and then 'profiles'
+      // We use the explicit foreign key syntax to be safe
+      final response = await _supabase
+          .from('reposts')
+          .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url))')
+          .eq('user_auth_id', userId)
+          .order('created_at', ascending: false);
+
+      final list = <VideoModel>[];
+      final data = response as List<dynamic>;
+      
+      for (final row in data) {
+        final videoJson = (row as Map<String, dynamic>)['video'];
+        if (videoJson != null) {
+          list.add(VideoModel.fromMap(videoJson));
+        }
+      }
+      return list;
+    } catch (e) {
+      print('Error fetching reposted videos: $e');
+      return [];
+    }
   }
 
   Future<void> recordView(String videoId, String authorId) async {
@@ -95,7 +119,6 @@ class VideoService {
       });
     } catch (_) {}
 
-    // FIX: Added named parameter 'params'
     await _supabase.rpc('increment_video_view', params: {'video_id': videoId});
   }
 
@@ -109,14 +132,12 @@ class VideoService {
 
      if (existing != null) {
        await _supabase.from('likes').delete().eq('id', existing['id']);
-       // FIX: Added named parameter 'params'
        await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
      } else {
        await _supabase.from('likes').insert({
          'video_id': videoId, 
          'user_id': userId
        });
-       // FIX: Added named parameter 'params'
        await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
      }
   }
@@ -166,7 +187,6 @@ class VideoService {
       'cover_image_url': coverImageUrl,
       'duration': duration,
       'tags': tags, 
-      // 'category_id': categoryId, // Removed if column doesn't exist yet
     });
   }
 }
