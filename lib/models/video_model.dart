@@ -26,8 +26,6 @@ class VideoModel {
   final String? repostedByAvatarUrl;
 
   // --- NEW: PROCESSING CHECK ---
-  // If the path DOES NOT end in '_optimized.mp4', it's still raw/processing.
-  // (Adjust this string match if your backend naming convention differs)
   bool get isProcessing => !storagePath.endsWith('_optimized.mp4');
 
   VideoModel({
@@ -50,6 +48,7 @@ class VideoModel {
     this.authorUsername,
     this.authorDisplayName,
     this.authorAvatarUrl,
+    
     this.isLikedByCurrentUser,
     this.repostedByUsername,
     this.repostedByAvatarUrl,
@@ -81,10 +80,14 @@ class VideoModel {
       authorAvatarUrl: profile?['avatar_url'] as String?,
       
       // Handle Supabase's "empty list if no match" quirk for relations
-      isLikedByCurrentUser: false, // Populated via separate check usually
+      isLikedByCurrentUser: false, 
       
       repostedByUsername: json['reposted_by_username'] as String?,
       repostedByAvatarUrl: json['reposted_by_avatar_url'] as String?,
     );
   }
+
+  // --- SURGERY: ADDED MISSING MEMBER ---
+  // This alias satisfies calls that expect .fromMap()
+  factory VideoModel.fromMap(Map<String, dynamic> map) => VideoModel.fromJson(map);
 }
