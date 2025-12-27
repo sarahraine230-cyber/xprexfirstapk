@@ -1,0 +1,30 @@
+name: Deploy Database Migrations
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/migrations/**' # Only run when SQL files change
+
+jobs:
+  deploy_migrations:
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_ID: svyuxdowffweanjjzvis
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Apply Migrations
+        run: |
+          # This command compares your local SQL files to the live DB 
+          # and applies any new ones.
+          supabase db push --project-ref $PROJECT_ID --password $SUPABASE_DB_PASSWORD
