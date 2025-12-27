@@ -25,7 +25,6 @@ class VideoModel {
   final String? repostedByUsername;
   final String? repostedByAvatarUrl;
 
-  // --- NEW: PROCESSING CHECK ---
   bool get isProcessing => !storagePath.endsWith('_optimized.mp4');
 
   VideoModel({
@@ -55,8 +54,20 @@ class VideoModel {
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
-    // Safely handle profiles relation
-    final profile = json['profiles'] as Map<String, dynamic>?;
+    // --- ARMOR PLATING FOR PROFILES ---
+    // Sometimes Supabase returns a Map, sometimes a List, sometimes null.
+    // We handle all cases to prevent crashes.
+    dynamic profileData = json['profiles'];
+    
+    Map<String, dynamic>? profileMap;
+    
+    if (profileData is List) {
+      if (profileData.isNotEmpty) {
+        profileMap = profileData.first as Map<String, dynamic>;
+      }
+    } else if (profileData is Map) {
+      profileMap = profileData as Map<String, dynamic>;
+    }
 
     return VideoModel(
       id: json['id'].toString(),
@@ -75,11 +86,11 @@ class VideoModel {
       updatedAt: DateTime.parse(json['updated_at']),
       tags: json['tags'] != null ? List<String>.from(json['tags']) : [],
       
-      authorUsername: profile?['username'] as String?,
-      authorDisplayName: profile?['display_name'] as String?,
-      authorAvatarUrl: profile?['avatar_url'] as String?,
+      // Now safe to access
+      authorUsername: profileMap?['username'] as String?,
+      authorDisplayName: profileMap?['display_name'] as String?,
+      authorAvatarUrl: profileMap?['avatar_url'] as String?,
       
-      // Handle Supabase's "empty list if no match" quirk for relations
       isLikedByCurrentUser: false, 
       
       repostedByUsername: json['reposted_by_username'] as String?,
@@ -87,7 +98,5 @@ class VideoModel {
     );
   }
 
-  // --- SURGERY: ADDED MISSING MEMBER ---
-  // This alias satisfies calls that expect .fromMap()
   factory VideoModel.fromMap(Map<String, dynamic> map) => VideoModel.fromJson(map);
 }
