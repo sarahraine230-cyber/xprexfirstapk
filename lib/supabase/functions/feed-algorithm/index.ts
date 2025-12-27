@@ -1,5 +1,4 @@
 // Follow Supabase Edge Function setup guide to deploy this:
-// supabase functions new feed-algorithm
 // supabase functions deploy feed-algorithm
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -26,62 +25,75 @@ serve(async (req) => {
     const { data: { user } } = await supabaseClient.auth.getUser()
     if (!user) throw new Error('Unauthorized: User not logged in')
 
-    // 2. Fetch Candidates (Raw Videos)
+    // 2. Fetch Candidates (ALL Recent Videos - No Exclusion yet)
+    // We ask for 200 to ensure we have a good pool to rank
     let { data: candidates, error } = await supabaseClient
       .rpc('get_feed_candidates', { 
         viewer_id: user.id, 
-        max_rows: 100 
+        max_rows: 200 
       })
 
     if (error) throw error
 
-    // Fallback if empty
+    // Fallback if empty (Database is literally empty)
     if (!candidates || candidates.length === 0) {
-      console.log("Fallback Mode.")
-      const { data: fallback } = await supabaseClient
-        .from('videos')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20)
-      candidates = fallback || []
+      candidates = []
     }
 
-    // 3. --- FIX: FETCH PROFILES ---
-    // Extract unique author IDs to avoid fetching the same profile multiple times
-    const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
+    // 3. FETCH CONTEXT (Watch History)
+    // We need to know what the user has seen to apply the "Boredom Penalty"
+    // We fetch just the video_ids the user has watched
+    const { data: history } = await supabaseClient
+      .from('video_views')
+      .select('video_id')
+      .eq('viewer_id', user.id);
     
-    // Fetch profile data for these authors
+    // Create a Set for O(1) lookups
+    const watchedSet = new Set((history || []).map((h: any) => h.video_id));
+
+    // 4. FETCH PROFILES (Context for UI)
+    const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
     const { data: profiles } = await supabaseClient
       .from('profiles')
       .select('auth_user_id, username, display_name, avatar_url')
       .in('auth_user_id', userIds);
 
-    // Create a quick lookup map: ID -> Profile Data
     const profileMap: any = {};
     if (profiles) {
-      profiles.forEach((p: any) => {
-        profileMap[p.auth_user_id] = p;
-      });
+      profiles.forEach((p: any) => profileMap[p.auth_user_id] = p);
     }
 
-    // 4. Scoring & Merging
+    // 5. THE SCORING ENGINE (Derank Protocol)
     const scoredVideos = candidates.map((video: any) => {
-      // Score Calculation
+      // A. Base Score (Engagement)
       const engagementScore = (video.likes_count * 5) + (video.comments_count * 3) + (video.playback_count * 0.1);
+      
+      // B. Recency Factor
       const uploadTime = new Date(video.created_at).getTime();
       const now = new Date().getTime();
       const hoursAgo = Math.max(0, (now - uploadTime) / (1000 * 60 * 60));
       const recencyFactor = Math.pow(hoursAgo + 2, 1.5);
-      const finalScore = engagementScore / recencyFactor;
+      
+      let finalScore = engagementScore / recencyFactor;
 
-      // --- MERGE PROFILE DATA ---
-      // We attach the profile object so the Flutter model can parse it via "profiles" key
+      // C. PENALTY LOGIC (The "Soft Filter")
+      
+      // Penalty 1: Own Video (Buried Deep)
+      if (video.author_auth_user_id === user.id) {
+        finalScore *= 0.01; // 99% penalty
+      }
+
+      // Penalty 2: Already Watched (Deranked)
+      if (watchedSet.has(video.id)) {
+        finalScore *= 0.1; // 90% penalty (Only shows if nothing else is good)
+      }
+
+      // Merge Profile
       const authorProfile = profileMap[video.author_auth_user_id];
       
       return { 
         ...video, 
         algorithm_score: finalScore,
-        // Attach profile data exactly how the Flutter Model expects it (as 'profiles' map)
         profiles: authorProfile ? {
           username: authorProfile.username,
           display_name: authorProfile.display_name,
@@ -90,7 +102,7 @@ serve(async (req) => {
       };
     })
 
-    // 5. Sort & Return
+    // 6. Sort & Return
     scoredVideos.sort((a: any, b: any) => b.algorithm_score - a.algorithm_score);
     const finalFeed = scoredVideos.slice(0, 20);
 
