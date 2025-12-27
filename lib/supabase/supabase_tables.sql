@@ -914,3 +914,34 @@ begin
   delete from auth.users where id = auth.uid();
 end;
 $$;
+
+-- UPGRADED FOR YOU ALGORITHM VIDEO FETCHER 
+-- 1. Create a function to fetch "Candidate Videos"
+-- This does the heavy lifting of filtering out "My Videos" and "Watched Videos"
+create or replace function get_feed_candidates(
+  viewer_id uuid, 
+  max_rows int default 100
+)
+returns setof public.videos
+language sql
+security definer
+as $$
+  select v.*
+  from public.videos v
+  where 
+    -- 1. Exclude my own videos
+    v.author_auth_user_id != viewer_id
+    and
+    -- 2. Exclude videos I have already watched
+    -- (Using NOT EXISTS is often faster than NOT IN for large datasets)
+    not exists (
+      select 1 
+      from public.video_views vw 
+      where vw.video_id = v.id 
+      and vw.viewer_id = viewer_id
+    )
+  -- 3. Get a mix of recent and popular candidates
+  -- We order by creation date desc to prioritize freshness in the candidate pool
+  order by v.created_at desc
+  limit max_rows;
+$$;
