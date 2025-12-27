@@ -13,7 +13,8 @@ ON public.videos FOR SELECT
 USING (true);
 
 -- 2. ALGORITHM: Update the Candidate Fetcher (The "Soft" Filter)
--- We no longer exclude videos here. We fetch the pool, and let the Brain (Edge Function) decide the ranking.
+-- We no longer exclude videos here. 
+-- We fetch the pool, and let the Brain (Edge Function) decide the ranking.
 CREATE OR REPLACE FUNCTION get_feed_candidates(
   viewer_id uuid, 
   max_rows int default 200
