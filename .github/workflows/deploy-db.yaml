@@ -23,8 +23,8 @@ jobs:
         with:
           version: latest
 
-      - name: Apply Migrations
-        run: |
-          # This command compares your local SQL files to the live DB 
-          # and applies any new ones.
-          supabase db push --project-ref $PROJECT_ID --password $SUPABASE_DB_PASSWORD
+      - name: Link Project
+        run: supabase link --project-ref $PROJECT_ID --password $SUPABASE_DB_PASSWORD
+
+      - name: Push Migrations
+        run: supabase db push
