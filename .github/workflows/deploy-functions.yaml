@@ -1,0 +1,37 @@
+name: Deploy Edge Functions
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'lib/supabase/functions/**' # Only trigger when functions change
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      # Replace with your actual Project Ref ID (e.g., svyuxdowffweanjjzvis)
+      PROJECT_ID: svyuxdowffweanjjzvis 
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy Feed Algorithm
+        # We navigate to the folder where 'config.toml' would essentially be relative to
+        # Since your structure is custom, we point explicitly to the function.
+        # Note: standard supabase CLI expects the 'supabase' folder structure.
+        # If 'lib/supabase' is your root for supabase stuff, we might need to cd into it.
+        run: |
+          # Navigate to the parent directory of 'supabase' so the CLI finds the structure
+          cd lib 
+          
+          # Deploy the specific function
+          # The CLI looks for 'supabase/functions/<name>' inside the current dir
+          supabase functions deploy feed-algorithm --project-ref $PROJECT_ID
