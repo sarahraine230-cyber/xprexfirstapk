@@ -114,6 +114,9 @@ class VideoService {
   Future<void> recordView(String videoId, String authorId) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
+    
+    // --- FRAUD CHECK: Don't record own views ---
+    if (userId == authorId) return;
 
     try {
       await _supabase.from('video_views').insert({
@@ -127,31 +130,34 @@ class VideoService {
   }
 
   Future<void> toggleLike(String videoId, String userId) async {
+     // FIX: Changed 'user_id' to 'user_auth_id' to match DB Schema
      final existing = await _supabase
          .from('likes')
          .select()
          .eq('video_id', videoId)
-         .eq('user_id', userId)
+         .eq('user_auth_id', userId) 
          .maybeSingle();
 
      if (existing != null) {
        await _supabase.from('likes').delete().eq('id', existing['id']);
        await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
      } else {
+       // FIX: Changed 'user_id' to 'user_auth_id'
        await _supabase.from('likes').insert({
          'video_id': videoId, 
-         'user_id': userId
+         'user_auth_id': userId 
        });
        await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
      }
   }
   
   Future<bool> isVideoLikedByUser(String videoId, String userId) async {
+    // FIX: Changed 'user_id' to 'user_auth_id' to match DB Schema
     final count = await _supabase
         .from('likes')
         .count()
         .eq('video_id', videoId)
-        .eq('user_id', userId);
+        .eq('user_auth_id', userId); 
     return count > 0;
   }
   
