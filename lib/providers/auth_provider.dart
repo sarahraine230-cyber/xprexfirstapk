@@ -13,6 +13,10 @@ final authStateProvider = StreamProvider<AuthState>((ref) {
 });
 
 final currentUserProfileProvider = FutureProvider<UserProfile?>((ref) async {
+  // REACTIVE LINK: This line forces the provider to rebuild whenever AuthState changes
+  // This solves the "Ghost State" bug where old profile data persisted after logout.
+  ref.watch(authStateProvider);
+
   final authService = ref.watch(authServiceProvider);
   final profileService = ref.watch(profileServiceProvider);
   
