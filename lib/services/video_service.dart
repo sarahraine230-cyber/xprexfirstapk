@@ -133,7 +133,6 @@ class VideoService {
   }
 
   Future<void> toggleLike(String videoId, String userId) async {
-     // FIX: Changed 'user_id' to 'user_auth_id' to match DB Schema
      final existing = await _supabase
          .from('likes')
          .select()
@@ -142,24 +141,17 @@ class VideoService {
          .maybeSingle();
 
      if (existing != null) {
-       // 1. Primary Action: Remove Like (CRITICAL)
        await _supabase.from('likes').delete().eq('id', existing['id']);
-       
-       // 2. Secondary Action: Update Counter (NON-CRITICAL)
-       // Wrapped in try-catch so failure doesn't revert the UI
        try {
          await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
        } catch (e) {
          print('Warning: Failed to decrement like count: $e');
        }
      } else {
-       // 1. Primary Action: Add Like (CRITICAL)
        await _supabase.from('likes').insert({
          'video_id': videoId, 
          'user_auth_id': userId 
        });
-       
-       // 2. Secondary Action: Update Counter (NON-CRITICAL)
        try {
          await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
        } catch (e) {
@@ -178,12 +170,27 @@ class VideoService {
   }
   
   Future<int> getShareCount(String videoId) async {
-    final res = await _supabase.from('videos').select('playback_count').eq('id', videoId).single();
-    return (res['playback_count'] as int?) ?? 0; 
+    // FIX: Fetch the REAL shares_count, not playback_count
+    final res = await _supabase.from('videos').select('shares_count').eq('id', videoId).single();
+    return (res['shares_count'] as int?) ?? 0; 
   }
   
   Future<void> recordShare(String videoId, String userId) async {
-     // Implement logic if you have a shares table or counter
+     try {
+       // 1. Record the share event
+       await _supabase.from('shares').insert({
+         'video_id': videoId,
+         'user_auth_id': userId
+       });
+       
+       // 2. Increment the counter
+       try {
+         await _supabase.rpc('increment_video_share', params: {'video_id': videoId});
+       } catch (_) {}
+       
+     } catch (e) {
+       print('Error recording share: $e');
+     }
   }
   
   Future<VideoModel?> getVideoById(String id) async {
