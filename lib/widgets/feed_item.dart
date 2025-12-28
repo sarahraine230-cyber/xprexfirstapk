@@ -191,8 +191,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     // Optimistic UI
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     
+    // Service now swallows RPC errors, so we don't need to fear the catch block for partial failures
     try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
-      // Revert if failed
+      // Only reverts if the INSERT itself failed (e.g. network down)
       setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
     }
   }
