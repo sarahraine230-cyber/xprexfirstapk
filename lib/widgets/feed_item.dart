@@ -67,10 +67,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     );
     _playPauseAnimation = CurvedAnimation(parent: _playPauseController, curve: Curves.easeOut);
 
+    // --- INSTANT LOAD: No more "Pop-in" ---
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
     _saveCount = widget.video.savesCount;
     _repostCount = widget.video.repostsCount;
+    _shareCount = widget.video.sharesCount; // Now fetching from model immediately
+    
     _init();
   }
 
@@ -114,9 +117,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
           if (mounted) setState(() => _isReposted = reposted);
         });
-        _videoService.getShareCount(widget.video.id).then((count) {
-          if (mounted) setState(() => _shareCount = count);
-        });
+        // We don't need to fetch share count here anymore since it's in the model
       }
       _updatePlayState();
     } catch (e) {
@@ -167,7 +168,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     try {
       final uid = supabase.auth.currentUser?.id;
       
-      // FRAUD CHECK: Do not record watch time for self
       if (uid != null && uid != widget.video.authorAuthUserId) {
          await supabase.from('video_views').insert({
            'video_id': widget.video.id,
@@ -188,12 +188,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
     
-    // Optimistic UI
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     
-    // Service now swallows RPC errors, so we don't need to fear the catch block for partial failures
     try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
-      // Only reverts if the INSERT itself failed (e.g. network down)
       setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
     }
   }
@@ -233,10 +230,15 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   }
 
   Future<void> _handleShare() async {
+    // 1. Share UI
     final deepLink = AppLinks.videoLink(widget.video.id);
     final url = deepLink.isNotEmpty ? deepLink : await _storage.resolveVideoUrl(widget.video.storagePath);
     await Share.share(url);
+    
+    // 2. Optimistic UI Update
     setState(() => _shareCount++);
+    
+    // 3. Record in DB
     final uid = supabase.auth.currentUser?.id;
     if (uid != null) _videoService.recordShare(widget.video.id, uid);
   }
