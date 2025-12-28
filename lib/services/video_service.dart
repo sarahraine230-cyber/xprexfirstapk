@@ -27,8 +27,8 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          // Using the relation syntax. Our VideoModel armor plating will handle List vs Map.
-          .select('*, profiles:author_auth_user_id(username, display_name, avatar_url)')
+          // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .limit(limit);
           
@@ -76,13 +76,14 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          .select('*, profiles:author_auth_user_id(username, display_name, avatar_url)')
+          // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', userId)
           .order('created_at', ascending: false);
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
       print('Error fetching user videos: $e');
-      return []; // Return empty list instead of crashing
+      return []; 
     }
   }
 
@@ -165,7 +166,8 @@ class VideoService {
   
   Future<VideoModel?> getVideoById(String id) async {
     try {
-      final data = await _supabase.from('videos').select('*, profiles:author_auth_user_id(username, display_name, avatar_url)').eq('id', id).single();
+      // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
+      final data = await _supabase.from('videos').select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)').eq('id', id).single();
       return VideoModel.fromMap(data);
     } catch (e) {
       return null;

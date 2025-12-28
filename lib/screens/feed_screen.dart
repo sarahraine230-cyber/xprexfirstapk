@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:wakelock_plus/wakelock_plus.dart'; // Import Wakelock
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/widgets/feed_item.dart';
 import 'package:xprex/router/app_router.dart';
-// IMPORT NEW SCREENS
 import 'package:xprex/screens/search_screen.dart';
 import 'package:xprex/screens/pulse_screen.dart';
+import 'package:xprex/providers/auth_provider.dart';
 
-// --- THE NUCLEAR KEY PROVIDER ---
 final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
-
-// --- NEW: SCROLL-TO-TOP SIGNAL ---
-// Incremented by MainShell when tapping 'Home' while already on Home
 final feedScrollSignalProvider = StateProvider<int>((ref) => 0);
 
+// --- THE REACTION CHAMBER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
+  ref.watch(authStateProvider);
   final videoService = VideoService();
   return await videoService.getForYouFeed(limit: 20);
 });
@@ -29,15 +28,12 @@ class FeedScreen extends ConsumerStatefulWidget {
 }
 
 class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObserver, RouteAware {
-  // We need a explicit controller to handle the Scroll-to-Top action
   final PageController _pageController = PageController();
   
   int _activeIndex = 0;
   bool _appActive = true;
   bool _screenVisible = true; 
-  
-  // Tab State
-  int _selectedTab = 1; // 0: Following, 1: For You
+  int _selectedTab = 1; 
 
   @override
   void initState() {
@@ -56,6 +52,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
+    try { WakelockPlus.disable(); } catch (_) {}
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
     _pageController.dispose();
@@ -63,10 +60,15 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   }
 
   @override
-  void didPushNext() => setState(() => _screenVisible = false);
+  void didPushNext() {
+    try { WakelockPlus.disable(); } catch (_) {}
+    setState(() => _screenVisible = false);
+  }
 
   @override
-  void didPopNext() => setState(() => _screenVisible = true);
+  void didPopNext() {
+    setState(() => _screenVisible = true);
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -79,10 +81,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
     final refreshKey = ref.watch(feedRefreshKeyProvider);
     final shouldPlay = widget.isVisible && _appActive && _screenVisible;
 
-    // LISTEN FOR SCROLL SIGNAL
     ref.listen(feedScrollSignalProvider, (previous, next) {
       if (next > (previous ?? 0) && _pageController.hasClients) {
-        // Smoothly scroll back to top if not already there
         if (_activeIndex > 0) {
           _pageController.animateToPage(
             0, 
@@ -97,17 +97,14 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
       backgroundColor: Colors.black,
       body: Stack(
         children: [
-          // 1. THE VIDEO FEED (Base Layer)
           videosAsync.when(
             data: (videos) {
               if (videos.isEmpty) return const Center(child: Text('No videos yet', style: TextStyle(color: Colors.white)));
               
               return PageView.builder(
-                controller: _pageController, // Attached Controller
+                controller: _pageController, 
                 key: ValueKey(refreshKey),
                 scrollDirection: Axis.vertical,
-                // --- THE TIKTOK TRICK RESTORED ---
-                // true = Pre-load next/prev pages. Smooth scrolling is back!
                 allowImplicitScrolling: true, 
                 itemCount: videos.length,
                 onPageChanged: (i) => setState(() => _activeIndex = i),
@@ -117,7 +114,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                     video: videos[index],
                     isActive: index == _activeIndex,
                     feedVisible: shouldPlay, 
-                    onLikeToggled: () => ref.invalidate(feedVideosProvider),
+                    // REMOVED: onLikeToggled - No longer triggering full reload
                   );
                 },
               );
@@ -126,7 +123,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
             error: (e, s) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.white))),
           ),
 
-          // 2. THE CINEMATIC HEADER (Floating Layer)
           Positioned(
             top: 0,
             left: 0,
@@ -148,7 +144,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // LEFT: Search
                   IconButton(
                     icon: const Icon(Icons.search, color: Colors.white, size: 28),
                     onPressed: () {
@@ -157,8 +152,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                       );
                     },
                   ),
-
-                  // CENTER: Following | For You
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -169,8 +162,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                       _buildTab("For You", 1),
                     ],
                   ),
-
-                  // RIGHT: Notification
                   IconButton(
                     icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 28),
                     onPressed: () {

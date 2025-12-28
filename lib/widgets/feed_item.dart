@@ -128,23 +128,17 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
       _playPauseController.reverse(); 
-      _maybeEnableWakelock();
+      _ensureWakelockEnabled();
       _startWatchTimer();
     } else {
       _controller!.pause();
-      _maybeDisableWakelock();
       _stopWatchTimer();
     }
   }
 
-  void _maybeEnableWakelock() {
+  void _ensureWakelockEnabled() {
     if (kIsWeb) return;
     try { WakelockPlus.enable(); } catch (_) {}
-  }
-
-  void _maybeDisableWakelock() {
-    if (kIsWeb) return;
-    try { WakelockPlus.disable(); } catch (_) {}
   }
 
   void _startWatchTimer() {
@@ -188,9 +182,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
+    // Optimistic UI Update
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
-    widget.onLikeToggled?.call();
-    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); }
+    
+    // SURGERY: Disconnected the callback to prevent full feed reload
+    // widget.onLikeToggled?.call(); 
+    
+    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
+      // Revert if API fails
+      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
+    }
   }
 
   Future<void> _toggleSave() async {
@@ -274,7 +275,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                     : Container(color: Colors.black)),
           ),
           
-          // 2. TAP DETECTOR (For Pause/Play)
+          // 2. TAP DETECTOR
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -293,7 +294,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
 
-          // 3. PAUSE ANIMATION OVERLAY (Wrapped in IgnorePointer)
+          // 3. PAUSE ANIMATION OVERLAY
           IgnorePointer(
             child: Center(
               child: FadeTransition(
@@ -314,7 +315,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
 
-          // 4. VIGNETTE LAYER (Wrapped in IgnorePointer)
+          // 4. VIGNETTE LAYER
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
@@ -419,12 +420,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 7. PROGRESS BAR (Manual Implementation)
+          // 7. PROGRESS BAR
           if (_controller != null && _controller!.value.isInitialized)
             Positioned(
               left: 0,
               right: 0,
-              bottom: 10, // Lifted 10px above bottom
+              bottom: 10,
               height: 4, 
               child: AnimatedBuilder(
                 animation: _controller!,
