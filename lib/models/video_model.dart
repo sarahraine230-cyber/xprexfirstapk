@@ -11,6 +11,8 @@ class VideoModel {
   final int commentsCount;
   final int savesCount;
   final int repostsCount;
+  // --- NEW: SHARES COUNT ---
+  final int sharesCount;
   
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -40,6 +42,8 @@ class VideoModel {
     this.commentsCount = 0,
     this.savesCount = 0,
     this.repostsCount = 0,
+    // --- NEW ---
+    this.sharesCount = 0,
     required this.createdAt,
     required this.updatedAt,
     this.tags = const [],
@@ -54,11 +58,8 @@ class VideoModel {
   });
 
   factory VideoModel.fromJson(Map<String, dynamic> json) {
-    // --- ARMOR PLATING FOR PROFILES ---
-    // Sometimes Supabase returns a Map, sometimes a List, sometimes null.
-    // We handle all cases to prevent crashes.
+    // Safely handle profiles relation
     dynamic profileData = json['profiles'];
-    
     Map<String, dynamic>? profileMap;
     
     if (profileData is List) {
@@ -82,11 +83,13 @@ class VideoModel {
       commentsCount: json['comments_count'] as int? ?? 0,
       savesCount: json['saves_count'] as int? ?? 0,
       repostsCount: json['reposts_count'] as int? ?? 0,
+      // --- NEW: PARSE SHARES ---
+      sharesCount: json['shares_count'] as int? ?? 0,
+      
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
       tags: json['tags'] != null ? List<String>.from(json['tags']) : [],
       
-      // Now safe to access
       authorUsername: profileMap?['username'] as String?,
       authorDisplayName: profileMap?['display_name'] as String?,
       authorAvatarUrl: profileMap?['avatar_url'] as String?,
