@@ -128,23 +128,21 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
       _playPauseController.reverse(); 
-      _maybeEnableWakelock();
+      // AGGRESSIVE WAKELOCK: Only Enable, never disable here.
+      // The parent FeedScreen handles the cleanup when you leave the feed.
+      _ensureWakelockEnabled();
       _startWatchTimer();
     } else {
       _controller!.pause();
-      _maybeDisableWakelock();
+      // REMOVED: _maybeDisableWakelock(); 
+      // We keep the screen ON even if paused, as long as we are on the Feed Screen.
       _stopWatchTimer();
     }
   }
 
-  void _maybeEnableWakelock() {
+  void _ensureWakelockEnabled() {
     if (kIsWeb) return;
     try { WakelockPlus.enable(); } catch (_) {}
-  }
-
-  void _maybeDisableWakelock() {
-    if (kIsWeb) return;
-    try { WakelockPlus.disable(); } catch (_) {}
   }
 
   void _startWatchTimer() {
@@ -293,7 +291,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
 
-          // 3. PAUSE ANIMATION OVERLAY (Wrapped in IgnorePointer)
+          // 3. PAUSE ANIMATION OVERLAY
           IgnorePointer(
             child: Center(
               child: FadeTransition(
@@ -314,7 +312,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
 
-          // 4. VIGNETTE LAYER (Wrapped in IgnorePointer)
+          // 4. VIGNETTE LAYER
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
@@ -419,12 +417,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 7. PROGRESS BAR (Manual Implementation)
+          // 7. PROGRESS BAR (Manual Implementation - Restored)
           if (_controller != null && _controller!.value.isInitialized)
             Positioned(
               left: 0,
               right: 0,
-              bottom: 10, // Lifted 10px above bottom
+              bottom: 10,
               height: 4, 
               child: AnimatedBuilder(
                 animation: _controller!,
