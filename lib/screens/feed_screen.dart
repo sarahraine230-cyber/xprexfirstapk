@@ -7,17 +7,14 @@ import 'package:xprex/widgets/feed_item.dart';
 import 'package:xprex/router/app_router.dart';
 import 'package:xprex/screens/search_screen.dart';
 import 'package:xprex/screens/pulse_screen.dart';
-import 'package:xprex/providers/auth_provider.dart'; // Import Auth Provider
+import 'package:xprex/providers/auth_provider.dart';
 
 final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
 final feedScrollSignalProvider = StateProvider<int>((ref) => 0);
 
 // --- THE REACTION CHAMBER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
-  // NUKE PROTOCOL: Watch the Auth State. 
-  // If user logs out/in, this provider self-destructs and re-fetches.
   ref.watch(authStateProvider);
-  
   final videoService = VideoService();
   return await videoService.getForYouFeed(limit: 20);
 });
@@ -55,9 +52,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
-    // SLEEP PROTOCOL: When the feed dies, allow the screen to sleep again.
     try { WakelockPlus.disable(); } catch (_) {}
-    
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
     _pageController.dispose();
@@ -66,15 +61,12 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void didPushNext() {
-    // When we go to Search/Profile, allow screen to sleep (normal app behavior)
     try { WakelockPlus.disable(); } catch (_) {}
     setState(() => _screenVisible = false);
   }
 
   @override
   void didPopNext() {
-    // When we come back, we rely on the FeedItem to wake it up, 
-    // OR we can force it here if playing.
     setState(() => _screenVisible = true);
   }
 
@@ -122,7 +114,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                     video: videos[index],
                     isActive: index == _activeIndex,
                     feedVisible: shouldPlay, 
-                    onLikeToggled: () => ref.invalidate(feedVideosProvider),
+                    // REMOVED: onLikeToggled - No longer triggering full reload
                   );
                 },
               );
