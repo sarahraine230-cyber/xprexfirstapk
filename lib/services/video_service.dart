@@ -76,7 +76,6 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', userId)
           .order('created_at', ascending: false);
@@ -126,7 +125,11 @@ class VideoService {
       });
     } catch (_) {}
 
-    await _supabase.rpc('increment_video_view', params: {'video_id': videoId});
+    try {
+      await _supabase.rpc('increment_video_view', params: {'video_id': videoId});
+    } catch (_) {
+      // Ignore RPC errors for views
+    }
   }
 
   Future<void> toggleLike(String videoId, String userId) async {
@@ -139,25 +142,38 @@ class VideoService {
          .maybeSingle();
 
      if (existing != null) {
+       // 1. Primary Action: Remove Like (CRITICAL)
        await _supabase.from('likes').delete().eq('id', existing['id']);
-       await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
+       
+       // 2. Secondary Action: Update Counter (NON-CRITICAL)
+       // Wrapped in try-catch so failure doesn't revert the UI
+       try {
+         await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
+       } catch (e) {
+         print('Warning: Failed to decrement like count: $e');
+       }
      } else {
-       // FIX: Changed 'user_id' to 'user_auth_id'
+       // 1. Primary Action: Add Like (CRITICAL)
        await _supabase.from('likes').insert({
          'video_id': videoId, 
          'user_auth_id': userId 
        });
-       await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
+       
+       // 2. Secondary Action: Update Counter (NON-CRITICAL)
+       try {
+         await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
+       } catch (e) {
+         print('Warning: Failed to increment like count: $e');
+       }
      }
   }
   
   Future<bool> isVideoLikedByUser(String videoId, String userId) async {
-    // FIX: Changed 'user_id' to 'user_auth_id' to match DB Schema
     final count = await _supabase
         .from('likes')
         .count()
         .eq('video_id', videoId)
-        .eq('user_auth_id', userId); 
+        .eq('user_auth_id', userId);
     return count > 0;
   }
   
@@ -172,7 +188,6 @@ class VideoService {
   
   Future<VideoModel?> getVideoById(String id) async {
     try {
-      // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
       final data = await _supabase.from('videos').select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)').eq('id', id).single();
       return VideoModel.fromMap(data);
     } catch (e) {
