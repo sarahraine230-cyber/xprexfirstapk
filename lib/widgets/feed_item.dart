@@ -95,12 +95,15 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       )..setLooping(true);
       await _controller!.initialize();
       
-      if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView) {
+      // FRAUD CHECK: Do not record view if author is watching own video
+      final uid = supabase.auth.currentUser?.id;
+      final isOwnVideo = uid == widget.video.authorAuthUserId;
+
+      if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView && !isOwnVideo) {
         _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
         _hasRecordedView = true;
       }
       
-      final uid = supabase.auth.currentUser?.id;
       if (uid != null) {
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
@@ -163,7 +166,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
     try {
       final uid = supabase.auth.currentUser?.id;
-      if (uid != null) {
+      
+      // FRAUD CHECK: Do not record watch time for self
+      if (uid != null && uid != widget.video.authorAuthUserId) {
          await supabase.from('video_views').insert({
            'video_id': widget.video.id,
            'viewer_id': uid,
@@ -182,14 +187,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
-    // Optimistic UI Update
+    
+    // Optimistic UI
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     
-    // SURGERY: Disconnected the callback to prevent full feed reload
-    // widget.onLikeToggled?.call(); 
-    
+    // Service now swallows RPC errors, so we don't need to fear the catch block for partial failures
     try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
-      // Revert if API fails
+      // Only reverts if the INSERT itself failed (e.g. network down)
       setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
     }
   }
