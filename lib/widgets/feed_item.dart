@@ -128,14 +128,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (widget.feedVisible && widget.isActive) {
       _controller!.play();
       _playPauseController.reverse(); 
-      // AGGRESSIVE WAKELOCK: Only Enable, never disable here.
-      // The parent FeedScreen handles the cleanup when you leave the feed.
       _ensureWakelockEnabled();
       _startWatchTimer();
     } else {
       _controller!.pause();
-      // REMOVED: _maybeDisableWakelock(); 
-      // We keep the screen ON even if paused, as long as we are on the Feed Screen.
       _stopWatchTimer();
     }
   }
@@ -186,9 +182,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
+    // Optimistic UI Update
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
-    widget.onLikeToggled?.call();
-    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); }
+    
+    // SURGERY: Disconnected the callback to prevent full feed reload
+    // widget.onLikeToggled?.call(); 
+    
+    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
+      // Revert if API fails
+      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
+    }
   }
 
   Future<void> _toggleSave() async {
@@ -272,7 +275,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                     : Container(color: Colors.black)),
           ),
           
-          // 2. TAP DETECTOR (For Pause/Play)
+          // 2. TAP DETECTOR
           Positioned.fill(
             child: Material(
               color: Colors.transparent,
@@ -417,7 +420,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
           
-          // 7. PROGRESS BAR (Manual Implementation - Restored)
+          // 7. PROGRESS BAR
           if (_controller != null && _controller!.value.isInitialized)
             Positioned(
               left: 0,
