@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/providers/auth_provider.dart';
+import 'package:xprex/screens/email_verification_screen.dart'; // For Enum access
 import 'package:xprex/theme.dart';
 
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
-
   @override
   ConsumerState<SignupScreen> createState() => _SignupScreenState();
 }
@@ -29,21 +29,26 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
 
   Future<void> _handleSignup() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-
     try {
       final authService = ref.read(authServiceProvider);
       await authService.signUp(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-
       if (!mounted) return;
-      context.go('/email-verification');
+      
+      // Navigate to Verification Screen with ARGUMENTS
+      context.push(
+        '/email-verification',
+        extra: {
+          'email': _emailController.text.trim(),
+          'purpose': VerificationPurpose.signup,
+        },
+      );
     } catch (e) {
       setState(() {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
@@ -55,7 +60,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
@@ -77,7 +81,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   keyboardType: TextInputType.emailAddress,
                   decoration: InputDecoration(
                     labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
+                    prefixIcon: const Icon(Icons.email_outlined),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   validator: (value) {
@@ -92,7 +96,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Password',
-                    prefixIcon: Icon(Icons.lock_outline),
+                    prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   validator: (value) {
@@ -107,7 +111,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'Confirm Password',
-                    prefixIcon: Icon(Icons.lock_outline),
+                    prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   validator: (value) {
@@ -127,7 +131,9 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     minimumSize: const Size(double.infinity, 56),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
-                  child: _isLoading ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text('Sign Up', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onPrimary)),
+                  child: _isLoading 
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                      : Text('Sign Up', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onPrimary)),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -136,7 +142,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                     Text('Already have an account? ', style: theme.textTheme.bodyMedium),
                     TextButton(
                       onPressed: () => context.go('/login'),
-                      child: Text('Log In'),
+                      child: const Text('Log In'),
                     ),
                   ],
                 ),
