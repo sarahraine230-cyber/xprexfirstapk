@@ -21,13 +21,14 @@ class ProfileService {
     }
   }
 
-  // --- RESTORED: This method was missing, causing Splash Screen errors ---
+  // --- RESTORED & FIXED ---
   Future<void> ensureProfileExists({required String authUserId, required String email}) async {
     try {
       final exists = await getProfileByAuthId(authUserId);
       if (exists == null) {
         // Create a minimal profile if none exists
         final newProfile = UserProfile(
+          id: authUserId, // FIXED: Added required 'id' (matches authUserId)
           authUserId: authUserId,
           email: email,
           username: 'user_${authUserId.substring(0, 5)}', // Temporary username
@@ -92,7 +93,7 @@ class ProfileService {
     }
   }
 
-  // --- SOCIAL GRAPH METHODS (NAMED PARAMETERS) ---
+  // --- SOCIAL GRAPH METHODS ---
 
   Future<bool> isFollowing({required String followerId, required String followeeId}) async {
     try {
@@ -116,8 +117,10 @@ class ProfileService {
         'followee_auth_user_id': followeeId,
       });
       // Increment counts via RPC
-      try { await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId}); } catch (_) {}
-      try { await _supabase.rpc('increment_following', params: {'target_user_id': followerId}); } catch (_) {}
+      try { await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId});
+      } catch (_) {}
+      try { await _supabase.rpc('increment_following', params: {'target_user_id': followerId});
+      } catch (_) {}
     } catch (e) {
       debugPrint('❌ Error following user: $e');
       rethrow;
@@ -129,10 +132,11 @@ class ProfileService {
       await _supabase.from('follows').delete()
           .eq('follower_auth_user_id', followerId)
           .eq('followee_auth_user_id', followeeId);
-          
       // Decrement counts via RPC
-      try { await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId}); } catch (_) {}
-      try { await _supabase.rpc('decrement_following', params: {'target_user_id': followerId}); } catch (_) {}
+      try { await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId});
+      } catch (_) {}
+      try { await _supabase.rpc('decrement_following', params: {'target_user_id': followerId});
+      } catch (_) {}
     } catch (e) {
       debugPrint('❌ Error unfollowing user: $e');
       rethrow;
@@ -146,16 +150,13 @@ class ProfileService {
           .from('follows')
           .select('follower_auth_user_id')
           .eq('followee_auth_user_id', userId);
-      
       final ids = (follows as List).map((e) => e['follower_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-
       // 2. Fetch profiles for those IDs
       final profiles = await _supabase
           .from('profiles')
           .select()
           .inFilter('auth_user_id', ids);
-      
       return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
       debugPrint('❌ Error fetching followers list: $e');
@@ -170,16 +171,13 @@ class ProfileService {
           .from('follows')
           .select('followee_auth_user_id')
           .eq('follower_auth_user_id', userId);
-      
       final ids = (follows as List).map((e) => e['followee_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-
       // 2. Fetch profiles
       final profiles = await _supabase
           .from('profiles')
           .select()
           .inFilter('auth_user_id', ids);
-      
       return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
       debugPrint('❌ Error fetching following list: $e');
