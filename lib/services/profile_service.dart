@@ -21,6 +21,28 @@ class ProfileService {
     }
   }
 
+  // --- RESTORED: This method was missing, causing Splash Screen errors ---
+  Future<void> ensureProfileExists({required String authUserId, required String email}) async {
+    try {
+      final exists = await getProfileByAuthId(authUserId);
+      if (exists == null) {
+        // Create a minimal profile if none exists
+        final newProfile = UserProfile(
+          authUserId: authUserId,
+          email: email,
+          username: 'user_${authUserId.substring(0, 5)}', // Temporary username
+          displayName: email.split('@')[0],
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        await createProfile(newProfile);
+      }
+    } catch (e) {
+      debugPrint('Error ensuring profile exists: $e');
+      // Don't rethrow here to allow app flow to continue if possible
+    }
+  }
+
   Future<UserProfile?> getProfileByUsername(String username) async {
     try {
       final response = await _supabase
@@ -70,7 +92,7 @@ class ProfileService {
     }
   }
 
-  // --- SOCIAL GRAPH METHODS (UPDATED WITH NAMED PARAMETERS) ---
+  // --- SOCIAL GRAPH METHODS (NAMED PARAMETERS) ---
 
   Future<bool> isFollowing({required String followerId, required String followeeId}) async {
     try {
@@ -94,8 +116,8 @@ class ProfileService {
         'followee_auth_user_id': followeeId,
       });
       // Increment counts via RPC
-      await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId});
-      await _supabase.rpc('increment_following', params: {'target_user_id': followerId});
+      try { await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId}); } catch (_) {}
+      try { await _supabase.rpc('increment_following', params: {'target_user_id': followerId}); } catch (_) {}
     } catch (e) {
       debugPrint('❌ Error following user: $e');
       rethrow;
@@ -109,8 +131,8 @@ class ProfileService {
           .eq('followee_auth_user_id', followeeId);
           
       // Decrement counts via RPC
-      await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId});
-      await _supabase.rpc('decrement_following', params: {'target_user_id': followerId});
+      try { await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId}); } catch (_) {}
+      try { await _supabase.rpc('decrement_following', params: {'target_user_id': followerId}); } catch (_) {}
     } catch (e) {
       debugPrint('❌ Error unfollowing user: $e');
       rethrow;
