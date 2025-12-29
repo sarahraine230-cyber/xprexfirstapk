@@ -32,7 +32,7 @@ class _FollowListScreenState extends State<FollowListScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final title = widget.type == 'followers' ? 'Followers' : 'Following';
-
+    
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
@@ -66,7 +66,7 @@ class _FollowListScreenState extends State<FollowListScreen> {
                 subtitle: Text(user.displayName),
                 trailing: _FollowButton(targetUserId: user.authUserId),
                 onTap: () {
-                   context.push('/u/${user.authUserId}');
+                  context.push('/u/${user.authUserId}');
                 },
               );
             },
@@ -99,7 +99,7 @@ class _FollowButtonState extends State<_FollowButton> {
   Future<void> _check() async {
     final me = supabase.auth.currentUser?.id;
     if (me != null) {
-      // FIX: Updated parameter names
+      // CORRECTED: Matches ProfileService (followerId, followeeId)
       final f = await _svc.isFollowing(followerId: me, followeeId: widget.targetUserId);
       if (mounted) setState(() { _isFollowing = f; _loading = false; });
     }
@@ -112,11 +112,11 @@ class _FollowButtonState extends State<_FollowButton> {
     setState(() => _loading = true);
     try {
       if (_isFollowing) {
-        // FIX: Updated parameter names
+        // CORRECTED: Matches ProfileService
         await _svc.unfollowUser(followerId: me, followeeId: widget.targetUserId);
         if (mounted) setState(() => _isFollowing = false);
       } else {
-        // FIX: Updated parameter names
+        // CORRECTED: Matches ProfileService
         await _svc.followUser(followerId: me, followeeId: widget.targetUserId);
         if (mounted) setState(() => _isFollowing = true);
       }
@@ -128,7 +128,7 @@ class _FollowButtonState extends State<_FollowButton> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2));
-
+    
     // Hide button if it's me
     if (widget.targetUserId == supabase.auth.currentUser?.id) return const SizedBox.shrink();
 
