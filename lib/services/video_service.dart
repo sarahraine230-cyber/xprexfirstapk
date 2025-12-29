@@ -22,6 +22,53 @@ class VideoService {
     }
   }
 
+  // --- NEW: FOLLOWING FEED ---
+  Future<List<VideoModel>> getFollowingFeed({int limit = 20}) async {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return [];
+
+    try {
+      // Fetch videos where the author is in the user's following list
+      // Supabase inner join trick
+      final response = await _supabase
+          .from('videos')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url), follows!inner(*)')
+          .eq('follows.follower_auth_user_id', uid) // Filter by my following
+          .eq('follows.followee_auth_user_id', _supabase.from('videos').select('author_auth_user_id')) // Logic handled by relation
+          // Actually, standard approach:
+          // We filter videos where author_id is in the list of people I follow.
+          // Since Supabase filtering across relations can be tricky, let's use the explicit filter:
+          .filter('author_auth_user_id', 'in', 
+             _supabase.from('follows').select('followee_auth_user_id').eq('follower_auth_user_id', uid)
+          )
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      // Note: The previous query syntax for 'in' subquery might not be supported directly in client 
+      // without specific setup. A safer, proven way in Supabase client:
+      
+      // 1. Get IDs of people I follow
+      final followingRes = await _supabase.from('follows').select('followee_auth_user_id').eq('follower_auth_user_id', uid);
+      final followingIds = (followingRes as List).map((e) => e['followee_auth_user_id']).toList();
+      
+      if (followingIds.isEmpty) return [];
+
+      // 2. Fetch their videos
+      final videosRes = await _supabase
+          .from('videos')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          .inFilter('author_auth_user_id', followingIds)
+          .order('created_at', ascending: false)
+          .limit(limit);
+
+      return (videosRes as List).map((e) => VideoModel.fromMap(e)).toList();
+
+    } catch (e) {
+      print('Error fetching following feed: $e');
+      return [];
+    }
+  }
+
   // Basic SQL Fallback
   Future<List<VideoModel>> _getFallbackFeed(int limit) async {
     try {
@@ -170,24 +217,19 @@ class VideoService {
   }
   
   Future<int> getShareCount(String videoId) async {
-    // FIX: Fetch the REAL shares_count, not playback_count
     final res = await _supabase.from('videos').select('shares_count').eq('id', videoId).single();
     return (res['shares_count'] as int?) ?? 0; 
   }
   
   Future<void> recordShare(String videoId, String userId) async {
      try {
-       // 1. Record the share event
        await _supabase.from('shares').insert({
          'video_id': videoId,
          'user_auth_id': userId
        });
-       
-       // 2. Increment the counter
        try {
          await _supabase.rpc('increment_video_share', params: {'video_id': videoId});
        } catch (_) {}
-       
      } catch (e) {
        print('Error recording share: $e');
      }
