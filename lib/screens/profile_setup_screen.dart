@@ -6,11 +6,11 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/services/storage_service.dart';
-import 'package:xprex/models/user_profile.dart'; // Needed to accept existing profile
+import 'package:xprex/models/user_profile.dart'; 
 import 'package:xprex/theme.dart';
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
-  final UserProfile? originalProfile; // Optional: If provided, we are in "Edit Mode"
+  final UserProfile? originalProfile; 
 
   const ProfileSetupScreen({super.key, this.originalProfile});
 
@@ -33,15 +33,9 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-fill data if editing, or start empty if creating
     _usernameController = TextEditingController(text: widget.originalProfile?.username ?? '');
     _displayNameController = TextEditingController(text: widget.originalProfile?.displayName ?? '');
     _bioController = TextEditingController(text: widget.originalProfile?.bio ?? '');
-    
-    // If editing, age is already confirmed implicitly
-    if (widget.originalProfile != null) {
-      _ageConfirmed = true;
-    }
   }
 
   @override
@@ -52,92 +46,80 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     super.dispose();
   }
 
-  Future<void> _pickAvatar() async {
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Image picker not supported in web preview.')),
-      );
-      return;
-    }
-
-    try {
-      final pickedFile = await _picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512);
-      if (pickedFile != null) {
-        setState(() => _avatarFile = File(pickedFile.path));
-      }
-    } catch (e) {
-      debugPrint('Error picking image: $e');
+  Future<void> _pickImage() async {
+    final picked = await _picker.pickImage(source: ImageSource.gallery);
+    if (picked != null) {
+      setState(() => _avatarFile = File(picked.path));
     }
   }
 
-  Future<void> _saveProfile() async {
+  Future<void> _onSubmit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (!_ageConfirmed) {
-      setState(() => _errorMessage = 'You must confirm you are 18 or older');
+    if (widget.originalProfile == null && !_ageConfirmed) {
+      setState(() => _errorMessage = "You must confirm you are over 18.");
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() { _isLoading = true; _errorMessage = null; });
 
     try {
       final authService = ref.read(authServiceProvider);
       final profileService = ref.read(profileServiceProvider);
       final storageService = StorageService();
-      final userId = authService.currentUserId!;
-      final userEmail = authService.currentUser?.email ?? '';
+      
+      final uid = authService.currentUserId;
+      if (uid == null) throw Exception("Not authenticated");
 
-      // Check username availability ONLY if it changed
-      final newUsername = _usernameController.text.trim();
-      if (widget.originalProfile?.username != newUsername) {
-        final isAvailable = await profileService.isUsernameAvailable(newUsername);
-        if (!isAvailable) {
-          setState(() {
-            _errorMessage = 'Username already taken';
-            _isLoading = false;
-          });
-          return;
+      // Check username uniqueness if changed
+      if (widget.originalProfile?.username != _usernameController.text) {
+        final available = await profileService.isUsernameAvailable(_usernameController.text);
+        if (!available) {
+          throw Exception("Username is already taken.");
         }
       }
 
-      // Handle Avatar Upload
       String? avatarUrl = widget.originalProfile?.avatarUrl;
-      if (_avatarFile != null && !kIsWeb) {
-        avatarUrl = await storageService.uploadAvatar(userId: userId, file: _avatarFile!);
+      if (_avatarFile != null) {
+        avatarUrl = await storageService.uploadProfileAvatar(uid, _avatarFile!);
       }
 
       if (widget.originalProfile == null) {
-        // --- CREATE MODE ---
-        await profileService.createProfile(
-          authUserId: userId,
-          email: userEmail,
-          username: newUsername,
-          displayName: _displayNameController.text.trim(),
+        // CREATE: Positional Argument
+        final newProfile = UserProfile(
+          authUserId: uid,
+          email: authService.currentUser?.email ?? '',
+          username: _usernameController.text,
+          displayName: _displayNameController.text,
+          bio: _bioController.text,
           avatarUrl: avatarUrl,
-          bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
         );
-        if (mounted) context.go('/'); // Go to Feed after create
+        
+        await profileService.createProfile(newProfile); // Corrected: Passed directly
       } else {
-        // --- UPDATE MODE ---
+        // UPDATE: Positional Arguments (ID, Map)
         await profileService.updateProfile(
-          authUserId: userId,
-          username: newUsername,
-          displayName: _displayNameController.text.trim(),
-          avatarUrl: avatarUrl,
-          bio: _bioController.text.trim().isEmpty ? null : _bioController.text.trim(),
+          uid, // Arg 1: User ID
+          {    // Arg 2: Updates Map
+            'username': _usernameController.text,
+            'display_name': _displayNameController.text,
+            'bio': _bioController.text,
+            'avatar_url': avatarUrl,
+            'updated_at': DateTime.now().toIso8601String(),
+          }
         );
-        // Refresh the provider so the Profile Screen updates immediately
-        ref.invalidate(currentUserProfileProvider);
-        if (mounted) Navigator.of(context).pop(); // Go back to Profile after edit
       }
 
+      if (mounted) {
+        // Refresh local profile provider
+        ref.invalidate(currentUserProfileProvider);
+        context.go('/'); 
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
-        _isLoading = false;
-      });
+      setState(() => _errorMessage = e.toString().replaceAll('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -148,111 +130,97 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isEditing ? 'Edit Profile' : 'Set Up Profile'),
-        centerTitle: true,
-        actions: [
-          // Pinterest Style "Done" Button
-          TextButton(
-            onPressed: _isLoading ? null : _saveProfile,
-            child: _isLoading 
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) 
-              : const Text('Done', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          ),
-          const SizedBox(width: 8),
-        ],
+        title: Text(isEditing ? 'Edit Profile' : 'Setup Profile'),
+        elevation: 0,
       ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: AppSpacing.paddingLg,
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                // Avatar Section
-                GestureDetector(
-                  onTap: _pickAvatar,
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 100,
-                        height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          image: _avatarFile != null
-                              ? DecorationImage(image: FileImage(_avatarFile!), fit: BoxFit.cover)
-                              : (widget.originalProfile?.avatarUrl != null
-                                  ? DecorationImage(image: NetworkImage(widget.originalProfile!.avatarUrl!), fit: BoxFit.cover)
-                                  : null),
-                        ),
-                        child: (_avatarFile == null && widget.originalProfile?.avatarUrl == null)
-                            ? Icon(Icons.add_a_photo, size: 32, color: theme.colorScheme.onSurfaceVariant)
-                            : null,
-                      ),
-                      const SizedBox(height: 8),
-                      // Pinterest style "Edit" label below image
-                      Text('Edit', style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              // Avatar Picker
+              GestureDetector(
+                onTap: _pickImage,
+                child: CircleAvatar(
+                  radius: 50,
+                  backgroundColor: Colors.grey.shade200,
+                  backgroundImage: _avatarFile != null 
+                      ? FileImage(_avatarFile!) 
+                      : (widget.originalProfile?.avatarUrl != null 
+                          ? NetworkImage(widget.originalProfile!.avatarUrl!) 
+                          : null) as ImageProvider?,
+                  child: (_avatarFile == null && widget.originalProfile?.avatarUrl == null)
+                      ? const Icon(Icons.add_a_photo, size: 30, color: Colors.grey)
+                      : null,
                 ),
-                
-                const SizedBox(height: 32),
+              ),
+              const SizedBox(height: 32),
 
-                // Fields
-                _buildPinterestField(
-                  label: 'Name',
-                  controller: _displayNameController,
-                  validator: (v) => (v == null || v.isEmpty) ? 'Name is required' : null,
+              _buildPinterestField(
+                label: "Username",
+                controller: _usernameController,
+                hint: "@username",
+                validator: (val) {
+                  if (val == null || val.isEmpty) return "Required";
+                  if (val.length < 3) return "Too short";
+                  return null;
+                }
+              ),
+              const SizedBox(height: 20),
+
+              _buildPinterestField(
+                label: "Display Name",
+                controller: _displayNameController,
+                hint: "Your Name",
+                validator: (val) => val == null || val.isEmpty ? "Required" : null
+              ),
+              const SizedBox(height: 20),
+
+              _buildPinterestField(
+                label: "Bio",
+                controller: _bioController,
+                hint: "Tell us about yourself...",
+                maxLines: 3,
+              ),
+              const SizedBox(height: 32),
+
+              if (!isEditing) ...[
+                CheckboxListTile(
+                  title: const Text("I confirm I am 18 years or older"),
+                  value: _ageConfirmed,
+                  onChanged: (v) => setState(() => _ageConfirmed = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
                 ),
-                
                 const SizedBox(height: 16),
-                
-                _buildPinterestField(
-                  label: 'Username',
-                  controller: _usernameController,
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return 'Username is required';
-                    if (v.length < 3) return 'Min 3 characters';
-                    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v)) return 'Alphanumeric only';
-                    return null;
-                  },
-                ),
-
-                const SizedBox(height: 16),
-
-                _buildPinterestField(
-                  label: 'Bio',
-                  controller: _bioController,
-                  maxLines: 3,
-                  hint: 'Write a short bio...',
-                ),
-
-                const SizedBox(height: 24),
-
-                // Only show age checkbox if creating a new profile
-                if (!isEditing) ...[
-                  CheckboxListTile(
-                    value: _ageConfirmed,
-                    onChanged: (value) => setState(() => _ageConfirmed = value ?? false),
-                    title: Text('I confirm I am 18 years or older', style: theme.textTheme.bodyMedium),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ],
-
-                if (_errorMessage != null) ...[
-                  const SizedBox(height: 16),
-                  Text(_errorMessage!, style: TextStyle(color: theme.colorScheme.error)),
-                ],
               ],
-            ),
+
+              SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: FilledButton(
+                  onPressed: _isLoading ? null : _onSubmit,
+                  style: FilledButton.styleFrom(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _isLoading 
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : Text(isEditing ? 'Save Changes' : 'Complete Setup', style: const TextStyle(fontSize: 16)),
+                ),
+              ),
+
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 16),
+                Text(_errorMessage!, style: TextStyle(color: theme.colorScheme.error)),
+              ],
+            ],
           ),
         ),
       ),
     );
   }
 
-  // Helper for cleaner UI
   Widget _buildPinterestField({
     required String label,
     required TextEditingController controller,
