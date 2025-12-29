@@ -44,7 +44,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       final viewerId = supabase.auth.currentUser?.id;
       bool following = false;
       if (viewerId != null && viewerId != widget.userId) {
-        following = await _profileSvc.isFollowing(viewerId, widget.userId);
+        following = await _profileSvc.isFollowing(
+          followerId: viewerId, 
+          followeeId: widget.userId
+        );
       }
 
       if (mounted) {
@@ -74,9 +77,15 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     try {
       if (_isFollowing) {
-        await _profileSvc.followUser(viewerId, widget.userId);
+        await _profileSvc.followUser(
+          followerId: viewerId, 
+          followeeId: widget.userId
+        );
       } else {
-        await _profileSvc.unfollowUser(viewerId, widget.userId);
+        await _profileSvc.unfollowUser(
+          followerId: viewerId, 
+          followeeId: widget.userId
+        );
       }
     } catch (e) {
       // Revert on error
