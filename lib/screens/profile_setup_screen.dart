@@ -1,12 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/services/storage_service.dart';
-import 'package:xprex/models/user_profile.dart'; 
+import 'package:xprex/models/user_profile.dart';
 import 'package:xprex/theme.dart';
 
 class ProfileSetupScreen extends ConsumerStatefulWidget {
@@ -61,12 +60,11 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     }
 
     setState(() { _isLoading = true; _errorMessage = null; });
-
     try {
       final authService = ref.read(authServiceProvider);
       final profileService = ref.read(profileServiceProvider);
       final storageService = StorageService();
-      
+
       final uid = authService.currentUserId;
       if (uid == null) throw Exception("Not authenticated");
 
@@ -84,7 +82,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       }
 
       if (widget.originalProfile == null) {
-        // CREATE: Positional Argument
+        // CREATE: Matches profileService.createProfile(UserProfile profile)
         final newProfile = UserProfile(
           authUserId: uid,
           email: authService.currentUser?.email ?? '',
@@ -95,13 +93,12 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
         );
-        
-        await profileService.createProfile(newProfile); // Corrected: Passed directly
+        await profileService.createProfile(newProfile);
       } else {
-        // UPDATE: Positional Arguments (ID, Map)
+        // UPDATE: Matches profileService.updateProfile(String id, Map updates)
         await profileService.updateProfile(
-          uid, // Arg 1: User ID
-          {    // Arg 2: Updates Map
+          uid, 
+          {
             'username': _usernameController.text,
             'display_name': _displayNameController.text,
             'bio': _bioController.text,
