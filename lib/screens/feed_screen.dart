@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
-import 'package:xprex/services/notification_service.dart'; // Import Notification Service
+import 'package:xprex/services/notification_service.dart'; 
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/widgets/feed_item.dart';
 import 'package:xprex/router/app_router.dart';
@@ -15,11 +15,12 @@ final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
 final feedScrollSignalProvider = StateProvider<int>((ref) => 0);
 
 // 0 = Following, 1 = For You
-final selectedFeedTabProvider = StateProvider<int>((ref) => 1); 
+final selectedFeedTabProvider = StateProvider<int>((ref) => 1);
 
 // --- FEED VIDEO PROVIDER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
   ref.watch(authStateProvider); // Re-fetch on auth change
+  ref.watch(feedRefreshKeyProvider); // NEW: Re-fetch on manual refresh
   final selectedTab = ref.watch(selectedFeedTabProvider);
   final videoService = VideoService();
 
@@ -35,7 +36,6 @@ final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
 // --- NOTIFICATION COUNT PROVIDER ---
 final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
   ref.watch(authStateProvider); // Re-fetch on auth change
-  // We can also add a timer here to poll periodically if desired
   final service = NotificationService();
   return await service.getUnreadCount();
 });
@@ -72,7 +72,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void dispose() {
-    try { WakelockPlus.disable(); } catch (_) {}
+    try { WakelockPlus.disable();
+    } catch (_) {}
     WidgetsBinding.instance.removeObserver(this);
     routeObserver.unsubscribe(this);
     _pageController.dispose();
@@ -81,7 +82,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
 
   @override
   void didPushNext() {
-    try { WakelockPlus.disable(); } catch (_) {}
+    try { WakelockPlus.disable();
+    } catch (_) {}
     setState(() => _screenVisible = false);
   }
 
@@ -138,11 +140,29 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                           : 'No videos available',
                         style: const TextStyle(color: Colors.white),
                       ),
-                      if (selectedTab == 0)
+                      const SizedBox(height: 16),
+                      // BUTTON LOGIC
+                      if (selectedTab == 0) ...[
+                        OutlinedButton.icon(
+                          onPressed: () {
+                             // Force refresh by incrementing key
+                             ref.read(feedRefreshKeyProvider.notifier).state++;
+                          },
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          label: const Text('Refresh', style: TextStyle(color: Colors.white)),
+                          style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white54)),
+                        ),
+                        const SizedBox(height: 12),
                         TextButton(
                           onPressed: () => ref.read(selectedFeedTabProvider.notifier).state = 1,
                           child: const Text('Go to For You'),
                         )
+                      ] else 
+                        OutlinedButton.icon(
+                          onPressed: () => ref.read(feedRefreshKeyProvider.notifier).state++,
+                          icon: const Icon(Icons.refresh, color: Colors.white),
+                          label: const Text('Retry', style: TextStyle(color: Colors.white)),
+                        ),
                     ],
                   )
                 );
@@ -150,7 +170,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               
               return PageView.builder(
                 controller: _pageController, 
-                key: ValueKey('${refreshKey}_$selectedTab'), // Rebuild pageview on tab switch
+                key: ValueKey('${refreshKey}_$selectedTab'), 
                 scrollDirection: Axis.vertical,
                 allowImplicitScrolling: true, 
                 itemCount: videos.length,
@@ -166,7 +186,19 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
               );
             },
             loading: () => const Center(child: CircularProgressIndicator(color: Colors.white)),
-            error: (e, s) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.white))),
+            error: (e, s) => Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('Error: $e', style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () => ref.read(feedRefreshKeyProvider.notifier).state++, 
+                    child: const Text("Retry")
+                  )
+                ],
+              )
+            ),
           ),
 
           // --- TOP BAR ---
