@@ -1,9 +1,9 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/providers/auth_provider.dart';
+import 'package:xprex/screens/email_verification_screen.dart'; // For Enum access
 import 'package:xprex/theme.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -26,49 +26,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  // --- PROFESSIONAL ERROR PARSER ---
+  // --- ERROR PARSER (Preserved) ---
   String _getFriendlyErrorMessage(Object error) {
     final e = error.toString().toLowerCase();
-
-    // 1. Network / Internet Issues
     if (e.contains('socket') || e.contains('errno = 7') || e.contains('connection refused') || e.contains('network request failed')) {
-      return 'No internet connection. Please check your mobile data or Wi-Fi.';
+      return 'No internet connection.\nPlease check your mobile data or Wi-Fi.';
     }
-    
-    // 2. Timeout
-    if (e.contains('timeout')) {
-      return 'Connection timed out. Please try again.';
-    }
-
-    // 3. Supabase Auth Exceptions
+    if (e.contains('timeout')) return 'Connection timed out.\nPlease try again.';
     if (error is AuthException) {
-      if (error.message.toLowerCase().contains('invalid login credentials')) {
-        return 'Incorrect email or password.';
-      }
-      if (error.message.toLowerCase().contains('email not confirmed')) {
-        return 'Please verify your email address before logging in.';
-      }
+      if (error.message.toLowerCase().contains('invalid login credentials')) return 'Incorrect email or password.';
+      if (error.message.toLowerCase().contains('email not confirmed')) return 'Please verify your email address before logging in.';
     }
-
-    // 4. Specific known phrases
     if (e.contains('invalid login credentials')) return 'Incorrect email or password.';
     if (e.contains('user not found')) return 'No account found with this email.';
-
-    // 5. Fallback for unknown weird errors
     return 'Unable to log in. Please try again later.';
   }
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
-    
-    // Dismiss keyboard
     FocusScope.of(context).unfocus();
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
-    
     try {
       final authService = ref.read(authServiceProvider);
       await authService.signIn(
@@ -80,25 +60,95 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (authService.isEmailVerified()) {
         final profileService = ref.read(profileServiceProvider);
         final profile = await profileService.getProfileByAuthId(authService.currentUserId!);
-        
         if (profile == null) {
           context.go('/profile-setup');
         } else {
           context.go('/');
         }
       } else {
-        context.go('/email-verification');
+         // Pass email to verification screen
+         context.push(
+            '/email-verification',
+            extra: {
+              'email': _emailController.text.trim(),
+              'purpose': VerificationPurpose.signup,
+            },
+          );
       }
     } catch (e) {
-      // Log the raw error for debugging (optional)
-      debugPrint('Login Error: $e');
-      
       if (mounted) {
         setState(() {
           _errorMessage = _getFriendlyErrorMessage(e);
           _isLoading = false;
         });
       }
+    }
+  }
+
+  // --- FORGOT PASSWORD SHEET ---
+  void _showForgotPasswordSheet() {
+    final emailCtrl = TextEditingController(text: _emailController.text); // Pre-fill if they typed it
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom + 20, 
+          top: 24, left: 24, right: 24
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text("Reset Password", style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text("Enter your email to receive a recovery code."),
+            const SizedBox(height: 20),
+            TextField(
+              controller: emailCtrl,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: "Email Address",
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.email_outlined),
+              ),
+            ),
+            const SizedBox(height: 24),
+            FilledButton(
+              onPressed: () async {
+                final email = emailCtrl.text.trim();
+                if (email.isEmpty || !email.contains('@')) return;
+                
+                Navigator.pop(ctx); // Close sheet
+                _sendResetCode(email);
+              },
+              child: const Text("Send Code"),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendResetCode(String email) async {
+    setState(() => _isLoading = true);
+    try {
+      await ref.read(authServiceProvider).sendPasswordResetOtp(email);
+      if (!mounted) return;
+      
+      // Navigate to Verification in RECOVERY mode
+      context.push(
+        '/email-verification',
+        extra: {
+          'email': email,
+          'purpose': VerificationPurpose.recovery,
+        },
+      );
+    } catch (e) {
+      setState(() => _errorMessage = "Failed to send code. Please try again.");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
@@ -122,7 +172,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 Text('Log in to continue', style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant), textAlign: TextAlign.center),
                 const SizedBox(height: 48),
                 
-                // EMAIL INPUT
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -139,7 +188,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
                 
-                // PASSWORD INPUT
                 TextFormField(
                   controller: _passwordController,
                   obscureText: true,
@@ -154,7 +202,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   },
                 ),
                 
-                // ERROR MESSAGE DISPLAY
+                // FORGOT PASSWORD BUTTON
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _isLoading ? null : _showForgotPasswordSheet,
+                    child: const Text("Forgot Password?"),
+                  ),
+                ),
+
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 16),
                   Container(
@@ -180,16 +236,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ],
 
                 const SizedBox(height: 24),
-                
-                // LOGIN BUTTON
                 FilledButton(
                   onPressed: _isLoading ? null : _handleLogin,
                   style: FilledButton.styleFrom(
                     minimumSize: const Size(double.infinity, 56),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
-                  child: _isLoading ? 
-                    const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
+                  child: _isLoading 
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
                     : Text('Log In', style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onPrimary)),
                 ),
                 const SizedBox(height: 24),
