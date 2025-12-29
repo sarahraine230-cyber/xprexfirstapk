@@ -35,6 +35,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         try {
           final uid = authService.currentUserId!;
           final email = authService.currentUser!.email ?? 'user@example.com';
+          // This call works now because we added the method back to ProfileService
           await profileService.ensureProfileExists(authUserId: uid, email: email);
         } catch (e) {
           // Non-fatal; fall through
@@ -43,12 +44,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
         context.go('/');
       } else if (authService.isAuthenticated && !authService.isEmailVerified()) {
         if (!mounted) return;
-        context.go('/email-verification');
+        context.go('/verify-email');
       } else {
-        // Not authenticated -> show welcome UI
-        if (mounted) setState(() => _checkedAuth = true);
+         // Stay on splash/welcome
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Splash check error: $e');
+    } finally {
       if (mounted) setState(() => _checkedAuth = true);
     }
   }
@@ -58,74 +60,101 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
     final theme = Theme.of(context);
     
     return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+      backgroundColor: Colors.black,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Colors.black, theme.colorScheme.surface],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Top-left minimal logo
-              _GradientText(
-                'XpreX',
-                style: theme.textTheme.headlineLarge?.copyWith(fontWeight: FontWeight.w800),
-                colors: [
-                  theme.colorScheme.primary,
-                  theme.colorScheme.tertiary,
-                ],
-              ),
-              const SizedBox(height: 16),
-              // Tagline / description
-              AnimatedOpacity(
-                opacity: _animateIn ? 1 : 0,
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOut,
-                child: Text(
-                  "Dont just create. Xprex! Join Nigeria’s creator hub built for storytellers, thinkers, and visionaries. We reward quality — not clicks. Share what matters, and grow in a community that values real expression.",
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    height: 1.5,
+              Expanded(
+                flex: 3,
+                child: Center(
+                  child: AnimatedOpacity(
+                    duration: const Duration(seconds: 1),
+                    opacity: _animateIn ? 1.0 : 0.0,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo Placeholder
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.colorScheme.primary.withOpacity(0.5),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              )
+                            ]
+                          ),
+                          child: const Icon(Icons.play_arrow_rounded, size: 60, color: Colors.white),
+                        ),
+                        const SizedBox(height: 24),
+                        _GradientText(
+                          'XpreX',
+                          style: theme.textTheme.displayMedium?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -1.0,
+                          ),
+                          colors: [Colors.white, theme.colorScheme.primaryContainer],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Unleash Your Creativity',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white70,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
-              // Buttons with slide-in animation
-              AnimatedSlide(
-                offset: _animateIn ? Offset.zero : const Offset(0, 0.1),
+              
+              // Bottom Action Area
+              if (_checkedAuth) 
+              AnimatedContainer(
                 duration: const Duration(milliseconds: 500),
-                curve: Curves.easeOut,
+                height: 200,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (_checkedAuth) ...[
-                      // Create Account
-                      FilledButton.icon(
-                        onPressed: () => context.go('/signup'),
-                        icon: Icon(Icons.bolt_rounded, color: theme.colorScheme.onTertiary),
-                        label: Text(
-                          'Create Account',
-                          style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onTertiary),
-                        ),
-                        style: FilledButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 56),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          backgroundColor: theme.colorScheme.tertiary,
-                          foregroundColor: theme.colorScheme.onTertiary,
+                    if (!ref.read(authServiceProvider).isAuthenticated) ...[
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: FilledButton(
+                          onPressed: () => context.push('/signup'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: Colors.black,
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          child: const Text('Get Started'),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      // I already have an account
-                      OutlinedButton.icon(
-                        onPressed: () => context.go('/login'),
-                        icon: Icon(Icons.login_rounded, color: theme.colorScheme.onSurface),
-                        label: Text(
-                          'I already have an account',
-                          style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: theme.colorScheme.onSurface.withValues(alpha: 0.2), width: 1.2),
-                          minimumSize: const Size(double.infinity, 56),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          foregroundColor: theme.colorScheme.onSurface,
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: OutlinedButton(
+                          onPressed: () => context.push('/login'),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: Colors.white24),
+                            foregroundColor: Colors.white,
+                            textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          child: const Text('I already have an account'),
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -152,7 +181,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 }
 
-/// Simple gradient text widget for logo styling
 class _GradientText extends StatelessWidget {
   final String text;
   final TextStyle? style;
