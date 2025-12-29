@@ -5,7 +5,6 @@ import 'package:xprex/providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
-
   @override
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
@@ -13,7 +12,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 class _SplashScreenState extends ConsumerState<SplashScreen> {
   bool _checkedAuth = false;
   bool _animateIn = false;
-
+  
   @override
   void initState() {
     super.initState();
@@ -25,28 +24,32 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _checkAndNavigate() async {
-    // If user already authenticated, skip welcome UI and route accordingly
     try {
       final authService = ref.read(authServiceProvider);
       final profileService = ref.read(profileServiceProvider);
 
+      // Give a small delay to let the animation play (optional UX choice)
+      await Future.delayed(const Duration(milliseconds: 800));
+
       if (authService.isAuthenticated && authService.isEmailVerified()) {
-        // Ensure a minimal profile exists immediately for new accounts
         try {
           final uid = authService.currentUserId!;
           final email = authService.currentUser!.email ?? 'user@example.com';
-          // This call works now because we added the method back to ProfileService
+          
+          // CORRECTED: Matches ProfileService definition
           await profileService.ensureProfileExists(authUserId: uid, email: email);
         } catch (e) {
-          // Non-fatal; fall through
+          debugPrint('Profile check warning: $e');
+          // We continue even if this fails, to avoid locking the user out
         }
+        
         if (!mounted) return;
         context.go('/');
       } else if (authService.isAuthenticated && !authService.isEmailVerified()) {
         if (!mounted) return;
         context.go('/verify-email');
       } else {
-         // Stay on splash/welcome
+         // User is not logged in; stay on splash/welcome screen
       }
     } catch (e) {
       debugPrint('Splash check error: $e');
@@ -58,7 +61,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
     return Scaffold(
       backgroundColor: Colors.black,
       body: Container(
@@ -185,7 +187,6 @@ class _GradientText extends StatelessWidget {
   final String text;
   final TextStyle? style;
   final List<Color> colors;
-
   const _GradientText(this.text, {required this.style, required this.colors});
 
   @override
