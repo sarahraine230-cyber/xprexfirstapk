@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:xprex/models/user_profile.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/config/supabase_config.dart';
-import 'package:xprex/screens/video_player_screen.dart'; // Import Player
+import 'package:xprex/config/app_links.dart';
 
 class UserProfileScreen extends StatefulWidget {
   final String userId; // Supabase auth user id
@@ -18,8 +19,11 @@ class UserProfileScreen extends StatefulWidget {
 class _UserProfileScreenState extends State<UserProfileScreen> {
   final _profileSvc = ProfileService();
   final _videoSvc = VideoService();
+  
   UserProfile? _profile;
-  List<_ProfileVideoItem>? _items;
+  List<VideoModel> _createdVideos = [];
+  List<VideoModel> _repostedVideos = [];
+  
   bool _loading = true;
   bool _isFollowing = false;
   int _followerCount = 0;
@@ -34,233 +38,275 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _loading = true);
     try {
       final profile = await _profileSvc.getProfileByAuthId(widget.userId);
-      final videos = await _videoSvc.getUserVideos(widget.userId);
+      final created = await _videoSvc.getUserVideos(widget.userId);
       final reposted = await _videoSvc.getRepostedVideos(widget.userId);
+      
       final viewerId = supabase.auth.currentUser?.id;
       bool following = false;
-      if (viewerId != null) {
-        following = await _profileSvc.isFollowing(followerAuthUserId: viewerId, followeeAuthUserId: widget.userId);
+      if (viewerId != null && viewerId != widget.userId) {
+        following = await _profileSvc.isFollowing(viewerId, widget.userId);
       }
-      final followers = await _profileSvc.getFollowerCount(widget.userId);
+
       if (mounted) {
         setState(() {
           _profile = profile;
-          _items = [
-            ...videos.map((v) => _ProfileVideoItem(video: v, isRepost: false)),
-            ...reposted.map((v) => _ProfileVideoItem(video: v, isRepost: true)),
-          ];
+          _createdVideos = created;
+          _repostedVideos = reposted;
           _isFollowing = following;
-          _followerCount = followers;
+          _followerCount = profile?.followersCount ?? 0;
           _loading = false;
         });
       }
     } catch (e) {
-      debugPrint('❌ Failed to load user profile: $e');
+      debugPrint('Error loading profile: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _toggleFollow() async {
     final viewerId = supabase.auth.currentUser?.id;
-    if (viewerId == null || viewerId == widget.userId) return;
+    if (viewerId == null) return;
+    
+    setState(() {
+      _isFollowing = !_isFollowing;
+      _followerCount += _isFollowing ? 1 : -1;
+    });
+
     try {
       if (_isFollowing) {
-        await _profileSvc.unfollowUser(followerAuthUserId: viewerId, followeeAuthUserId: widget.userId);
-        setState(() {
-          _isFollowing = false;
-          _followerCount = (_followerCount - 1).clamp(0, 1 << 31);
-        });
+        await _profileSvc.followUser(viewerId, widget.userId);
       } else {
-        await _profileSvc.followUser(followerAuthUserId: viewerId, followeeAuthUserId: widget.userId);
-        setState(() {
-          _isFollowing = true;
-          _followerCount += 1;
-        });
+        await _profileSvc.unfollowUser(viewerId, widget.userId);
       }
     } catch (e) {
-      debugPrint('❌ toggle follow error: $e');
+      // Revert on error
+      setState(() {
+        _isFollowing = !_isFollowing;
+        _followerCount += _isFollowing ? 1 : -1;
+      });
     }
+  }
+
+  void _shareProfile() {
+    // Generate profile deep link (placeholder logic)
+    final url = 'https://xprex.app/u/${widget.userId}';
+    Share.share('Check out ${_profile?.displayName ?? "this user"} on XpreX! $url');
+  }
+
+  void _showOptionsSheet() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.flag_outlined, color: Colors.red),
+              title: const Text('Report User', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report submitted')));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.block_outlined),
+              title: const Text('Block User'),
+              onTap: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked')));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator()));
+    if (_profile == null) return const Scaffold(backgroundColor: Colors.black, body: Center(child: Text("User not found", style: TextStyle(color: Colors.white))));
+
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => context.pop(),
+    final isMe = widget.userId == supabase.auth.currentUser?.id;
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          leading: const BackButton(color: Colors.white),
+          title: Text(_profile!.username, style: const TextStyle(color: Colors.white, fontSize: 16)),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.share_outlined, color: Colors.white),
+              onPressed: _shareProfile,
+            ),
+            IconButton(
+              icon: const Icon(Icons.more_horiz, color: Colors.white),
+              onPressed: _showOptionsSheet,
+            ),
+          ],
+        ),
+        body: NestedScrollView(
+          headerSliverBuilder: (context, _) => [
+            SliverToBoxAdapter(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  // Avatar
+                  CircleAvatar(
+                    radius: 48,
+                    backgroundColor: Colors.grey[900],
+                    backgroundImage: NetworkImage(_profile!.avatarUrl ?? 'https://placehold.co/100'),
+                  ),
+                  const SizedBox(height: 16),
+                  // Name
+                  Text(
+                    _profile!.displayName,
+                    style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 4),
+                  // Stats Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _statItem("Following", _profile!.followingCount.toString()),
+                      Container(height: 12, width: 1, color: Colors.grey[800], margin: const EdgeInsets.symmetric(horizontal: 16)),
+                      _statItem("Followers", _followerCount.toString()),
+                      Container(height: 12, width: 1, color: Colors.grey[800], margin: const EdgeInsets.symmetric(horizontal: 16)),
+                      _statItem("Likes", "0"), // Total likes not in profile model yet, placeholder
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Buttons
+                  if (!isMe)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 40),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _toggleFollow,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _isFollowing ? Colors.grey[800] : theme.primaryColor,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: Text(_isFollowing ? 'Following' : 'Follow'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {}, // Message logic placeholder
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: Colors.grey[800]!),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              ),
+                              child: const Text('Message'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  // Bio
+                  if (_profile!.bio != null && _profile!.bio!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        _profile!.bio!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey[400]),
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                ],
+              ),
+            ),
+            SliverPersistentHeader(
+              delegate: _SliverAppBarDelegate(
+                TabBar(
+                  indicatorColor: theme.primaryColor,
+                  indicatorWeight: 2,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.grey,
+                  tabs: [
+                    const Tab(icon: Icon(Icons.grid_on)), // Created
+                    const Tab(icon: Icon(Icons.repeat)),  // Reposts
+                  ],
+                ),
+              ),
+              pinned: true,
+            ),
+          ],
+          body: TabBarView(
+            children: [
+              _buildVideoGrid(_createdVideos),
+              _buildVideoGrid(_repostedVideos),
+            ],
+          ),
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : (_profile == null)
-              ? const Center(child: Text('User not found'))
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 56,
-                          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                          backgroundImage: _profile!.avatarUrl != null && _profile!.avatarUrl!.isNotEmpty
-                              ? NetworkImage(_profile!.avatarUrl!)
-                              : null,
-                          child: (_profile!.avatarUrl == null || _profile!.avatarUrl!.isEmpty)
-                              ? Icon(Icons.person, size: 56, color: theme.colorScheme.onSurfaceVariant)
-                              : null,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(_profile!.displayName, style: theme.textTheme.headlineSmall),
-                        Text('@${_profile!.username}', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                        if (_profile!.bio != null) ...[
-                          const SizedBox(height: 8),
-                          Text(_profile!.bio!, style: theme.textTheme.bodyMedium, textAlign: TextAlign.center),
-                        ],
-                        const SizedBox(height: 16),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _stat(theme, 'Followers', '$_followerCount'),
-                            _stat(theme, 'Views', '${_profile!.totalVideoViews}'),
-                            _stat(theme, 'Videos', '${_items?.length ?? 0}'),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        if (supabase.auth.currentUser?.id != widget.userId)
-                          SizedBox(
-                            width: double.infinity,
-                            child: FilledButton.icon(
-                              onPressed: _toggleFollow,
-                              icon: Icon(_isFollowing ? Icons.person_remove : Icons.person_add),
-                              label: Text(_isFollowing ? 'Unfollow' : 'Follow'),
-                              style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                            ),
-                          ),
-                        const SizedBox(height: 24),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('Videos', style: theme.textTheme.titleLarge),
-                        ),
-                        const SizedBox(height: 12),
-                         if ((_items ?? const []).isEmpty)
-                          Container(
-                            height: 180,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Center(
-                              child: Text('No videos yet', style: theme.textTheme.bodyMedium),
-                            ),
-                          )
-                        else
-                           GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                             itemCount: _items!.length,
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                              childAspectRatio: 9 / 16,
-                            ),
-                            itemBuilder: (context, index) {
-                               final item = _items![index];
-                               final v = item.video;
-                              return GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () {
-                                  // --- NAVIGATE TO PLAYER ---
-                                  // We must extract the pure List<VideoModel> from our wrapper items
-                                  final allVideos = _items!.map((e) => e.video).toList();
-                                  
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (context) => VideoPlayerScreen(
-                                        videos: allVideos,
-                                        initialIndex: index,
-                                      ),
-                                    ),
-                                  );
-                                },
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      if (v.coverImageUrl != null)
-                                        Image.network(v.coverImageUrl!, fit: BoxFit.cover)
-                                      else
-                                        Container(color: theme.colorScheme.surfaceContainerHighest, child: const Icon(Icons.slow_motion_video, color: Colors.white70)),
-                                       
-                                       // Repost Badge
-                                       if (item.isRepost)
-                                         Positioned(
-                                           top: 6,
-                                           left: 6,
-                                           child: Container(
-                                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                             decoration: BoxDecoration(
-                                               color: Colors.black.withValues(alpha: 0.5),
-                                               borderRadius: BorderRadius.circular(6),
-                                             ),
-                                             child: const Row(
-                                               mainAxisSize: MainAxisSize.min,
-                                               children: [
-                                                 Icon(Icons.repeat, color: Colors.white, size: 12),
-                                                 SizedBox(width: 4),
-                                                 Text('Repost', style: TextStyle(color: Colors.white, fontSize: 10)),
-                                               ],
-                                             ),
-                                           ),
-                                         ),
-                                         
-                                      Align(
-                                        alignment: Alignment.bottomCenter,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-                                          color: Colors.black.withValues(alpha: 0.4),
-                                          width: double.infinity,
-                                          child: Text(
-                                            v.title,
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                            style: const TextStyle(color: Colors.white, fontSize: 12),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                      ],
-                    ),
-                  ),
-              ),
     );
   }
 
-  Widget _stat(ThemeData theme, String label, String value) {
+  Widget _statItem(String label, String value) {
     return Column(
       children: [
-        Text(value, style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 4),
-        Text(label, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+        Text(label, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
       ],
+    );
+  }
+
+  Widget _buildVideoGrid(List<VideoModel> videos) {
+    if (videos.isEmpty) {
+      return const Center(child: Text("No videos yet", style: TextStyle(color: Colors.white54)));
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(2),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 9 / 16, // TikTok ratio
+        crossAxisSpacing: 2,
+        mainAxisSpacing: 2,
+      ),
+      itemCount: videos.length,
+      itemBuilder: (context, index) {
+        final video = videos[index];
+        return GestureDetector(
+          onTap: () {
+            // Navigate to player with this video list
+             context.push('/video/${video.id}'); // Placeholder route
+          },
+          child: Container(
+            color: Colors.grey[900],
+            child: video.coverImageUrl != null
+                ? Image.network(video.coverImageUrl!, fit: BoxFit.cover)
+                : const Icon(Icons.play_arrow, color: Colors.white),
+          ),
+        );
+      },
     );
   }
 }
 
-class _ProfileVideoItem {
-  final VideoModel video;
-  final bool isRepost;
-  _ProfileVideoItem({required this.video, required this.isRepost});
+class _SliverAppBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar _tabBar;
+  _SliverAppBarDelegate(this._tabBar);
+  @override
+  double get minExtent => _tabBar.preferredSize.height;
+  @override
+  double get maxExtent => _tabBar.preferredSize.height;
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(color: Colors.black, child: _tabBar);
+  }
+  @override
+  bool shouldRebuild(_SliverAppBarDelegate oldDelegate) => false;
 }
