@@ -78,12 +78,14 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
       String? avatarUrl = widget.originalProfile?.avatarUrl;
       if (_avatarFile != null) {
-        avatarUrl = await storageService.uploadProfileAvatar(uid, _avatarFile!);
+        // FIXED: Corrected method name from 'uploadProfileAvatar' to 'uploadAvatar'
+        avatarUrl = await storageService.uploadAvatar(userId: uid, file: _avatarFile!);
       }
 
       if (widget.originalProfile == null) {
-        // CREATE: Matches profileService.createProfile(UserProfile profile)
+        // CREATE:
         final newProfile = UserProfile(
+          id: uid, // FIXED: Added required 'id' (matches authUserId)
           authUserId: uid,
           email: authService.currentUser?.email ?? '',
           username: _usernameController.text,
@@ -95,7 +97,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
         );
         await profileService.createProfile(newProfile);
       } else {
-        // UPDATE: Matches profileService.updateProfile(String id, Map updates)
+        // UPDATE:
         await profileService.updateProfile(
           uid, 
           {
