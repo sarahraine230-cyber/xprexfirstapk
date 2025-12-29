@@ -6,7 +6,7 @@ import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
 import 'package:xprex/screens/login_screen.dart';
 import 'package:xprex/screens/signup_screen.dart';
-import 'package:xprex/screens/email_verification_screen.dart';
+import 'package:xprex/screens/email_verification_screen.dart'; // Imports VerificationPurpose enum
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
@@ -43,14 +43,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final authState = authStateAsync.valueOrNull;
       final session = authState?.session;
       final isAuth = session != null;
-
+      
       // 3. Define Path Variables
       final isSplash = state.uri.path == '/splash';
       final isBrandSplash = state.uri.path == '/brand-splash';
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
-      final isVerify = state.uri.path == '/verify-email';
-
+      final isVerify = state.uri.path == '/email-verification'; // Updated path
+      
       // 4. Redirect Logic
       if (!isAuth) {
         // If not logged in, allow these screens
@@ -84,9 +84,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
       ),
+      // --- UPDATED VERIFICATION ROUTE ---
       GoRoute(
-        path: '/verify-email',
-        builder: (context, state) => const EmailVerificationScreen(),
+        path: '/email-verification', // Matched to Navigation calls
+        builder: (context, state) {
+          // Extract the map passed via 'extra'
+          final args = state.extra as Map<String, dynamic>?;
+          return EmailVerificationScreen(
+            email: args?['email'] as String?,
+            purpose: args?['purpose'] as VerificationPurpose? ?? VerificationPurpose.signup,
+          );
+        },
       ),
       GoRoute(
         path: '/profile-setup',
