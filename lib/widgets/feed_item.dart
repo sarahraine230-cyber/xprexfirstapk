@@ -44,14 +44,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   late AnimationController _playPauseController;
   late Animation<double> _playPauseAnimation;
 
+  // Initialized immediately to prevent "pop-in"
+  late int _likeCount;
+  late int _commentsCount;
+  late int _shareCount;
+  late int _saveCount;
+  late int _repostCount;
+  
   bool _isLiked = false;
-  int _likeCount = 0;
-  int _commentsCount = 0;
-  int _shareCount = 0;
   bool _isSaved = false;
-  int _saveCount = 0;
   bool _isReposted = false;
-  int _repostCount = 0;
   
   bool _loading = true;
   Timer? _watchTimer;
@@ -67,13 +69,15 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     );
     _playPauseAnimation = CurvedAnimation(parent: _playPauseController, curve: Curves.easeOut);
 
-    // --- INSTANT LOAD: No more "Pop-in" ---
+    // --- INSTANT LOAD PROTOCOL ---
+    // Initialize counts directly from the model so they appear 
+    // instantly without waiting for the network check.
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
     _saveCount = widget.video.savesCount;
     _repostCount = widget.video.repostsCount;
-    _shareCount = widget.video.sharesCount; // Now fetching from model immediately
-    
+    _shareCount = widget.video.sharesCount;
+
     _init();
   }
 
@@ -108,6 +112,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       }
       
       if (uid != null) {
+        // We only fetch the booleans (isLiked, isSaved) asynchronously now.
+        // The counts are already set.
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
         });
@@ -117,7 +123,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
           if (mounted) setState(() => _isReposted = reposted);
         });
-        // We don't need to fetch share count here anymore since it's in the model
       }
       _updatePlayState();
     } catch (e) {
@@ -188,10 +193,13 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
     
+    // Optimistic UI
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     
+    // Fire and forget (Fail-safe)
     try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
-      setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
+      // Only revert if the insert failed (e.g. network)
+      if (mounted) setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
     }
   }
 
@@ -199,14 +207,14 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('save');
     setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; }); }
+    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; }); }
   }
 
   Future<void> _toggleRepost() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('repost');
     setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; }); }
+    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; }); }
   }
   
   void _showAuthSnack(String action) {
@@ -230,15 +238,12 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   }
 
   Future<void> _handleShare() async {
-    // 1. Share UI
     final deepLink = AppLinks.videoLink(widget.video.id);
     final url = deepLink.isNotEmpty ? deepLink : await _storage.resolveVideoUrl(widget.video.storagePath);
     await Share.share(url);
     
-    // 2. Optimistic UI Update
     setState(() => _shareCount++);
     
-    // 3. Record in DB
     final uid = supabase.auth.currentUser?.id;
     if (uid != null) _videoService.recordShare(widget.video.id, uid);
   }
@@ -300,7 +305,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
             ),
           ),
 
-          // 3. PAUSE ANIMATION OVERLAY
+          // 3. PAUSE ANIMATION
           IgnorePointer(
             child: Center(
               child: FadeTransition(
@@ -311,27 +316,19 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                     color: Colors.black.withOpacity(0.4),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.play_arrow_rounded, 
-                    color: Colors.white, 
-                    size: 64,
-                  ),
+                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 64),
                 ),
               ),
             ),
           ),
 
-          // 4. VIGNETTE LAYER
+          // 4. VIGNETTE
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withOpacity(0.1),
-                      Colors.black.withOpacity(0.7), 
-                    ],
+                    colors: [Colors.transparent, Colors.black.withOpacity(0.1), Colors.black.withOpacity(0.7)],
                     stops: const [0.6, 0.8, 1.0],
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
@@ -367,12 +364,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                       const SizedBox(width: 8),
                       Text(
                         widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
-                        style: const TextStyle(
-                          color: Colors.white, 
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
-                          shadows: [Shadow(color: Colors.black, blurRadius: 2)]
-                        )
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
                       ),
                     ],
                   ),
@@ -383,12 +375,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                     widget.video.title,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white, 
-                      fontSize: 15,
-                      fontWeight: FontWeight.w400,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 2)]
-                    )
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w400, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
                   ),
                 if (widget.video.tags.isNotEmpty)
                   Padding(
@@ -440,7 +427,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                   final position = _controller!.value.position.inMilliseconds;
                   double value = 0;
                   if (duration > 0) value = position / duration;
-                  
                   return LinearProgressIndicator(
                     value: value,
                     backgroundColor: Colors.white.withOpacity(0.2),

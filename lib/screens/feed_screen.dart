@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:wakelock_plus/wakelock_plus.dart'; // Import Wakelock
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:xprex/services/video_service.dart';
+import 'package:xprex/services/notification_service.dart'; // Import Notification Service
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/widgets/feed_item.dart';
 import 'package:xprex/router/app_router.dart';
@@ -9,14 +10,34 @@ import 'package:xprex/screens/search_screen.dart';
 import 'package:xprex/screens/pulse_screen.dart';
 import 'package:xprex/providers/auth_provider.dart';
 
+// --- STATE PROVIDERS ---
 final feedRefreshKeyProvider = StateProvider<int>((ref) => 0);
 final feedScrollSignalProvider = StateProvider<int>((ref) => 0);
 
-// --- THE REACTION CHAMBER ---
+// 0 = Following, 1 = For You
+final selectedFeedTabProvider = StateProvider<int>((ref) => 1); 
+
+// --- FEED VIDEO PROVIDER ---
 final feedVideosProvider = FutureProvider<List<VideoModel>>((ref) async {
-  ref.watch(authStateProvider);
+  ref.watch(authStateProvider); // Re-fetch on auth change
+  final selectedTab = ref.watch(selectedFeedTabProvider);
   final videoService = VideoService();
-  return await videoService.getForYouFeed(limit: 20);
+
+  if (selectedTab == 0) {
+    // Tab 0: Following Feed
+    return await videoService.getFollowingFeed(limit: 20);
+  } else {
+    // Tab 1: For You Feed
+    return await videoService.getForYouFeed(limit: 20);
+  }
+});
+
+// --- NOTIFICATION COUNT PROVIDER ---
+final unreadNotificationCountProvider = FutureProvider<int>((ref) async {
+  ref.watch(authStateProvider); // Re-fetch on auth change
+  // We can also add a timer here to poll periodically if desired
+  final service = NotificationService();
+  return await service.getUnreadCount();
 });
 
 class FeedScreen extends ConsumerStatefulWidget {
@@ -33,7 +54,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   int _activeIndex = 0;
   bool _appActive = true;
   bool _screenVisible = true; 
-  int _selectedTab = 1; 
 
   @override
   void initState() {
@@ -68,17 +88,25 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   @override
   void didPopNext() {
     setState(() => _screenVisible = true);
+    // Refresh notification count when returning to feed
+    ref.invalidate(unreadNotificationCountProvider);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     setState(() => _appActive = state == AppLifecycleState.resumed);
+    if (state == AppLifecycleState.resumed) {
+      ref.invalidate(unreadNotificationCountProvider);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final videosAsync = ref.watch(feedVideosProvider);
     final refreshKey = ref.watch(feedRefreshKeyProvider);
+    final unreadCountAsync = ref.watch(unreadNotificationCountProvider);
+    final selectedTab = ref.watch(selectedFeedTabProvider);
+    
     final shouldPlay = widget.isVisible && _appActive && _screenVisible;
 
     ref.listen(feedScrollSignalProvider, (previous, next) {
@@ -99,11 +127,30 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
         children: [
           videosAsync.when(
             data: (videos) {
-              if (videos.isEmpty) return const Center(child: Text('No videos yet', style: TextStyle(color: Colors.white)));
+              if (videos.isEmpty) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        selectedTab == 0 
+                          ? 'Follow people to see their videos here' 
+                          : 'No videos available',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                      if (selectedTab == 0)
+                        TextButton(
+                          onPressed: () => ref.read(selectedFeedTabProvider.notifier).state = 1,
+                          child: const Text('Go to For You'),
+                        )
+                    ],
+                  )
+                );
+              }
               
               return PageView.builder(
                 controller: _pageController, 
-                key: ValueKey(refreshKey),
+                key: ValueKey('${refreshKey}_$selectedTab'), // Rebuild pageview on tab switch
                 scrollDirection: Axis.vertical,
                 allowImplicitScrolling: true, 
                 itemCount: videos.length,
@@ -114,7 +161,6 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                     video: videos[index],
                     isActive: index == _activeIndex,
                     feedVisible: shouldPlay, 
-                    // REMOVED: onLikeToggled - No longer triggering full reload
                   );
                 },
               );
@@ -123,6 +169,7 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
             error: (e, s) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.white))),
           ),
 
+          // --- TOP BAR ---
           Positioned(
             top: 0,
             left: 0,
@@ -152,6 +199,8 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                       );
                     },
                   ),
+                  
+                  // --- TABS (Following | For You) ---
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -162,13 +211,51 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
                       _buildTab("For You", 1),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 28),
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const PulseScreen())
-                      );
-                    },
+
+                  // --- NOTIFICATION BELL WITH BADGE ---
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.notifications_none_rounded, color: Colors.white, size: 28),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const PulseScreen())
+                          ).then((_) => ref.invalidate(unreadNotificationCountProvider));
+                        },
+                      ),
+                      unreadCountAsync.when(
+                        data: (count) {
+                          if (count == 0) return const SizedBox.shrink();
+                          return Positioned(
+                            right: 8,
+                            top: 8,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              constraints: const BoxConstraints(
+                                minWidth: 16,
+                                minHeight: 16,
+                              ),
+                              child: Text(
+                                count > 9 ? '9+' : '$count',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          );
+                        },
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      )
+                    ],
                   ),
                 ],
               ),
@@ -180,9 +267,17 @@ class _FeedScreenState extends ConsumerState<FeedScreen> with WidgetsBindingObse
   }
 
   Widget _buildTab(String text, int index) {
-    final isSelected = _selectedTab == index;
+    final selectedTab = ref.watch(selectedFeedTabProvider);
+    final isSelected = selectedTab == index;
+    
     return GestureDetector(
-      onTap: () => setState(() => _selectedTab = index),
+      onTap: () {
+        ref.read(selectedFeedTabProvider.notifier).state = index;
+        // Reset page controller to top when switching
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(0);
+        }
+      },
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

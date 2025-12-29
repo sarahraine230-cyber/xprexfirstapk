@@ -21,6 +21,29 @@ class ProfileService {
     }
   }
 
+  // --- RESTORED & FIXED ---
+  Future<void> ensureProfileExists({required String authUserId, required String email}) async {
+    try {
+      final exists = await getProfileByAuthId(authUserId);
+      if (exists == null) {
+        // Create a minimal profile if none exists
+        final newProfile = UserProfile(
+          id: authUserId, // FIXED: Added required 'id' (matches authUserId)
+          authUserId: authUserId,
+          email: email,
+          username: 'user_${authUserId.substring(0, 5)}', // Temporary username
+          displayName: email.split('@')[0],
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        await createProfile(newProfile);
+      }
+    } catch (e) {
+      debugPrint('Error ensuring profile exists: $e');
+      // Don't rethrow here to allow app flow to continue if possible
+    }
+  }
+
   Future<UserProfile?> getProfileByUsername(String username) async {
     try {
       final response = await _supabase
@@ -50,217 +73,75 @@ class ProfileService {
     }
   }
 
-  Future<UserProfile> createProfile({
-    required String authUserId,
-    required String email,
-    required String username,
-    required String displayName,
-    String? avatarUrl,
-    String? bio,
-  }) async {
+  Future<void> createProfile(UserProfile profile) async {
     try {
-      final now = DateTime.now();
-      final data = {
-        'auth_user_id': authUserId,
-        'email': email,
-        'username': username,
-        'display_name': displayName,
-        'avatar_url': avatarUrl,
-        'bio': bio,
-        'created_at': now.toIso8601String(),
-        'updated_at': now.toIso8601String(),
-      };
-      final response = await _supabase
-          .from('profiles')
-          .insert(data)
-          .select()
-          .single();
-      debugPrint('✅ Profile created for: $username');
-      return UserProfile.fromJson(response);
+      await _supabase.from('profiles').insert(profile.toJson());
+      debugPrint('✅ Profile created for: ${profile.username}');
     } catch (e) {
       debugPrint('❌ Error creating profile: $e');
       rethrow;
     }
   }
 
-  Future<UserProfile> ensureProfileExists({
-    required String authUserId,
-    required String email,
-  }) async {
+  Future<void> updateProfile(String userId, Map<String, dynamic> updates) async {
     try {
-      final existing = await getProfileByAuthId(authUserId);
-      if (existing != null) {
-        return existing;
-      }
-
-      final suffix = authUserId.replaceAll('-', '').substring(0, 6);
-      String candidate = 'xp$suffix';
-
-      try {
-        final available = await isUsernameAvailable(candidate);
-        if (!available) {
-          candidate = 'user_$suffix';
-        }
-      } catch (_) {}
-
-      debugPrint('ℹ️ Creating missing profile for authUserId=$authUserId using username=$candidate');
-      return await createProfile(
-        authUserId: authUserId,
-        email: email,
-        username: candidate,
-        displayName: candidate,
-        avatarUrl: null,
-        bio: null,
-      );
-    } catch (e) {
-      debugPrint('❌ ensureProfileExists error: $e');
-      rethrow;
-    }
-  }
-
-  Future<UserProfile> updateProfile({
-    required String authUserId,
-    String? username,
-    String? displayName,
-    String? avatarUrl,
-    String? bio,
-    bool? isPremium,
-    String? monetizationStatus,
-  }) async {
-    try {
-      final data = <String, dynamic>{
-        'updated_at': DateTime.now().toIso8601String(),
-      };
-      if (username != null) data['username'] = username;
-      if (displayName != null) data['display_name'] = displayName;
-      if (avatarUrl != null) data['avatar_url'] = avatarUrl;
-      if (bio != null) data['bio'] = bio;
-      if (isPremium != null) data['is_premium'] = isPremium;
-      if (monetizationStatus != null) data['monetization_status'] = monetizationStatus;
-      final response = await _supabase
-          .from('profiles')
-          .update(data)
-          .eq('auth_user_id', authUserId)
-          .select()
-          .single();
+      await _supabase.from('profiles').update(updates).eq('auth_user_id', userId);
       debugPrint('✅ Profile updated');
-      return UserProfile.fromJson(response);
     } catch (e) {
       debugPrint('❌ Error updating profile: $e');
       rethrow;
     }
   }
 
-  Future<void> incrementTotalVideoViews(String authUserId, int increment) async {
+  // --- SOCIAL GRAPH METHODS ---
+
+  Future<bool> isFollowing({required String followerId, required String followeeId}) async {
     try {
-      await _supabase.rpc('increment_video_views', params: {
-        'user_id': authUserId,
-        'increment_by': increment,
-      });
-    } catch (e) {
-      debugPrint('❌ Error incrementing video views: $e');
-    }
-  }
-
-  Future<Map<String, dynamic>> getMonetizationEligibility(String authUserId) async {
-    try {
-      final profile = await getProfileByAuthId(authUserId);
-      if (profile == null) {
-        throw Exception('Profile not found');
-      }
-
-      final now = DateTime.now();
-      final accountAge = now.difference(profile.createdAt).inDays;
-      final criteria = {
-        'min_followers': profile.followersCount >= 1000,
-        'min_video_views': profile.totalVideoViews >= 10000,
-        'min_account_age': accountAge >= 30,
-        'email_verified': true,
-        'age_confirmed': true,
-        'no_active_flags': true,
-      };
-      final metCount = criteria.values.where((v) => v).length;
-      final totalCount = criteria.length;
-      final progress = (metCount / totalCount * 100).round();
-      final isEligible = metCount == totalCount;
-
-      return {
-        'eligible': isEligible,
-        'progress': progress,
-        'criteria': criteria,
-        'current_status': profile.monetizationStatus,
-        'followers': profile.followersCount,
-        'video_views': profile.totalVideoViews,
-        'account_age_days': accountAge,
-      };
-    } catch (e) {
-      debugPrint('❌ Error checking monetization eligibility: $e');
-      rethrow;
-    }
-  }
-
-  // =====================
-  // Follows API
-  // =====================
-  Future<bool> isFollowing({required String followerAuthUserId, required String followeeAuthUserId}) async {
-    try {
-      final existing = await _supabase
+      final response = await _supabase
           .from('follows')
-          .select('id')
-          .eq('follower_auth_user_id', followerAuthUserId)
-          .eq('followee_auth_user_id', followeeAuthUserId)
+          .select()
+          .eq('follower_auth_user_id', followerId)
+          .eq('followee_auth_user_id', followeeId)
           .maybeSingle();
-      return existing != null;
+      return response != null;
     } catch (e) {
       debugPrint('❌ Error checking follow status: $e');
       return false;
     }
   }
 
-  Future<void> followUser({required String followerAuthUserId, required String followeeAuthUserId}) async {
+  Future<void> followUser({required String followerId, required String followeeId}) async {
     try {
-      if (followerAuthUserId == followeeAuthUserId) return;
       await _supabase.from('follows').insert({
-        'follower_auth_user_id': followerAuthUserId,
-        'followee_auth_user_id': followeeAuthUserId,
-        'created_at': DateTime.now().toIso8601String(),
+        'follower_auth_user_id': followerId,
+        'followee_auth_user_id': followeeId,
       });
-      debugPrint('✅ Followed user $followeeAuthUserId');
+      // Increment counts via RPC
+      try { await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId});
+      } catch (_) {}
+      try { await _supabase.rpc('increment_following', params: {'target_user_id': followerId});
+      } catch (_) {}
     } catch (e) {
-      debugPrint('❌ Follow failed: $e');
+      debugPrint('❌ Error following user: $e');
       rethrow;
     }
   }
 
-  Future<void> unfollowUser({required String followerAuthUserId, required String followeeAuthUserId}) async {
+  Future<void> unfollowUser({required String followerId, required String followeeId}) async {
     try {
-      await _supabase
-          .from('follows')
-          .delete()
-          .eq('follower_auth_user_id', followerAuthUserId)
-          .eq('followee_auth_user_id', followeeAuthUserId);
-      debugPrint('✅ Unfollowed user $followeeAuthUserId');
+      await _supabase.from('follows').delete()
+          .eq('follower_auth_user_id', followerId)
+          .eq('followee_auth_user_id', followeeId);
+      // Decrement counts via RPC
+      try { await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId});
+      } catch (_) {}
+      try { await _supabase.rpc('decrement_following', params: {'target_user_id': followerId});
+      } catch (_) {}
     } catch (e) {
-      debugPrint('❌ Unfollow failed: $e');
+      debugPrint('❌ Error unfollowing user: $e');
       rethrow;
     }
   }
-
-  Future<int> getFollowerCount(String followeeAuthUserId) async {
-    try {
-      final res = await _supabase
-          .from('follows')
-          .select('id')
-          .eq('followee_auth_user_id', followeeAuthUserId);
-      if (res is List) return res.length;
-      return 0;
-    } catch (e) {
-      debugPrint('❌ Error getting follower count: $e');
-      return 0;
-    }
-  }
-
-  // --- NEW LIST FETCHERS ---
 
   Future<List<UserProfile>> getFollowersList(String userId) async {
     try {
@@ -269,16 +150,13 @@ class ProfileService {
           .from('follows')
           .select('follower_auth_user_id')
           .eq('followee_auth_user_id', userId);
-      
       final ids = (follows as List).map((e) => e['follower_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-
       // 2. Fetch profiles for those IDs
       final profiles = await _supabase
           .from('profiles')
           .select()
           .inFilter('auth_user_id', ids);
-      
       return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
       debugPrint('❌ Error fetching followers list: $e');
@@ -293,16 +171,13 @@ class ProfileService {
           .from('follows')
           .select('followee_auth_user_id')
           .eq('follower_auth_user_id', userId);
-      
       final ids = (follows as List).map((e) => e['followee_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-
       // 2. Fetch profiles
       final profiles = await _supabase
           .from('profiles')
           .select()
           .inFilter('auth_user_id', ids);
-      
       return (profiles as List).map((json) => UserProfile.fromJson(json)).toList();
     } catch (e) {
       debugPrint('❌ Error fetching following list: $e');
