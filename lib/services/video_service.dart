@@ -22,49 +22,44 @@ class VideoService {
     }
   }
 
-  // --- NEW: FOLLOWING FEED ---
+  // --- FOLLOWING FEED (FIXED) ---
   Future<List<VideoModel>> getFollowingFeed({int limit = 20}) async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return [];
 
     try {
-      // Fetch videos where the author is in the user's following list
-      // Supabase inner join trick
-      final response = await _supabase
-          .from('videos')
-          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url), follows!inner(*)')
-          .eq('follows.follower_auth_user_id', uid) // Filter by my following
-          .eq('follows.followee_auth_user_id', _supabase.from('videos').select('author_auth_user_id')) // Logic handled by relation
-          // Actually, standard approach:
-          // We filter videos where author_id is in the list of people I follow.
-          // Since Supabase filtering across relations can be tricky, let's use the explicit filter:
-          .filter('author_auth_user_id', 'in', 
-             _supabase.from('follows').select('followee_auth_user_id').eq('follower_auth_user_id', uid)
-          )
-          .order('created_at', ascending: false)
-          .limit(limit);
-
-      // Note: The previous query syntax for 'in' subquery might not be supported directly in client 
-      // without specific setup. A safer, proven way in Supabase client:
-      
       // 1. Get IDs of people I follow
-      final followingRes = await _supabase.from('follows').select('followee_auth_user_id').eq('follower_auth_user_id', uid);
-      final followingIds = (followingRes as List).map((e) => e['followee_auth_user_id']).toList();
-      
-      if (followingIds.isEmpty) return [];
+      // We explicitly select only the followee_auth_user_id
+      final followingRes = await _supabase
+          .from('follows')
+          .select('followee_auth_user_id')
+          .eq('follower_auth_user_id', uid);
+          
+      // DEBUG: Print count to console
+      print('DEBUG: Found ${(followingRes as List).length} follows for user $uid');
 
-      // 2. Fetch their videos
+      // 2. Robust casting to List<String>
+      final followingIds = (followingRes as List)
+          .map((e) => e['followee_auth_user_id'].toString())
+          .toList();
+      
+      // If following no one, return empty immediately
+      if (followingIds.isEmpty) {
+        return [];
+      }
+
+      // 3. Fetch videos from these authors
       final videosRes = await _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .inFilter('author_auth_user_id', followingIds)
           .order('created_at', ascending: false)
           .limit(limit);
-
+      
       return (videosRes as List).map((e) => VideoModel.fromMap(e)).toList();
 
     } catch (e) {
-      print('Error fetching following feed: $e');
+      print('❌ Error fetching following feed: $e');
       return [];
     }
   }
@@ -74,11 +69,10 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          // FIX: Using explicit foreign key to prevent "Ambiguous Relationship" error
+          // Using explicit foreign key to prevent "Ambiguous Relationship" error
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .limit(limit);
-          
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
       print('Fallback feed error: $e');
@@ -140,10 +134,8 @@ class VideoService {
           .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url))')
           .eq('user_auth_id', userId)
           .order('created_at', ascending: false);
-
       final list = <VideoModel>[];
       final data = response as List<dynamic>;
-      
       for (final row in data) {
         final videoJson = (row as Map<String, dynamic>)['video'];
         if (videoJson != null) {
@@ -163,7 +155,6 @@ class VideoService {
     
     // --- FRAUD CHECK: Don't record own views ---
     if (userId == authorId) return;
-
     try {
       await _supabase.from('video_views').insert({
         'video_id': videoId,
@@ -186,7 +177,6 @@ class VideoService {
          .eq('video_id', videoId)
          .eq('user_auth_id', userId) 
          .maybeSingle();
-
      if (existing != null) {
        await _supabase.from('likes').delete().eq('id', existing['id']);
        try {
