@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:xprex/models/user_profile.dart';
 import 'package:xprex/services/profile_service.dart';
-import 'package:xprex/config/supabase_config.dart'; // To get current user ID
+import 'package:xprex/config/supabase_config.dart';
 
 class FollowListScreen extends StatefulWidget {
   final String userId;
@@ -42,51 +42,31 @@ class _FollowListScreenState extends State<FollowListScreen> {
       ),
       body: FutureBuilder<List<UserProfile>>(
         future: _loader,
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) {
-            return Center(child: Text('Error loading list'));
+          if (snapshot.hasError) {
+            return Center(child: Text("Error: ${snapshot.error}"));
           }
-          final list = snap.data ?? [];
-
-          if (list.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.people_outline, size: 64, color: theme.colorScheme.surfaceContainerHighest),
-                  const SizedBox(height: 16),
-                  Text('No users found', style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
-                ],
-              ),
-            );
+          final users = snapshot.data ?? [];
+          if (users.isEmpty) {
+            return Center(child: Text("No $title yet"));
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: list.length,
-            separatorBuilder: (ctx, i) => const Divider(height: 24, indent: 64),
+          return ListView.builder(
+            itemCount: users.length,
             itemBuilder: (context, index) {
-              final user = list[index];
-              final isMe = user.authUserId == supabase.auth.currentUser?.id;
-
+              final user = users[index];
               return ListTile(
-                contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
-                  radius: 24,
-                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                  backgroundImage: user.avatarUrl != null ? NetworkImage(user.avatarUrl!) : null,
-                  child: user.avatarUrl == null ? const Icon(Icons.person) : null,
+                  backgroundImage: NetworkImage(user.avatarUrl ?? 'https://placehold.co/50'),
                 ),
-                title: Text(user.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: Text('@${user.username}'),
-                trailing: isMe 
-                    ? null 
-                    : _FollowActionButton(targetUserId: user.authUserId),
+                title: Text(user.username),
+                subtitle: Text(user.displayName),
+                trailing: _FollowButton(targetUserId: user.authUserId),
                 onTap: () {
-                  context.push('/u/${user.authUserId}');
+                   context.push('/u/${user.authUserId}');
                 },
               );
             },
@@ -97,16 +77,15 @@ class _FollowListScreenState extends State<FollowListScreen> {
   }
 }
 
-// Smart button that checks follow status independently
-class _FollowActionButton extends StatefulWidget {
+class _FollowButton extends StatefulWidget {
   final String targetUserId;
-  const _FollowActionButton({required this.targetUserId});
+  const _FollowButton({required this.targetUserId});
 
   @override
-  State<_FollowActionButton> createState() => _FollowActionButtonState();
+  State<_FollowButton> createState() => _FollowButtonState();
 }
 
-class _FollowActionButtonState extends State<_FollowActionButton> {
+class _FollowButtonState extends State<_FollowButton> {
   final _svc = ProfileService();
   bool _isFollowing = false;
   bool _loading = true;
@@ -114,13 +93,14 @@ class _FollowActionButtonState extends State<_FollowActionButton> {
   @override
   void initState() {
     super.initState();
-    _checkStatus();
+    _check();
   }
 
-  Future<void> _checkStatus() async {
+  Future<void> _check() async {
     final me = supabase.auth.currentUser?.id;
     if (me != null) {
-      final f = await _svc.isFollowing(followerAuthUserId: me, followeeAuthUserId: widget.targetUserId);
+      // FIX: Updated parameter names
+      final f = await _svc.isFollowing(followerId: me, followeeId: widget.targetUserId);
       if (mounted) setState(() { _isFollowing = f; _loading = false; });
     }
   }
@@ -132,10 +112,12 @@ class _FollowActionButtonState extends State<_FollowActionButton> {
     setState(() => _loading = true);
     try {
       if (_isFollowing) {
-        await _svc.unfollowUser(followerAuthUserId: me, followeeAuthUserId: widget.targetUserId);
+        // FIX: Updated parameter names
+        await _svc.unfollowUser(followerId: me, followeeId: widget.targetUserId);
         if (mounted) setState(() => _isFollowing = false);
       } else {
-        await _svc.followUser(followerAuthUserId: me, followeeAuthUserId: widget.targetUserId);
+        // FIX: Updated parameter names
+        await _svc.followUser(followerId: me, followeeId: widget.targetUserId);
         if (mounted) setState(() => _isFollowing = true);
       }
     } finally {
@@ -147,6 +129,9 @@ class _FollowActionButtonState extends State<_FollowActionButton> {
   Widget build(BuildContext context) {
     if (_loading) return const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2));
 
+    // Hide button if it's me
+    if (widget.targetUserId == supabase.auth.currentUser?.id) return const SizedBox.shrink();
+
     return FilledButton(
       onPressed: _toggle,
       style: FilledButton.styleFrom(
@@ -154,7 +139,6 @@ class _FollowActionButtonState extends State<_FollowActionButton> {
         foregroundColor: _isFollowing ? Colors.black : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
-        minimumSize: const Size(80, 36),
       ),
       child: Text(_isFollowing ? 'Following' : 'Follow'),
     );
