@@ -33,10 +33,16 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
 
   Future<void> _handleSubmit() async {
     final code = _codeController.text.trim();
-    if (code.length < 6) {
-      setState(() => _errorMessage = "Please enter the full 6-digit code");
+    // CHANGED: Expecting 8 digits now
+    if (code.length < 8) {
+      // Only show error if triggered manually (via button)
+      // If auto-triggered, the length check is implicit.
+      setState(() => _errorMessage = "Please enter the full 8-digit code");
       return;
     }
+
+    // Prevent double submission
+    if (_isLoading) return;
 
     setState(() { _isLoading = true; _errorMessage = null; });
     final authService = ref.read(authServiceProvider);
@@ -45,7 +51,7 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
       if (widget.purpose == VerificationPurpose.signup) {
         // --- SIGNUP FLOW ---
         await authService.verifySignupOtp(
-          email: widget.email!, // Email is required here
+          email: widget.email!, 
           token: code,
         );
         if (!mounted) return;
@@ -65,10 +71,12 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
       }
 
     } catch (e) {
-      setState(() {
-        _errorMessage = "Invalid code. Please try again.";
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = "Invalid code. Please try again.";
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -108,10 +116,12 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Password updated! Logging you in...")));
                 context.go('/'); // Go to Home
               } catch (e) {
-                 setState(() {
-                   _errorMessage = "Failed to update password. Try again.";
-                   _isLoading = false;
-                 });
+                 if (mounted) {
+                   setState(() {
+                     _errorMessage = "Failed to update password. Try again.";
+                     _isLoading = false;
+                   });
+                 }
               }
             },
             child: const Text("Save & Login"),
@@ -129,11 +139,13 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
       } else {
         await ref.read(authServiceProvider).sendPasswordResetOtp(widget.email!);
       }
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code resent!')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code resent!')));
+      }
     } catch (e) {
-      setState(() => _errorMessage = "Failed to resend code.");
+      if (mounted) setState(() => _errorMessage = "Failed to resend code.");
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -165,11 +177,18 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
               TextField(
                 controller: _codeController,
                 keyboardType: TextInputType.number,
-                maxLength: 6,
+                maxLength: 8, // CHANGED from 6 to 8
+                onChanged: (value) {
+                  // NEW: Auto-submit when 8 digits are reached
+                  if (value.length == 8) {
+                    _handleSubmit();
+                  }
+                },
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+                // CHANGED: Reduced letterSpacing to fit 8 digits (was 8, now 4)
+                style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
-                  hintText: "000000",
+                  hintText: "00000000", // CHANGED to 8 zeros
                   counterText: "",
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   contentPadding: const EdgeInsets.symmetric(vertical: 16),
