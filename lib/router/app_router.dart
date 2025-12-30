@@ -1,12 +1,13 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter/material.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
 import 'package:xprex/screens/login_screen.dart';
 import 'package:xprex/screens/signup_screen.dart';
-import 'package:xprex/screens/email_verification_screen.dart';
+import 'package:xprex/screens/email_verification_screen.dart'; 
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
@@ -16,53 +17,64 @@ import 'package:xprex/screens/monetization/payout_history_screen.dart';
 import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
+import 'package:xprex/screens/reset_password_screen.dart';
 
-// 1. GLOBAL OBSERVER DEFINITION
+// 1. GLOBAL OBSERVER
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
+// 2. STREAM LISTENER CLASS (Keeps Router alive on Auth Change)
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+      (dynamic _) => notifyListeners(),
+    );
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
+
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // Watch the provider so the router rebuilds on auth changes
-  final authStateAsync = ref.watch(authStateProvider);
+  // CRITICAL: Do NOT use ref.watch here. It destroys the router on change.
+  // Instead, we read the service once and listen to its stream.
+  final authService = ref.read(authServiceProvider);
   
   return GoRouter(
-    // FIX 1: Always start at the Brand Splash "Handshake"
     initialLocation: '/brand-splash',
     observers: [routeObserver],
+    // This tells GoRouter to re-run 'redirect' whenever the stream emits
+    refreshListenable: GoRouterRefreshStream(authService.authStateChanges),
     
     redirect: (context, state) {
-      // 1. Handle Loading/Error States
-      if (authStateAsync.isLoading || authStateAsync.hasError) {
-        // If we are already on a splash, stay there.
-        if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
-          return null;
-        }
-        return '/brand-splash';
-      }
-
-      // 2. Unwrap Data
-      final authState = authStateAsync.valueOrNull;
-      final session = authState?.session;
-      final isAuth = session != null;
-
-      // 3. Define Path Variables
+      // Use synchronous check from service (Supabase client has local state)
+      final isAuth = authService.isAuthenticated;
+      
       final isSplash = state.uri.path == '/splash';
       final isBrandSplash = state.uri.path == '/brand-splash';
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
-      final isVerify = state.uri.path == '/verify-email';
+      final isVerify = state.uri.path == '/email-verification';
+      final isReset = state.uri.path == '/reset-password';
 
-      // 4. Redirect Logic
+      // 1. Unauthenticated Users
       if (!isAuth) {
-        // If not logged in, allow these screens
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
-        // Otherwise send to Brand Splash first (which will redirect to Welcome Splash)
         return '/brand-splash';
       }
 
-      // --- CRITICAL FIX ---
-      // If authenticated, we usually kick them to Home.
-      // BUT: We removed 'isBrandSplash' from this check.
-      // This allows the BrandSplashScreen to stay on screen for its full duration.
+      // 2. Authenticated Users
+      
+      // CRITICAL: Allow Verification AND Reset Password screens to persist
+      // even after the user becomes authenticated.
+      if (isVerify || isReset) return null;
+
+      // Redirect splash/auth screens to Home
       if (isSplash || isLogin || isSignup) return '/';
       
       return null;
@@ -85,8 +97,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const SignupScreen(),
       ),
       GoRoute(
-        path: '/verify-email',
-        builder: (context, state) => const EmailVerificationScreen(),
+        path: '/email-verification',
+        builder: (context, state) {
+          final args = state.extra as Map<String, dynamic>?;
+          return EmailVerificationScreen(
+            email: args?['email'] as String?,
+            purpose: args?['purpose'] as VerificationPurpose? ?? VerificationPurpose.signup,
+            autoResend: args?['autoResend'] as bool? ?? false, 
+          );
+        },
+      ),
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => const ResetPasswordScreen(),
       ),
       GoRoute(
         path: '/profile-setup',
