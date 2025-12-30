@@ -16,6 +16,7 @@ import 'package:xprex/screens/monetization/payout_history_screen.dart';
 import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
+import 'package:xprex/screens/reset_password_screen.dart'; // IMPORT NEW SCREEN
 
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
@@ -43,7 +44,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
       final isVerify = state.uri.path == '/email-verification';
-      
+      final isReset = state.uri.path == '/reset-password'; // NEW CHECK
+
       // 1. Unauthenticated Users
       if (!isAuth) {
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
@@ -52,9 +54,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
       // 2. Authenticated Users
       
-      // CRITICAL FIX: Explicitly allow the verification screen for authenticated users.
-      // This prevents the router from kicking users out during Password Recovery (where they are technically logged in).
-      if (isVerify) return null;
+      // CRITICAL FIX: Allow Verification AND Reset Password screens.
+      // This ensures users can finish the recovery flow without being kicked to Home.
+      if (isVerify || isReset) return null;
 
       // Redirect splash/auth screens to Home
       if (isSplash || isLogin || isSignup) return '/';
@@ -85,10 +87,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return EmailVerificationScreen(
             email: args?['email'] as String?,
             purpose: args?['purpose'] as VerificationPurpose? ?? VerificationPurpose.signup,
-            // NEW: Optional flag to trigger resend immediately
             autoResend: args?['autoResend'] as bool? ?? false, 
           );
         },
+      ),
+      // --- NEW ROUTE ---
+      GoRoute(
+        path: '/reset-password',
+        builder: (context, state) => const ResetPasswordScreen(),
       ),
       GoRoute(
         path: '/profile-setup',
