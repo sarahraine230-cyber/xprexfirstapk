@@ -109,7 +109,8 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
                 obscureText: true,
                 decoration: InputDecoration(
                   labelText: "Confirm Password",
-                  prefixIcon: const Icon(Icons.lock_check),
+                  // FIXED: Changed from 'lock_check' (invalid) to 'lock_outline'
+                  prefixIcon: const Icon(Icons.lock_outline),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
