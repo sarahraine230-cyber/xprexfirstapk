@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:xprex/providers/auth_provider.dart';
-import 'package:xprex/screens/email_verification_screen.dart'; // For Enum access
+import 'package:xprex/screens/email_verification_screen.dart';
 import 'package:xprex/theme.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -26,29 +26,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     super.dispose();
   }
 
-  // --- ERROR PARSER (Preserved) ---
   String _getFriendlyErrorMessage(Object error) {
     final e = error.toString().toLowerCase();
-    if (e.contains('socket') || e.contains('errno = 7') || e.contains('connection refused') || e.contains('network request failed')) {
-      return 'No internet connection.\nPlease check your mobile data or Wi-Fi.';
+    if (e.contains('socket') || e.contains('errno = 7') || e.contains('connection refused')) {
+      return 'No internet connection.';
     }
-    if (e.contains('timeout')) return 'Connection timed out.\nPlease try again.';
-    if (error is AuthException) {
-      if (error.message.toLowerCase().contains('invalid login credentials')) return 'Incorrect email or password.';
-      if (error.message.toLowerCase().contains('email not confirmed')) return 'Please verify your email address before logging in.';
-    }
+    if (e.contains('timeout')) return 'Connection timed out.';
     if (e.contains('invalid login credentials')) return 'Incorrect email or password.';
-    if (e.contains('user not found')) return 'No account found with this email.';
-    return 'Unable to log in. Please try again later.';
+    if (e.contains('user not found')) return 'No account found.';
+    return 'Unable to log in. Please try again.';
   }
 
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() { _isLoading = true; _errorMessage = null; });
+    
     try {
       final authService = ref.read(authServiceProvider);
       await authService.signIn(
@@ -57,6 +50,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
       if (!mounted) return;
 
+      // Double check verification status
       if (authService.isEmailVerified()) {
         final profileService = ref.read(profileServiceProvider);
         final profile = await profileService.getProfileByAuthId(authService.currentUserId!);
@@ -66,16 +60,34 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           context.go('/');
         }
       } else {
-         // Pass email to verification screen
-         context.push(
-            '/email-verification',
-            extra: {
-              'email': _emailController.text.trim(),
-              'purpose': VerificationPurpose.signup,
-            },
-          );
+         // Should rarely hit here if signIn throws, but for safety:
+         context.push('/email-verification', extra: {
+            'email': _emailController.text.trim(),
+            'purpose': VerificationPurpose.signup,
+            'autoResend': true, // Auto resend code
+          });
       }
     } catch (e) {
+      // --- UNVERIFIED ACCOUNT HANDLING ---
+      // Check if the error is specifically "Email not confirmed"
+      final errorMsg = e.toString().toLowerCase();
+      if (errorMsg.contains('email not confirmed')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Account not verified. Sending new code...")),
+          );
+          // Redirect to verification and auto-trigger resend
+          context.push('/email-verification', extra: {
+            'email': _emailController.text.trim(),
+            'purpose': VerificationPurpose.signup,
+            'autoResend': true,
+          });
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
+      // -----------------------------------
+
       if (mounted) {
         setState(() {
           _errorMessage = _getFriendlyErrorMessage(e);
@@ -85,9 +97,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  // --- FORGOT PASSWORD SHEET ---
   void _showForgotPasswordSheet() {
-    final emailCtrl = TextEditingController(text: _emailController.text); // Pre-fill if they typed it
+    final emailCtrl = TextEditingController(text: _emailController.text);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -119,8 +130,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               onPressed: () async {
                 final email = emailCtrl.text.trim();
                 if (email.isEmpty || !email.contains('@')) return;
-                
-                Navigator.pop(ctx); // Close sheet
+                Navigator.pop(ctx);
                 _sendResetCode(email);
               },
               child: const Text("Send Code"),
@@ -136,17 +146,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       await ref.read(authServiceProvider).sendPasswordResetOtp(email);
       if (!mounted) return;
-      
-      // Navigate to Verification in RECOVERY mode
-      context.push(
-        '/email-verification',
-        extra: {
-          'email': email,
-          'purpose': VerificationPurpose.recovery,
-        },
-      );
+      context.push('/email-verification', extra: {
+        'email': email,
+        'purpose': VerificationPurpose.recovery,
+      });
     } catch (e) {
-      setState(() => _errorMessage = "Failed to send code. Please try again.");
+      setState(() => _errorMessage = "Failed to send code.");
     } finally {
       setState(() => _isLoading = false);
     }
@@ -171,7 +176,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 8),
                 Text('Log in to continue', style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant), textAlign: TextAlign.center),
                 const SizedBox(height: 48),
-                
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -187,7 +191,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                
                 TextFormField(
                   controller: _passwordController,
                   obscureText: true,
@@ -196,13 +199,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     prefixIcon: const Icon(Icons.lock_outline),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
-                  validator: (value) {
-                    if (value == null || value.isEmpty) return 'Password is required';
-                    return null;
-                  },
+                  validator: (value) => value == null || value.isEmpty ? 'Password is required' : null,
                 ),
-                
-                // FORGOT PASSWORD BUTTON
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
@@ -210,31 +208,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     child: const Text("Forgot Password?"),
                   ),
                 ),
-
                 if (_errorMessage != null) ...[
                   const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: theme.colorScheme.error.withValues(alpha: 0.5)),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.error_outline, size: 20, color: theme.colorScheme.error),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _errorMessage!, 
-                            style: TextStyle(color: theme.colorScheme.onErrorContainer, fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  Text(_errorMessage!, style: TextStyle(color: theme.colorScheme.error)),
                 ],
-
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: _isLoading ? null : _handleLogin,
