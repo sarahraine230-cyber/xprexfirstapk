@@ -65,7 +65,8 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
         
         if (!mounted) return;
         
-        // 2. NEW STRATEGY: Navigate to the dedicated Reset Screen
+        // 2. NAVIGATE TO RESET SCREEN
+        // Because the Router is now Stream-based, it won't force-redirect us home
         context.go('/reset-password');
       }
     } catch (e) {
