@@ -24,18 +24,12 @@ class EmailVerificationScreen extends ConsumerStatefulWidget {
 
 class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScreen> {
   final _codeController = TextEditingController();
-  final _newPasswordController = TextEditingController(); // For recovery
-  
   bool _isLoading = false;
   String? _errorMessage;
-  
-  // State to track if we verified the code and are now setting password
-  bool _isSettingPassword = false;
 
   @override
   void initState() {
     super.initState();
-    // Auto-resend if requested (e.g. from failed login)
     if (widget.autoResend) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _resendCode());
     }
@@ -44,17 +38,10 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
   @override
   void dispose() {
     _codeController.dispose();
-    _newPasswordController.dispose();
     super.dispose();
   }
 
   Future<void> _handleSubmit() async {
-    // If we are already in password setting mode, this submits the new password
-    if (_isSettingPassword) {
-      _handlePasswordUpdate();
-      return;
-    }
-
     final code = _codeController.text.trim();
     if (code.length < 8) {
       setState(() => _errorMessage = "Please enter the full 8-digit code");
@@ -68,57 +55,23 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
     try {
       if (widget.purpose == VerificationPurpose.signup) {
         // --- SIGNUP FLOW ---
-        await authService.verifySignupOtp(
-          email: widget.email!, 
-          token: code,
-        );
+        await authService.verifySignupOtp(email: widget.email!, token: code);
         if (!mounted) return;
         context.go('/profile-setup');
-      
       } else {
         // --- RECOVERY FLOW ---
-        // 1. Verify code (this logs user in)
-        await authService.verifyRecoveryOtp(
-          email: widget.email!,
-          token: code,
-        );
+        // 1. Verify code (Logs user in)
+        await authService.verifyRecoveryOtp(email: widget.email!, token: code);
         
-        // 2. INSTEAD OF DIALOG: Switch UI state to show Password Input
-        // The router update ensures we stay on this screen despite being logged in.
-        setState(() {
-          _isLoading = false;
-          _isSettingPassword = true; // This toggles the UI in build()
-        });
+        if (!mounted) return;
+        
+        // 2. NEW STRATEGY: Navigate to the dedicated Reset Screen
+        context.go('/reset-password');
       }
-
     } catch (e) {
       if (mounted) {
         setState(() {
           _errorMessage = "Invalid code. Please try again.";
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _handlePasswordUpdate() async {
-    final newPass = _newPasswordController.text;
-    if (newPass.length < 6) {
-      setState(() => _errorMessage = "Password must be at least 6 characters");
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      await ref.read(authServiceProvider).updatePassword(newPass);
-      if (!mounted) return;
-      
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Password updated!")));
-      context.go('/'); // Now safe to go home
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = "Failed to update password. Try again.";
           _isLoading = false;
         });
       }
@@ -146,17 +99,10 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
-    // UI LOGIC: Are we verifying code OR setting password?
-    final title = _isSettingPassword 
-        ? "New Password" 
-        : (widget.purpose == VerificationPurpose.signup ? "Verify Email" : "Reset Password");
-        
-    final desc = _isSettingPassword
-        ? "Enter your new password below."
-        : (widget.purpose == VerificationPurpose.signup 
-            ? "Enter the code sent to ${widget.email ?? 'your email'}."
-            : "Enter the code sent to ${widget.email ?? 'your email'} to reset your password.");
+    final title = widget.purpose == VerificationPurpose.signup ? "Verify Email" : "Reset Password";
+    final desc = widget.purpose == VerificationPurpose.signup 
+        ? "Enter the code sent to ${widget.email ?? 'your email'}."
+        : "Enter the code sent to ${widget.email ?? 'your email'} to reset your password.";
 
     return Scaffold(
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0),
@@ -166,11 +112,7 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                _isSettingPassword ? Icons.lock_reset : Icons.mark_email_unread_outlined, 
-                size: 80, 
-                color: theme.colorScheme.primary
-              ),
+              Icon(Icons.mark_email_unread_outlined, size: 80, color: theme.colorScheme.primary),
               const SizedBox(height: 32),
               Text(title, style: theme.textTheme.headlineMedium, textAlign: TextAlign.center),
               const SizedBox(height: 16),
@@ -178,34 +120,22 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
               
               const SizedBox(height: 48),
               
-              // --- INPUT FIELD SWITCHER ---
-              if (_isSettingPassword)
-                TextField(
-                  controller: _newPasswordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: "New Password",
-                    prefixIcon: Icon(Icons.lock_outline),
-                    border: OutlineInputBorder(),
-                  ),
-                )
-              else
-                TextField(
-                  controller: _codeController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 8,
-                  onChanged: (value) {
-                    if (value.length == 8) _handleSubmit();
-                  },
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold),
-                  decoration: InputDecoration(
-                    hintText: "00000000",
-                    counterText: "",
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
+              TextField(
+                controller: _codeController,
+                keyboardType: TextInputType.number,
+                maxLength: 8,
+                onChanged: (value) {
+                  if (value.length == 8) _handleSubmit();
+                },
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
+                  hintText: "00000000",
+                  counterText: "",
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
                 ),
+              ),
 
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
@@ -222,16 +152,14 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
                 ),
                 child: _isLoading 
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) 
-                  : Text(_isSettingPassword ? 'Save Password' : 'Verify Code'),
+                  : const Text('Verify Code'),
               ),
               
-              if (!_isSettingPassword) ...[
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: _isLoading ? null : _resendCode,
-                  child: const Text('Resend Code'),
-                ),
-              ],
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: _isLoading ? null : _resendCode,
+                child: const Text('Resend Code'),
+              ),
             ],
           ),
         ),
