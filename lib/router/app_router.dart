@@ -6,7 +6,7 @@ import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
 import 'package:xprex/screens/login_screen.dart';
 import 'package:xprex/screens/signup_screen.dart';
-import 'package:xprex/screens/email_verification_screen.dart'; // Imports VerificationPurpose enum
+import 'package:xprex/screens/email_verification_screen.dart'; 
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
@@ -17,52 +17,46 @@ import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 
-// 1. GLOBAL OBSERVER DEFINITION
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // Watch the provider so the router rebuilds on auth changes
   final authStateAsync = ref.watch(authStateProvider);
   
   return GoRouter(
-    // FIX 1: Always start at the Brand Splash "Handshake"
     initialLocation: '/brand-splash',
     observers: [routeObserver],
     
     redirect: (context, state) {
-      // 1. Handle Loading/Error States
       if (authStateAsync.isLoading || authStateAsync.hasError) {
-        // If we are already on a splash, stay there.
         if (state.uri.path == '/splash' || state.uri.path == '/brand-splash') {
           return null;
         }
         return '/brand-splash';
       }
 
-      // 2. Unwrap Data
       final authState = authStateAsync.valueOrNull;
       final session = authState?.session;
       final isAuth = session != null;
       
-      // 3. Define Path Variables
       final isSplash = state.uri.path == '/splash';
       final isBrandSplash = state.uri.path == '/brand-splash';
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
-      final isVerify = state.uri.path == '/email-verification'; // Updated path
+      final isVerify = state.uri.path == '/email-verification';
       
-      // 4. Redirect Logic
+      // 1. Unauthenticated Users
       if (!isAuth) {
-        // If not logged in, allow these screens
         if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
-        // Otherwise send to Brand Splash first (which will redirect to Welcome Splash)
         return '/brand-splash';
       }
 
-      // --- CRITICAL FIX ---
-      // If authenticated, we usually kick them to Home.
-      // BUT: We removed 'isBrandSplash' from this check.
-      // This allows the BrandSplashScreen to stay on screen for its full duration.
+      // 2. Authenticated Users
+      
+      // CRITICAL FIX: Explicitly allow the verification screen for authenticated users.
+      // This prevents the router from kicking users out during Password Recovery (where they are technically logged in).
+      if (isVerify) return null;
+
+      // Redirect splash/auth screens to Home
       if (isSplash || isLogin || isSignup) return '/';
       
       return null;
@@ -84,15 +78,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/signup',
         builder: (context, state) => const SignupScreen(),
       ),
-      // --- UPDATED VERIFICATION ROUTE ---
       GoRoute(
-        path: '/email-verification', // Matched to Navigation calls
+        path: '/email-verification',
         builder: (context, state) {
-          // Extract the map passed via 'extra'
           final args = state.extra as Map<String, dynamic>?;
           return EmailVerificationScreen(
             email: args?['email'] as String?,
             purpose: args?['purpose'] as VerificationPurpose? ?? VerificationPurpose.signup,
+            // NEW: Optional flag to trigger resend immediately
+            autoResend: args?['autoResend'] as bool? ?? false, 
           );
         },
       ),
