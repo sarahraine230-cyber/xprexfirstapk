@@ -68,7 +68,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
       appBar: AppBar(
         title: const Text("Reset Password"),
         centerTitle: true,
-        automaticallyImplyLeading: false, // Don't allow going back to OTP
+        automaticallyImplyLeading: false, 
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -91,7 +91,6 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
               ),
               const SizedBox(height: 32),
               
-              // New Password Field
               TextField(
                 controller: _passwordController,
                 obscureText: true,
@@ -103,13 +102,11 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
               ),
               const SizedBox(height: 16),
               
-              // Confirm Password Field
               TextField(
                 controller: _confirmController,
                 obscureText: true,
                 decoration: InputDecoration(
                   labelText: "Confirm Password",
-                  // FIXED: Changed from 'lock_check' (invalid) to 'lock_outline'
                   prefixIcon: const Icon(Icons.lock_outline),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 ),
