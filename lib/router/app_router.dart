@@ -18,7 +18,7 @@ import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 import 'package:xprex/screens/reset_password_screen.dart';
-import 'package:xprex/screens/single_video_screen.dart'; // NEW IMPORT
+import 'package:xprex/screens/single_video_screen.dart'; 
 
 // 1. GLOBAL OBSERVER
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
@@ -50,6 +50,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: GoRouterRefreshStream(authService.authStateChanges),
     
     redirect: (context, state) {
+      // --- 1. DEEP LINK NORMALIZATION ---
+      // Fixes "no routes for location: xprex://video/..."
+      if (state.uri.scheme == 'xprex') {
+        // Incoming: xprex://video/123
+        // Host: video
+        // Path: /123
+        if (state.uri.host == 'video') {
+          return '/video${state.uri.path}'; // Returns "/video/123"
+        }
+      }
+
       final isAuth = authService.isAuthenticated;
       
       final isSplash = state.uri.path == '/splash';
@@ -59,17 +70,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isVerify = state.uri.path == '/email-verification';
       final isReset = state.uri.path == '/reset-password';
       
-      // Allow deep links to pass through even if unauthenticated? 
-      // For now, we block unauth users, but you might want to allow /video/:id later
+      // Check if we are trying to view a video
       final isDeepLink = state.uri.path.startsWith('/video/');
 
-      // 1. Unauthenticated Users
+      // --- 2. Unauthenticated Users ---
       if (!isAuth) {
-        if (isSplash || isBrandSplash || isLogin || isSignup || isVerify) return null;
+        // Allow deep links (video playback) even if not logged in!
+        if (isSplash || isBrandSplash || isLogin || isSignup || isVerify || isDeepLink) {
+          return null;
+        }
         return '/brand-splash';
       }
 
-      // 2. Authenticated Users
+      // --- 3. Authenticated Users ---
       if (isVerify || isReset || isDeepLink) return null;
 
       if (isSplash || isLogin || isSignup) return '/';
@@ -108,12 +121,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/reset-password',
         builder: (context, state) => const ResetPasswordScreen(),
       ),
-      // --- NEW DEEP LINK ROUTE ---
+      // --- DEEP LINK ROUTE ---
       GoRoute(
         path: '/video/:id',
         builder: (context, state) {
           final id = state.pathParameters['id'];
-          if (id == null) return const MainShell(); // Fallback
+          if (id == null) return const MainShell(); 
           return SingleVideoScreen(videoId: id);
         },
       ),
