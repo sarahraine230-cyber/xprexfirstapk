@@ -63,6 +63,10 @@ class VideoModel {
     this.repostedByAvatarUrl,
   });
 
+  // --- BRIDGE FOR BACKWARD COMPATIBILITY ---
+  // This fixes the build errors in SearchService, AnalyticsScreen, etc.
+  factory VideoModel.fromJson(Map<String, dynamic> json) => VideoModel.fromMap(json);
+
   factory VideoModel.fromMap(Map<String, dynamic> json) {
     // Handle Supabase join structures
     Map<String, dynamic>? profileMap;
