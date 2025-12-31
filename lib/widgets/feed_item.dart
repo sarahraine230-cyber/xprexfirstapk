@@ -12,6 +12,7 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
+import 'package:xprex/services/profile_service.dart'; // NEW: Import ProfileService
 import 'package:xprex/widgets/comment_sheet.dart';
 import 'package:xprex/widgets/social_rail.dart';
 
@@ -38,6 +39,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   final _videoService = VideoService();
   final _saveService = SaveService();
   final _repostService = RepostService();
+  final _profileService = ProfileService(); // NEW: Profile Service Instance
 
   CachedVideoPlayerPlusController? _controller;
   
@@ -54,6 +56,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   bool _isLiked = false;
   bool _isSaved = false;
   bool _isReposted = false;
+  bool _isFollowing = false; // NEW: Follow State
   
   bool _loading = true;
   Timer? _watchTimer;
@@ -70,8 +73,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     _playPauseAnimation = CurvedAnimation(parent: _playPauseController, curve: Curves.easeOut);
 
     // --- INSTANT LOAD PROTOCOL ---
-    // Initialize counts directly from the model so they appear 
-    // instantly without waiting for the network check.
     _likeCount = widget.video.likesCount;
     _commentsCount = widget.video.commentsCount;
     _saveCount = widget.video.savesCount;
@@ -88,6 +89,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       _flushWatchTime();
       _disposeController();
       _loading = true;
+      // Reset states for new video
+      _isFollowing = false; 
       _init();
     }
     _updatePlayState();
@@ -100,6 +103,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         Uri.parse(playableUrl),
         invalidateCacheIfOlderThan: const Duration(days: 30),
       )..setLooping(true);
+      
       await _controller!.initialize();
       
       // FRAUD CHECK: Do not record view if author is watching own video
@@ -112,8 +116,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       }
       
       if (uid != null) {
-        // We only fetch the booleans (isLiked, isSaved) asynchronously now.
-        // The counts are already set.
+        // Fetch engagement states
         _videoService.isVideoLikedByUser(widget.video.id, uid).then((liked) {
           if (mounted) setState(() => _isLiked = liked);
         });
@@ -123,6 +126,14 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
           if (mounted) setState(() => _isReposted = reposted);
         });
+        
+        // NEW: Check Follow Status (Only if not own video)
+        if (!isOwnVideo) {
+          _profileService.isFollowing(followerId: uid, followeeId: widget.video.authorAuthUserId)
+              .then((following) {
+            if (mounted) setState(() => _isFollowing = following);
+          });
+        }
       }
       _updatePlayState();
     } catch (e) {
@@ -147,7 +158,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
 
   void _ensureWakelockEnabled() {
     if (kIsWeb) return;
-    try { WakelockPlus.enable(); } catch (_) {}
+    try { WakelockPlus.enable();
+    } catch (_) {}
   }
 
   void _startWatchTimer() {
@@ -172,7 +184,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
     try {
       final uid = supabase.auth.currentUser?.id;
-      
       if (uid != null && uid != widget.video.authorAuthUserId) {
          await supabase.from('video_views').insert({
            'video_id': widget.video.id,
@@ -189,17 +200,16 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
   }
 
+  // --- INTERACTION HANDLERS ---
+
   Future<void> _toggleLike() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('like');
     
-    // Optimistic UI
     setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
-    
-    // Fire and forget (Fail-safe)
-    try { await _videoService.toggleLike(widget.video.id, uid); } catch (_) { 
-      // Only revert if the insert failed (e.g. network)
-      if (mounted) setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; }); 
+    try { await _videoService.toggleLike(widget.video.id, uid);
+    } catch (_) { 
+      if (mounted) setState(() { _isLiked = !_isLiked; _likeCount += _isLiked ? 1 : -1; });
     }
   }
 
@@ -207,14 +217,38 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('save');
     setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
-    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; }); }
+    try { await _saveService.toggleSave(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isSaved = !_isSaved; _saveCount += _isSaved ? 1 : -1; });
+    }
   }
 
   Future<void> _toggleRepost() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('repost');
     setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
-    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; }); }
+    try { await _repostService.toggleRepost(widget.video.id, uid); } catch (_) { if (mounted) setState(() { _isReposted = !_isReposted; _repostCount += _isReposted ? 1 : -1; });
+    }
+  }
+
+  // NEW: Toggle Follow Logic
+  Future<void> _toggleFollow() async {
+    final uid = supabase.auth.currentUser?.id;
+    if (uid == null) return _showAuthSnack('follow');
+    if (uid == widget.video.authorAuthUserId) return; // Can't follow self
+
+    // Optimistic Update
+    setState(() => _isFollowing = !_isFollowing);
+
+    try {
+      if (_isFollowing) {
+        await _profileService.followUser(followerId: uid, followeeId: widget.video.authorAuthUserId);
+      } else {
+        await _profileService.unfollowUser(followerId: uid, followeeId: widget.video.authorAuthUserId);
+      }
+    } catch (e) {
+      // Revert if failed
+      if (mounted) setState(() => _isFollowing = !_isFollowing);
+      debugPrint("Follow error: $e");
+    }
   }
   
   void _showAuthSnack(String action) {
@@ -239,7 +273,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
 
   Future<void> _handleShare() async {
     final deepLink = AppLinks.videoLink(widget.video.id);
-    final url = deepLink.isNotEmpty ? deepLink : await _storage.resolveVideoUrl(widget.video.storagePath);
+    final url = deepLink.isNotEmpty ?
+      deepLink : await _storage.resolveVideoUrl(widget.video.storagePath);
     await Share.share(url);
     
     setState(() => _shareCount++);
@@ -257,7 +292,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   }
 
   void _disposeController() {
-    try { _controller?.dispose(); } catch (_) {}
+    try { _controller?.dispose();
+    } catch (_) {}
     _controller = null;
   }
 
@@ -265,6 +301,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   Widget build(BuildContext context) {
     final padding = MediaQuery.viewPaddingOf(context);
     final bottomInset = padding.bottom + 52.0; 
+    // Check if it's my own video to hide follow button
+    final isOwnVideo = supabase.auth.currentUser?.id == widget.video.authorAuthUserId;
 
     return Container(
       color: Colors.black,
@@ -347,28 +385,56 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                GestureDetector(
-                  onTap: () {
-                    if (widget.video.authorAuthUserId.isNotEmpty) {
-                      context.push('/u/${widget.video.authorAuthUserId}');
-                    }
-                  },
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.white.withOpacity(0.1),
-                        backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50'),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Author Profile
+                    GestureDetector(
+                      onTap: () {
+                        if (widget.video.authorAuthUserId.isNotEmpty) {
+                          context.push('/u/${widget.video.authorAuthUserId}');
+                        }
+                      },
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.white.withOpacity(0.1),
+                            backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50'),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
+                    ),
+                    
+                    // NEW: Follow Button Logic
+                    if (!isOwnVideo && !_isFollowing) ...[
+                      const SizedBox(width: 10),
+                      GestureDetector(
+                        onTap: _toggleFollow,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white70),
+                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.transparent,
+                          ),
+                          child: const Text(
+                            "Follow",
+                            style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
                       ),
                     ],
-                  ),
+                  ],
                 ),
+                
                 const SizedBox(height: 8),
                 if (widget.video.title.isNotEmpty)
                   Text(
