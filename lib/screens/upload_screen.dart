@@ -23,14 +23,17 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   VideoPlayerController? _playerController;
   
-  // Internal state for backend requirements (Hidden from UI)
   List<Map<String, dynamic>> _categories = [];
   bool _isLoadingCategories = true;
+  
+  // --- NEW STATE ---
+  String _privacyLevel = 'public'; // 'public', 'followers', 'private'
+  bool _allowComments = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchCategories(); // We still need this for the backend ID
+    _fetchCategories(); 
     _playerController = VideoPlayerController.file(widget.videoFile)
       ..initialize().then((_) {
         setState(() {});
@@ -52,7 +55,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error fetching categories: $e');
       if (mounted) setState(() => _isLoadingCategories = false);
     }
   }
@@ -67,7 +69,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   void _insertText(String text) {
     final currentText = _captionController.text;
     final selection = _captionController.selection;
-    
     if (selection.baseOffset >= 0) {
       final newText = currentText.replaceRange(selection.start, selection.end, text);
       _captionController.value = TextEditingValue(
@@ -81,29 +82,28 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   Future<void> _handlePost() async {
     if (_isLoadingCategories && _categories.isEmpty) {
-       // Wait a sec if categories haven't loaded yet
        await Future.delayed(const Duration(seconds: 1));
     }
 
     final user = _authService.currentUser;
     if (user == null) return;
 
-    // Default to the first category if available, else hardcode 1 (General)
     final categoryId = _categories.isNotEmpty ? _categories.first['id'] as int : 1;
 
-    // --- NUCLEAR FIX: HARD RESET THE FEED ---
     ref.invalidate(feedVideosProvider);
     ref.read(feedRefreshKeyProvider.notifier).state++;
 
-    // Trigger Upload
     ref.read(uploadProvider.notifier).startUpload(
       videoFile: widget.videoFile, 
       title: _captionController.text.trim().isEmpty ? "New Video" : _captionController.text.trim(), 
-      description: _captionController.text.trim(), // Reuse caption as description
-      tags: [], // Send empty tags
+      description: _captionController.text.trim(),
+      tags: [],
       userId: user.id, 
       categoryId: categoryId,
       durationSeconds: _playerController?.value.duration.inSeconds ?? 0,
+      // Pass Settings
+      privacyLevel: _privacyLevel,
+      allowComments: _allowComments,
     );
 
     _playerController?.pause();
@@ -114,20 +114,68 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   void _handleDrafts() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Drafts coming soon!")),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Drafts coming soon!")));
   }
 
   Future<void> _launchHelp() async {
-    final Uri url = Uri.parse('https://creator-guide.pages.dev');
+    final Uri url = Uri.parse('https://creator-guide.pages.dev'); // Your guide URL
     if (!await launchUrl(url)) debugPrint("Could not launch guide");
+  }
+  
+  // Privacy Selector Sheet
+  void _showPrivacyOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.public),
+            title: const Text('Everyone'),
+            subtitle: const Text('Anyone on XpreX can watch'),
+            trailing: _privacyLevel == 'public' ? const Icon(Icons.check, color: Colors.purple) : null,
+            onTap: () {
+              setState(() => _privacyLevel = 'public');
+              Navigator.pop(context);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.group),
+            title: const Text('Followers'),
+            subtitle: const Text('Only people who follow you'),
+            trailing: _privacyLevel == 'followers' ? const Icon(Icons.check, color: Colors.purple) : null,
+            onTap: () {
+              setState(() => _privacyLevel = 'followers');
+              Navigator.pop(context);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock),
+            title: const Text('Only Me'),
+            subtitle: const Text('Private video'),
+            trailing: _privacyLevel == 'private' ? const Icon(Icons.check, color: Colors.purple) : null,
+            onTap: () {
+              setState(() => _privacyLevel = 'private');
+              Navigator.pop(context);
+            },
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
+    );
+  }
+
+  String _getPrivacyLabel() {
+    switch (_privacyLevel) {
+      case 'followers': return 'Followers';
+      case 'private': return 'Only Me';
+      default: return 'Everyone';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -144,11 +192,10 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // --- TOP AREA: CAPTION & THUMBNAIL ---
+                  // --- TOP AREA ---
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Caption Input
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -165,7 +212,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                               style: const TextStyle(fontSize: 16),
                             ),
                             const SizedBox(height: 8),
-                            // Shortcut Buttons
                             Row(
                               children: [
                                 _buildShortcutButton(context, "# Hashtag", () => _insertText(" #")),
@@ -177,7 +223,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                         ),
                       ),
                       const SizedBox(width: 16),
-                      // Video Thumbnail
                       Container(
                         width: 85, 
                         height: 120,
@@ -199,28 +244,43 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                   const Divider(height: 40),
 
                   // --- SETTINGS LIST ---
-                  _buildSettingItem(
-                    context, 
-                    icon: Icons.public, 
-                    title: "Everyone can view this post", 
-                    trailing: const Text("Everyone", style: TextStyle(color: Colors.grey)),
+                  
+                  // 1. Privacy (Functional)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.public, color: Colors.grey.shade600),
+                    title: const Text("Who can watch this video", style: TextStyle(fontSize: 15)),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_getPrivacyLabel(), style: const TextStyle(color: Colors.grey)),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+                      ],
+                    ),
+                    onTap: _showPrivacyOptions,
                   ),
-                  _buildSettingItem(
-                    context, 
-                    icon: Icons.comment, 
-                    title: "Allow Comments", 
-                    isSwitch: true,
+
+                  // 2. Comments (Functional)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.comment, color: Colors.grey.shade600),
+                    title: const Text("Allow Comments", style: TextStyle(fontSize: 15)),
+                    trailing: Transform.scale(
+                      scale: 0.8,
+                      child: Switch(
+                        value: _allowComments, 
+                        onChanged: (v) => setState(() => _allowComments = v),
+                        activeColor: theme.colorScheme.primary,
+                      ),
+                    ),
                   ),
-                  _buildSettingItem(
-                    context, 
-                    icon: Icons.download, 
-                    title: "Allow Downloads", 
-                    isSwitch: true,
-                  ),
+
+                  // 3. Downloads (HIDDEN as discussed)
                   
                   const SizedBox(height: 20),
                   
-                  // --- CREATIVE TIP ---
+                  // --- PRO TIP (UPDATED) ---
                   GestureDetector(
                     onTap: _launchHelp,
                     child: Container(
@@ -231,18 +291,17 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.lightbulb, color: Colors.amber.shade700, size: 20),
+                          Icon(Icons.rocket_launch, color: Colors.orange.shade700, size: 20),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
-                              "Pro Tip: Use popular music to boost visibility!", 
+                              "Growth Tip: Posting consistently helps you find your audience faster!", 
                               style: TextStyle(
                                 fontSize: 13, 
                                 color: theme.colorScheme.onSurfaceVariant
                               ),
                             ),
                           ),
-                          Icon(Icons.arrow_forward_ios, size: 12, color: theme.colorScheme.onSurfaceVariant),
                         ],
                       ),
                     ),
@@ -267,7 +326,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
             ),
             child: Row(
               children: [
-                // Drafts Button
                 Expanded(
                   child: OutlinedButton(
                     onPressed: _handleDrafts,
@@ -287,14 +345,13 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                // Post Button
                 Expanded(
                   child: FilledButton(
                     onPressed: (_playerController != null && _playerController!.value.isInitialized) 
                         ? _handlePost 
                         : null,
                     style: FilledButton.styleFrom(
-                      backgroundColor: theme.colorScheme.primary, // Using our Purple Theme
+                      backgroundColor: theme.colorScheme.primary,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       elevation: 0,
@@ -328,29 +385,8 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           border: Border.all(color: theme.dividerColor),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: Text(
-          label, 
-          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-        ),
+        child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
       ),
-    );
-  }
-
-  Widget _buildSettingItem(BuildContext context, {required IconData icon, required String title, Widget? trailing, bool isSwitch = false}) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: Colors.grey.shade600),
-      title: Text(title, style: const TextStyle(fontSize: 15)),
-      trailing: isSwitch 
-          ? Transform.scale(
-              scale: 0.8,
-              child: Switch(
-                value: true, 
-                onChanged: (v) {}, // Visual only for now
-                activeColor: Theme.of(context).colorScheme.primary,
-              ),
-            )
-          : (trailing ?? const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)),
     );
   }
 }
