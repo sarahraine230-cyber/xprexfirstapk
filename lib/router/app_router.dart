@@ -7,7 +7,7 @@ import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
 import 'package:xprex/screens/login_screen.dart';
 import 'package:xprex/screens/signup_screen.dart';
-import 'package:xprex/screens/email_verification_screen.dart'; 
+import 'package:xprex/screens/email_verification_screen.dart';
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/main_shell.dart';
 import 'package:xprex/screens/monetization_screen.dart';
@@ -18,6 +18,7 @@ import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 import 'package:xprex/screens/reset_password_screen.dart';
+import 'package:xprex/screens/single_video_screen.dart'; // NEW IMPORT
 
 // 1. GLOBAL OBSERVER
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
@@ -41,18 +42,14 @@ class GoRouterRefreshStream extends ChangeNotifier {
 }
 
 final appRouterProvider = Provider<GoRouter>((ref) {
-  // CRITICAL: Do NOT use ref.watch here. It destroys the router on change.
-  // Instead, we read the service once and listen to its stream.
   final authService = ref.read(authServiceProvider);
   
   return GoRouter(
     initialLocation: '/brand-splash',
     observers: [routeObserver],
-    // This tells GoRouter to re-run 'redirect' whenever the stream emits
     refreshListenable: GoRouterRefreshStream(authService.authStateChanges),
     
     redirect: (context, state) {
-      // Use synchronous check from service (Supabase client has local state)
       final isAuth = authService.isAuthenticated;
       
       final isSplash = state.uri.path == '/splash';
@@ -61,6 +58,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isSignup = state.uri.path == '/signup';
       final isVerify = state.uri.path == '/email-verification';
       final isReset = state.uri.path == '/reset-password';
+      
+      // Allow deep links to pass through even if unauthenticated? 
+      // For now, we block unauth users, but you might want to allow /video/:id later
+      final isDeepLink = state.uri.path.startsWith('/video/');
 
       // 1. Unauthenticated Users
       if (!isAuth) {
@@ -69,12 +70,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       // 2. Authenticated Users
-      
-      // CRITICAL: Allow Verification AND Reset Password screens to persist
-      // even after the user becomes authenticated.
-      if (isVerify || isReset) return null;
+      if (isVerify || isReset || isDeepLink) return null;
 
-      // Redirect splash/auth screens to Home
       if (isSplash || isLogin || isSignup) return '/';
       
       return null;
@@ -110,6 +107,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/reset-password',
         builder: (context, state) => const ResetPasswordScreen(),
+      ),
+      // --- NEW DEEP LINK ROUTE ---
+      GoRoute(
+        path: '/video/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id'];
+          if (id == null) return const MainShell(); // Fallback
+          return SingleVideoScreen(videoId: id);
+        },
       ),
       GoRoute(
         path: '/profile-setup',
