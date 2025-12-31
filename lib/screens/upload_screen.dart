@@ -6,8 +6,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/services/auth_service.dart';
 import 'package:xprex/providers/upload_provider.dart';
-// IMPORT FEED SCREEN TO ACCESS THE KEY PROVIDER
 import 'package:xprex/screens/feed_screen.dart';
+import 'package:xprex/theme.dart';
 
 class UploadScreen extends ConsumerStatefulWidget {
   final File videoFile;
@@ -18,21 +18,19 @@ class UploadScreen extends ConsumerStatefulWidget {
 }
 
 class _UploadScreenState extends ConsumerState<UploadScreen> {
-  final _titleController = TextEditingController();
-  final _descController = TextEditingController();
-  final _tagController = TextEditingController();
+  final _captionController = TextEditingController();
   final _authService = AuthService();
 
   VideoPlayerController? _playerController;
-  final List<String> _tags = [];
+  
+  // Internal state for backend requirements (Hidden from UI)
   List<Map<String, dynamic>> _categories = [];
-  int? _selectedCategoryId;
   bool _isLoadingCategories = true;
 
   @override
   void initState() {
     super.initState();
-    _fetchCategories();
+    _fetchCategories(); // We still need this for the backend ID
     _playerController = VideoPlayerController.file(widget.videoFile)
       ..initialize().then((_) {
         setState(() {});
@@ -61,36 +59,50 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _descController.dispose();
-    _tagController.dispose();
+    _captionController.dispose();
     _playerController?.dispose();
     super.dispose();
   }
 
-  Future<void> _handlePost() async {
-    if (_titleController.text.isEmpty || _selectedCategoryId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please add a Title and Category')));
-      return;
-    }
+  void _insertText(String text) {
+    final currentText = _captionController.text;
+    final selection = _captionController.selection;
     
+    if (selection.baseOffset >= 0) {
+      final newText = currentText.replaceRange(selection.start, selection.end, text);
+      _captionController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: selection.baseOffset + text.length),
+      );
+    } else {
+      _captionController.text += text;
+    }
+  }
+
+  Future<void> _handlePost() async {
+    if (_isLoadingCategories && _categories.isEmpty) {
+       // Wait a sec if categories haven't loaded yet
+       await Future.delayed(const Duration(seconds: 1));
+    }
+
     final user = _authService.currentUser;
     if (user == null) return;
 
+    // Default to the first category if available, else hardcode 1 (General)
+    final categoryId = _categories.isNotEmpty ? _categories.first['id'] as int : 1;
+
     // --- NUCLEAR FIX: HARD RESET THE FEED ---
-    // 1. Invalidate the data (fetch new videos)
     ref.invalidate(feedVideosProvider);
-    // 2. Increment the Key (Force PageView Rebuild to kill blank screen)
     ref.read(feedRefreshKeyProvider.notifier).state++;
 
     // Trigger Upload
     ref.read(uploadProvider.notifier).startUpload(
       videoFile: widget.videoFile, 
-      title: _titleController.text.trim(), 
-      description: _descController.text.trim(), 
-      tags: _tags, 
+      title: _captionController.text.trim().isEmpty ? "New Video" : _captionController.text.trim(), 
+      description: _captionController.text.trim(), // Reuse caption as description
+      tags: [], // Send empty tags
       userId: user.id, 
-      categoryId: _selectedCategoryId!,
+      categoryId: categoryId,
       durationSeconds: _playerController?.value.duration.inSeconds ?? 0,
     );
 
@@ -101,85 +113,244 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
     }
   }
 
+  void _handleDrafts() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Drafts coming soon!")),
+    );
+  }
+
   Future<void> _launchHelp() async {
     final Uri url = Uri.parse('https://creator-guide.pages.dev');
     if (!await launchUrl(url)) debugPrint("Could not launch guide");
   }
 
-  void _addTag(String value) {
-    if (value.isNotEmpty && _tags.length < 5) {
-      setState(() { _tags.add(value.trim()); _tagController.clear(); });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('Add Details'),
-        actions: [
-            TextButton(
-              onPressed: (_playerController != null && _playerController!.value.isInitialized) ? _handlePost : null,
-              child: const Text("POST", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-            )
-        ],
+        title: const Text('New Post', style: TextStyle(fontWeight: FontWeight.w600)),
+        centerTitle: true,
+        elevation: 0,
       ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Row(
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 100, height: 150,
-                    decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(8)),
-                    child: _playerController != null && _playerController!.value.isInitialized
-                       ? ClipRRect(borderRadius: BorderRadius.circular(8), child: VideoPlayer(_playerController!))
-                       : const Center(child: CircularProgressIndicator()),
+                  // --- TOP AREA: CAPTION & THUMBNAIL ---
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Caption Input
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: _captionController,
+                              maxLines: 5,
+                              minLines: 3,
+                              decoration: const InputDecoration(
+                                hintText: "Add a catchy title...",
+                                border: InputBorder.none,
+                                hintStyle: TextStyle(color: Colors.grey),
+                              ),
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                            const SizedBox(height: 8),
+                            // Shortcut Buttons
+                            Row(
+                              children: [
+                                _buildShortcutButton(context, "# Hashtag", () => _insertText(" #")),
+                                const SizedBox(width: 8),
+                                _buildShortcutButton(context, "@ Mention", () => _insertText(" @")),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      // Video Thumbnail
+                      Container(
+                        width: 85, 
+                        height: 120,
+                        decoration: BoxDecoration(
+                          color: Colors.black, 
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: theme.dividerColor),
+                        ),
+                        child: _playerController != null && _playerController!.value.isInitialized
+                           ? ClipRRect(
+                               borderRadius: BorderRadius.circular(8), 
+                               child: VideoPlayer(_playerController!)
+                             )
+                           : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: TextField(
-                      controller: _titleController,
-                      decoration: const InputDecoration(hintText: 'Write a catchy title...', border: InputBorder.none),
-                      maxLines: 3,
+                  
+                  const Divider(height: 40),
+
+                  // --- SETTINGS LIST ---
+                  _buildSettingItem(
+                    context, 
+                    icon: Icons.public, 
+                    title: "Everyone can view this post", 
+                    trailing: const Text("Everyone", style: TextStyle(color: Colors.grey)),
+                  ),
+                  _buildSettingItem(
+                    context, 
+                    icon: Icons.comment, 
+                    title: "Allow Comments", 
+                    isSwitch: true,
+                  ),
+                  _buildSettingItem(
+                    context, 
+                    icon: Icons.download, 
+                    title: "Allow Downloads", 
+                    isSwitch: true,
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // --- CREATIVE TIP ---
+                  GestureDetector(
+                    onTap: _launchHelp,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.lightbulb, color: Colors.amber.shade700, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              "Pro Tip: Use popular music to boost visibility!", 
+                              style: TextStyle(
+                                fontSize: 13, 
+                                color: theme.colorScheme.onSurfaceVariant
+                              ),
+                            ),
+                          ),
+                          Icon(Icons.arrow_forward_ios, size: 12, color: theme.colorScheme.onSurfaceVariant),
+                        ],
+                      ),
                     ),
-                  )
+                  ),
                 ],
               ),
-              const Divider(height: 32),
-              DropdownButtonFormField<int>(
-                decoration: const InputDecoration(labelText: 'Category (Required)', border: OutlineInputBorder()),
-                value: _selectedCategoryId,
-                items: _categories.map((cat) => DropdownMenuItem<int>(
-                  value: cat['id'] as int,
-                  child: Text(cat['name']),
-                )).toList(),
-                onChanged: (val) => setState(() => _selectedCategoryId = val),
-                hint: _isLoadingCategories ? const Text("Loading...") : const Text("Select Category"),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _tagController,
-                decoration: InputDecoration(
-                  labelText: 'Tags (Optional)',
-                  suffixIcon: IconButton(icon: const Icon(Icons.add), onPressed: () => _addTag(_tagController.text)),
-                  border: const OutlineInputBorder(),
-                ),
-                onSubmitted: _addTag,
-              ),
-              if (_tags.isNotEmpty) Wrap(spacing: 8, children: _tags.map((t) => Chip(label: Text('#$t'), onDeleted: () => setState(() => _tags.remove(t)))).toList()),
-              const SizedBox(height: 20),
-              GestureDetector(
-                onTap: _launchHelp,
-                child: const Text("💡 Tips for going viral", style: TextStyle(color: Colors.blue, decoration: TextDecoration.underline)),
-              ),
-            ],
+            ),
           ),
+
+          // --- BOTTOM BAR ---
+          Container(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, MediaQuery.paddingOf(context).bottom + 12),
+            decoration: BoxDecoration(
+              color: theme.scaffoldBackgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
+                )
+              ],
+            ),
+            child: Row(
+              children: [
+                // Drafts Button
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _handleDrafts,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      side: BorderSide(color: theme.dividerColor),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.folder_outlined, size: 20, color: theme.iconTheme.color),
+                        const SizedBox(width: 8),
+                        Text("Drafts", style: TextStyle(color: theme.textTheme.bodyLarge?.color)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                // Post Button
+                Expanded(
+                  child: FilledButton(
+                    onPressed: (_playerController != null && _playerController!.value.isInitialized) 
+                        ? _handlePost 
+                        : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.primary, // Using our Purple Theme
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.send_rounded, size: 20),
+                        SizedBox(width: 8),
+                        Text("Post", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShortcutButton(BuildContext context, String label, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.dividerColor),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label, 
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
         ),
       ),
+    );
+  }
+
+  Widget _buildSettingItem(BuildContext context, {required IconData icon, required String title, Widget? trailing, bool isSwitch = false}) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(icon, color: Colors.grey.shade600),
+      title: Text(title, style: const TextStyle(fontSize: 15)),
+      trailing: isSwitch 
+          ? Transform.scale(
+              scale: 0.8,
+              child: Switch(
+                value: true, 
+                onChanged: (v) {}, // Visual only for now
+                activeColor: Theme.of(context).colorScheme.primary,
+              ),
+            )
+          : (trailing ?? const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey)),
     );
   }
 }
