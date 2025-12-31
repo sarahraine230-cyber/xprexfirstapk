@@ -251,6 +251,8 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       builder: (_) => CommentsSheet(
         videoId: widget.video.id,
         initialCount: _commentsCount,
+        // --- PASS PERMISSION ---
+        allowComments: widget.video.allowComments, 
         onNewComment: () => setState(() => _commentsCount++),
       ),
     ).whenComplete(() {
@@ -258,13 +260,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     });
   }
 
-  // --- UPDATED SHARE LOGIC ---
   Future<void> _handleShare() async {
-    // UPDATED: Points to your new Cloudflare worker subdomain
     final url = 'https://watch.getxprex.com/?v=${widget.video.id}';
-    
     await Share.share(url);
-    
     setState(() => _shareCount++);
     
     final uid = supabase.auth.currentUser?.id;
