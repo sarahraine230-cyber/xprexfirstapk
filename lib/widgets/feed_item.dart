@@ -6,13 +6,12 @@ import 'package:share_plus/share_plus.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:xprex/config/supabase_config.dart';
-// import 'package:xprex/config/app_links.dart'; // Removed to use direct logic
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/services/storage_service.dart';
 import 'package:xprex/services/save_service.dart';
 import 'package:xprex/services/repost_service.dart';
-import 'package:xprex/services/profile_service.dart'; // NEW IMPORT
+import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/widgets/comment_sheet.dart';
 import 'package:xprex/widgets/social_rail.dart';
 
@@ -39,7 +38,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   final _videoService = VideoService();
   final _saveService = SaveService();
   final _repostService = RepostService();
-  final _profileService = ProfileService(); // NEW
+  final _profileService = ProfileService();
 
   CachedVideoPlayerPlusController? _controller;
   
@@ -55,7 +54,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   bool _isLiked = false;
   bool _isSaved = false;
   bool _isReposted = false;
-  bool _isFollowing = false; // NEW STATE
+  bool _isFollowing = false;
   
   bool _loading = true;
   Timer? _watchTimer;
@@ -87,7 +86,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       _flushWatchTime();
       _disposeController();
       _loading = true;
-      _isFollowing = false; // Reset
+      _isFollowing = false;
       _init();
     }
     _updatePlayState();
@@ -122,7 +121,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
           if (mounted) setState(() => _isReposted = reposted);
         });
         
-        // NEW: Check Follow Status
         if (!isOwnVideo) {
           _profileService.isFollowing(followerId: uid, followeeId: widget.video.authorAuthUserId)
               .then((following) {
@@ -222,7 +220,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     }
   }
 
-  // NEW: Toggle Follow
   Future<void> _toggleFollow() async {
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) return _showAuthSnack('follow');
@@ -261,13 +258,10 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     });
   }
 
-  // UPDATED: SHARE LOGIC
+  // --- UPDATED SHARE LOGIC ---
   Future<void> _handleShare() async {
-    // Generate the Cloudflare bridge link
-    final url = 'https://getxprex.com/watch?v=${widget.video.id}';
-    
-    // Fallback if needed:
-    // final url = await _storage.resolveVideoUrl(widget.video.storagePath);
+    // UPDATED: Points to your new Cloudflare worker subdomain
+    final url = 'https://watch.getxprex.com/?v=${widget.video.id}';
     
     await Share.share(url);
     
@@ -405,7 +399,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                       ),
                     ),
                     
-                    // NEW: FOLLOW BUTTON
                     if (!isOwnVideo && !_isFollowing) ...[
                       const SizedBox(width: 10),
                       GestureDetector(
@@ -460,7 +453,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                 commentsCount: _commentsCount,
                 onComment: _openComments,
                 shareCount: _shareCount,
-                onShare: _handleShare, // Updated Handler
+                onShare: _handleShare, 
                 isSaved: _isSaved,
                 saveCount: _saveCount,
                 onSave: _toggleSave,
