@@ -7,11 +7,15 @@ class CommentsSheet extends StatefulWidget {
   final String videoId;
   final int initialCount; 
   final VoidCallback? onNewComment;
+  // NEW: Argument to control permission
+  final bool allowComments; 
+
   const CommentsSheet({
     super.key,
     required this.videoId, 
     required this.initialCount, 
-    this.onNewComment
+    this.onNewComment,
+    this.allowComments = true,
   });
   @override
   State<CommentsSheet> createState() => _CommentsSheetState();
@@ -138,51 +142,66 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     },
                   ),
                 ),
-                if (_replyingTo != null)
+                
+                // --- GATEKEEPER 3: DISABLE INPUT IF COMMENTS OFF ---
+                if (!widget.allowComments) 
                   Container(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    child: Row(
-                      children: [
-                        Text('Replying to @${_replyingTo!.authorUsername ?? "user"}', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
-                        const Spacer(),
-                        IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _replyingTo = null))
-                      ],
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)))
+                    ),
+                    alignment: Alignment.center,
+                    child: Text('Comments are turned off for this post.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                  )
+                else ...[
+                  // NORMAL INPUT UI
+                  if (_replyingTo != null)
+                    Container(
+                      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Text('Replying to @${_replyingTo!.authorUsername ?? "user"}', style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.primary)),
+                          const Spacer(),
+                          IconButton(icon: const Icon(Icons.close, size: 16), onPressed: () => setState(() => _replyingTo = null))
+                        ],
+                      ),
+                    ),
+                  Container(
+                    height: 44,
+                    decoration: BoxDecoration(border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)))),
+                    child: ListView.separated(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _quickEmojis.length,
+                      separatorBuilder: (_,__) => const SizedBox(width: 16),
+                      itemBuilder: (ctx, i) => GestureDetector(onTap: () => _insertEmoji(_quickEmojis[i]), child: Center(child: Text(_quickEmojis[i], style: const TextStyle(fontSize: 22)))),
                     ),
                   ),
-                Container(
-                  height: 44,
-                  decoration: BoxDecoration(border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3)))),
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _quickEmojis.length,
-                    separatorBuilder: (_,__) => const SizedBox(width: 16),
-                    itemBuilder: (ctx, i) => GestureDetector(onTap: () => _insertEmoji(_quickEmojis[i]), child: Center(child: Text(_quickEmojis[i], style: const TextStyle(fontSize: 22)))),
-                  ),
-                ),
-                SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
-                    child: Row(
-                    children: [
-                      const CircleAvatar(radius: 18, child: Icon(Icons.person, size: 20)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextField(
-                          controller: _inputCtrl,
-                          decoration: InputDecoration(
-                            hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
-                            border: InputBorder.none,
+                  SafeArea(
+                    top: false,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 8),
+                      child: Row(
+                      children: [
+                        const CircleAvatar(radius: 18, child: Icon(Icons.person, size: 20)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _inputCtrl,
+                            decoration: InputDecoration(
+                              hintText: _replyingTo == null ? 'Add a comment...' : 'Add a reply...',
+                              border: InputBorder.none,
+                            ),
                           ),
                         ),
+                        IconButton(onPressed: _posting ? null : _post, icon: Icon(Icons.arrow_upward, color: _posting ? Colors.grey : theme.colorScheme.primary))
+                      ],
                       ),
-                      IconButton(onPressed: _posting ? null : _post, icon: Icon(Icons.arrow_upward, color: _posting ? Colors.grey : theme.colorScheme.primary))
-                    ],
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           );
@@ -202,10 +221,8 @@ class _CommentRow extends StatefulWidget {
 }
 
 class _CommentRowState extends State<_CommentRow> {
-  final _svc = CommentService();
   late bool _isLiked;
   late int _likesCount;
-  bool _repliesVisible = false;
 
   @override
   void initState() {
