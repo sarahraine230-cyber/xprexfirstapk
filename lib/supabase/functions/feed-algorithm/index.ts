@@ -1,4 +1,3 @@
-// Follow Supabase Edge Function setup guide to deploy this:
 // supabase functions deploy feed-algorithm
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
@@ -25,8 +24,7 @@ serve(async (req) => {
     const { data: { user } } = await supabaseClient.auth.getUser()
     if (!user) throw new Error('Unauthorized: User not logged in')
 
-    // 2. Fetch Candidates (ALL Recent Videos - No Exclusion yet)
-    // We ask for 200 to ensure we have a good pool to rank
+    // 2. Fetch Candidates
     let { data: candidates, error } = await supabaseClient
       .rpc('get_feed_candidates', { 
         viewer_id: user.id, 
@@ -35,23 +33,24 @@ serve(async (req) => {
 
     if (error) throw error
 
-    // Fallback if empty (Database is literally empty)
     if (!candidates || candidates.length === 0) {
       candidates = []
     }
 
+    // --- GATEKEEPER 1: PUBLIC ONLY FILTER ---
+    // Ensure "For You" only shows Public videos
+    // (We assume the RPC returns the privacy_level column)
+    candidates = candidates.filter((v: any) => v.privacy_level === 'public');
+
     // 3. FETCH CONTEXT (Watch History)
-    // We need to know what the user has seen to apply the "Boredom Penalty"
-    // We fetch just the video_ids the user has watched
     const { data: history } = await supabaseClient
       .from('video_views')
       .select('video_id')
       .eq('viewer_id', user.id);
-    
-    // Create a Set for O(1) lookups
+
     const watchedSet = new Set((history || []).map((h: any) => h.video_id));
 
-    // 4. FETCH PROFILES (Context for UI)
+    // 4. FETCH PROFILES
     const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
     const { data: profiles } = await supabaseClient
       .from('profiles')
@@ -63,7 +62,7 @@ serve(async (req) => {
       profiles.forEach((p: any) => profileMap[p.auth_user_id] = p);
     }
 
-    // 5. THE SCORING ENGINE (Derank Protocol)
+    // 5. THE SCORING ENGINE
     const scoredVideos = candidates.map((video: any) => {
       // A. Base Score (Engagement)
       const engagementScore = (video.likes_count * 5) + (video.comments_count * 3) + (video.playback_count * 0.1);
@@ -76,19 +75,14 @@ serve(async (req) => {
       
       let finalScore = engagementScore / recencyFactor;
 
-      // C. PENALTY LOGIC (The "Soft Filter")
-      
-      // Penalty 1: Own Video (Buried Deep)
+      // C. PENALTY LOGIC
       if (video.author_auth_user_id === user.id) {
-        finalScore *= 0.01; // 99% penalty
+        finalScore *= 0.01; 
       }
-
-      // Penalty 2: Already Watched (Deranked)
       if (watchedSet.has(video.id)) {
-        finalScore *= 0.1; // 90% penalty (Only shows if nothing else is good)
+        finalScore *= 0.1; 
       }
 
-      // Merge Profile
       const authorProfile = profileMap[video.author_auth_user_id];
       
       return { 
