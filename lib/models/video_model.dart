@@ -11,8 +11,11 @@ class VideoModel {
   final int commentsCount;
   final int savesCount;
   final int repostsCount;
-  // --- NEW: SHARES COUNT ---
   final int sharesCount;
+  
+  // --- NEW FIELDS ---
+  final String privacyLevel; // 'public', 'followers', 'private'
+  final bool allowComments;
   
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -42,8 +45,11 @@ class VideoModel {
     this.commentsCount = 0,
     this.savesCount = 0,
     this.repostsCount = 0,
-    // --- NEW ---
     this.sharesCount = 0,
+    // --- NEW DEFAULTS ---
+    this.privacyLevel = 'public',
+    this.allowComments = true,
+    
     required this.createdAt,
     required this.updatedAt,
     this.tags = const [],
@@ -57,11 +63,10 @@ class VideoModel {
     this.repostedByAvatarUrl,
   });
 
-  factory VideoModel.fromJson(Map<String, dynamic> json) {
-    // Safely handle profiles relation
-    dynamic profileData = json['profiles'];
+  factory VideoModel.fromMap(Map<String, dynamic> json) {
+    // Handle Supabase join structures
     Map<String, dynamic>? profileMap;
-    
+    final profileData = json['profiles'];
     if (profileData is List) {
       if (profileData.isNotEmpty) {
         profileMap = profileData.first as Map<String, dynamic>;
@@ -83,8 +88,11 @@ class VideoModel {
       commentsCount: json['comments_count'] as int? ?? 0,
       savesCount: json['saves_count'] as int? ?? 0,
       repostsCount: json['reposts_count'] as int? ?? 0,
-      // --- NEW: PARSE SHARES ---
       sharesCount: json['shares_count'] as int? ?? 0,
+      
+      // --- MAP NEW FIELDS ---
+      privacyLevel: json['privacy_level'] as String? ?? 'public',
+      allowComments: json['allow_comments'] as bool? ?? true,
       
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
@@ -96,10 +104,8 @@ class VideoModel {
       
       isLikedByCurrentUser: false, 
       
-      repostedByUsername: json['reposted_by_username'] as String?,
-      repostedByAvatarUrl: json['reposted_by_avatar_url'] as String?,
+      repostedByUsername: json['repost_username'] as String?,
+      repostedByAvatarUrl: json['repost_avatar_url'] as String?,
     );
   }
-
-  factory VideoModel.fromMap(Map<String, dynamic> map) => VideoModel.fromJson(map);
 }
