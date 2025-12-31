@@ -5,50 +5,34 @@ import 'package:xprex/models/video_model.dart';
 class VideoService {
   final _supabase = Supabase.instance.client;
 
-  // --- FETCH FEED VIA EDGE FUNCTION ---
   Future<List<VideoModel>> getForYouFeed({int limit = 20}) async {
     try {
       final response = await _supabase.functions.invoke('feed-algorithm');
       final data = response.data;
-      
       if (data == null) return [];
-
       final List<dynamic> list = data as List<dynamic>;
       return list.map((json) => VideoModel.fromMap(json)).toList();
-      
     } catch (e) {
       print('Error fetching feed from Edge Function: $e');
       return _getFallbackFeed(limit);
     }
   }
 
-  // --- FOLLOWING FEED (FIXED) ---
   Future<List<VideoModel>> getFollowingFeed({int limit = 20}) async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return [];
-
     try {
-      // 1. Get IDs of people I follow
-      // We explicitly select only the followee_auth_user_id
       final followingRes = await _supabase
           .from('follows')
           .select('followee_auth_user_id')
           .eq('follower_auth_user_id', uid);
-          
-      // DEBUG: Print count to console
-      print('DEBUG: Found ${(followingRes as List).length} follows for user $uid');
-
-      // 2. Robust casting to List<String>
+      
       final followingIds = (followingRes as List)
           .map((e) => e['followee_auth_user_id'].toString())
           .toList();
       
-      // If following no one, return empty immediately
-      if (followingIds.isEmpty) {
-        return [];
-      }
+      if (followingIds.isEmpty) return [];
 
-      // 3. Fetch videos from these authors
       final videosRes = await _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
@@ -57,19 +41,16 @@ class VideoService {
           .limit(limit);
       
       return (videosRes as List).map((e) => VideoModel.fromMap(e)).toList();
-
     } catch (e) {
       print('❌ Error fetching following feed: $e');
       return [];
     }
   }
 
-  // Basic SQL Fallback
   Future<List<VideoModel>> _getFallbackFeed(int limit) async {
     try {
       final response = await _supabase
           .from('videos')
-          // Using explicit foreign key to prevent "Ambiguous Relationship" error
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .order('created_at', ascending: false)
           .limit(limit);
@@ -80,12 +61,9 @@ class VideoService {
     }
   }
 
-  // --- ANALYTICS METHODS ---
-
   Future<Map<String, dynamic>> getCreatorStats() async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return {};
-
     try {
       final data = await _supabase.rpc('get_creator_stats', params: {'target_user_id': userId});
       return data as Map<String, dynamic>;
@@ -98,7 +76,6 @@ class VideoService {
   Future<Map<String, dynamic>> getAnalyticsDashboard({int days = 30}) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return {};
-
     try {
       final data = await _supabase.rpc(
         'get_analytics_dashboard', 
@@ -110,8 +87,6 @@ class VideoService {
       return {};
     }
   }
-
-  // --- PROFILE & VIDEO METHODS ---
   
   Future<List<VideoModel>> getUserVideos(String userId) async {
     try {
@@ -152,8 +127,6 @@ class VideoService {
   Future<void> recordView(String videoId, String authorId) async {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
-    
-    // --- FRAUD CHECK: Don't record own views ---
     if (userId == authorId) return;
     try {
       await _supabase.from('video_views').insert({
@@ -162,12 +135,9 @@ class VideoService {
         'author_id': authorId,
       });
     } catch (_) {}
-
     try {
       await _supabase.rpc('increment_video_view', params: {'video_id': videoId});
-    } catch (_) {
-      // Ignore RPC errors for views
-    }
+    } catch (_) {}
   }
 
   Future<void> toggleLike(String videoId, String userId) async {
@@ -179,30 +149,17 @@ class VideoService {
          .maybeSingle();
      if (existing != null) {
        await _supabase.from('likes').delete().eq('id', existing['id']);
-       try {
-         await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
-       } catch (e) {
-         print('Warning: Failed to decrement like count: $e');
-       }
+       try { await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
+       } catch (_) {}
      } else {
-       await _supabase.from('likes').insert({
-         'video_id': videoId, 
-         'user_auth_id': userId 
-       });
-       try {
-         await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
-       } catch (e) {
-         print('Warning: Failed to increment like count: $e');
-       }
+       await _supabase.from('likes').insert({'video_id': videoId, 'user_auth_id': userId});
+       try { await _supabase.rpc('increment_video_like', params: {'video_id': videoId});
+       } catch (_) {}
      }
   }
   
   Future<bool> isVideoLikedByUser(String videoId, String userId) async {
-    final count = await _supabase
-        .from('likes')
-        .count()
-        .eq('video_id', videoId)
-        .eq('user_auth_id', userId);
+    final count = await _supabase.from('likes').count().eq('video_id', videoId).eq('user_auth_id', userId);
     return count > 0;
   }
   
@@ -213,12 +170,8 @@ class VideoService {
   
   Future<void> recordShare(String videoId, String userId) async {
      try {
-       await _supabase.from('shares').insert({
-         'video_id': videoId,
-         'user_auth_id': userId
-       });
-       try {
-         await _supabase.rpc('increment_video_share', params: {'video_id': videoId});
+       await _supabase.from('shares').insert({'video_id': videoId, 'user_auth_id': userId});
+       try { await _supabase.rpc('increment_video_share', params: {'video_id': videoId});
        } catch (_) {}
      } catch (e) {
        print('Error recording share: $e');
@@ -234,6 +187,7 @@ class VideoService {
     }
   }
   
+  // --- UPDATED CREATE METHOD ---
   Future<void> createVideo({
     required String authorAuthUserId,
     required String storagePath,
@@ -243,6 +197,9 @@ class VideoService {
     required int duration,
     required List<String> tags,
     required int categoryId,
+    // New Params
+    required String privacyLevel,
+    required bool allowComments,
   }) async {
     await _supabase.from('videos').insert({
       'author_auth_user_id': authorAuthUserId,
@@ -251,7 +208,10 @@ class VideoService {
       'description': description,
       'cover_image_url': coverImageUrl,
       'duration': duration,
-      'tags': tags, 
+      'tags': tags,
+      // Insert new settings
+      'privacy_level': privacyLevel,
+      'allow_comments': allowComments,
     });
   }
 }
