@@ -37,6 +37,9 @@ class VideoService {
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .inFilter('author_auth_user_id', followingIds)
+          // --- GATEKEEPER 2A: FOLLOWING FEED ---
+          // Allow 'public' OR 'followers', but BLOCK 'private'
+          .neq('privacy_level', 'private') 
           .order('created_at', ascending: false)
           .limit(limit);
       
@@ -52,6 +55,9 @@ class VideoService {
       final response = await _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          // --- GATEKEEPER 2B: FALLBACK FEED ---
+          // Strictly Public only
+          .eq('privacy_level', 'public')
           .order('created_at', ascending: false)
           .limit(limit);
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
@@ -94,6 +100,9 @@ class VideoService {
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .eq('author_auth_user_id', userId)
+          // Note: We show all videos on profile, but you might want to filter 
+          // based on who is viewing (me vs stranger). For now, we leave it open 
+          // so the author can see their own private videos.
           .order('created_at', ascending: false);
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
@@ -187,7 +196,6 @@ class VideoService {
     }
   }
   
-  // --- UPDATED CREATE METHOD ---
   Future<void> createVideo({
     required String authorAuthUserId,
     required String storagePath,
@@ -197,7 +205,6 @@ class VideoService {
     required int duration,
     required List<String> tags,
     required int categoryId,
-    // New Params
     required String privacyLevel,
     required bool allowComments,
   }) async {
@@ -209,7 +216,6 @@ class VideoService {
       'cover_image_url': coverImageUrl,
       'duration': duration,
       'tags': tags,
-      // Insert new settings
       'privacy_level': privacyLevel,
       'allow_comments': allowComments,
     });
