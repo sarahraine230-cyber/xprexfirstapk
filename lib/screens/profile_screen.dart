@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'; // IMPORT SUPABASE
+import 'package:share_plus/share_plus.dart'; // NEW: Import for sharing
+import 'package:supabase_flutter/supabase_flutter.dart'; 
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 // SERVICES
@@ -36,14 +37,13 @@ final repostedVideosProvider = FutureProvider.family<List<VideoModel>, String>((
 // CONVERTED TO STATEFUL WIDGET FOR REALTIME SUBSCRIPTION
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
-
   @override
   ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   RealtimeChannel? _videosSubscription;
-
+  
   @override
   void initState() {
     super.initState();
@@ -54,22 +54,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
-    // Listen for UPDATES on the 'videos' table for this user
-    // This catches when Coconut finishes processing and updates the storage path
     _videosSubscription = Supabase.instance.client
         .channel('public:videos:$userId')
         .onPostgresChanges(
           event: PostgresChangeEvent.update,
           schema: 'public',
           table: 'videos',
-          // FIX: Use PostgresChangeFilter object instead of String
           filter: PostgresChangeFilter(
             type: PostgresChangeFilterType.eq,
             column: 'author_auth_user_id',
             value: userId,
           ),
           callback: (payload) {
-            // Logic: If a video updates, refresh the 'Created' list
             if (mounted) {
               ref.invalidate(createdVideosProvider(userId));
             }
@@ -84,6 +80,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       Supabase.instance.client.removeChannel(_videosSubscription!);
     }
     super.dispose();
+  }
+
+  // --- NEW: SHARE LOGIC ---
+  void _shareProfile(dynamic profile) {
+    // Generate the deep link using your Cloudflare worker
+    final url = 'https://profile.getxprex.com?u=${profile.authUserId}';
+    Share.share('Check out my profile on XpreX! $url');
   }
 
   @override
@@ -146,7 +149,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     flexibleSpace: FlexibleSpaceBar(
                       background: Padding(
                         padding: const EdgeInsets.only(top: 60.0), 
-                        child: ProfileHeader(profile: profile, theme: theme),
+                        // PASS THE SHARE CALLBACK HERE
+                        child: ProfileHeader(
+                          profile: profile, 
+                          theme: theme,
+                          onShare: () => _shareProfile(profile),
+                        ),
                       ),
                     ),
                     

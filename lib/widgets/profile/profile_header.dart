@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart'; // Added SharePlus
 import 'package:xprex/screens/profile_setup_screen.dart';
 import 'package:xprex/screens/creator_hub_screen.dart';
 import 'package:xprex/screens/follow_list_screen.dart';
@@ -7,11 +6,14 @@ import 'package:xprex/screens/follow_list_screen.dart';
 class ProfileHeader extends StatelessWidget {
   final dynamic profile; 
   final ThemeData theme;
+  // NEW: Callback for the share action
+  final VoidCallback onShare;
   
   const ProfileHeader({
     super.key,
     required this.profile,
     required this.theme,
+    required this.onShare,
   });
 
   @override
@@ -142,12 +144,10 @@ class ProfileHeader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 12),
-                  
-                // Share Button
+                
+                // Share Button (Now uses the callback)
                 InkWell(
-                  onTap: () {
-                    Share.share('Check out my profile on XpreX: @${profile.username}');
-                  },
+                  onTap: onShare,
                   borderRadius: BorderRadius.circular(30),
                   child: Container(
                     padding: const EdgeInsets.all(10),
