@@ -8,7 +8,7 @@ import 'package:xprex/services/video_service.dart';
 import 'package:xprex/config/supabase_config.dart';
 
 class UserProfileScreen extends StatefulWidget {
-  final String userId; // Supabase auth user id
+  final String userId; 
   const UserProfileScreen({super.key, required this.userId});
 
   @override
@@ -37,8 +37,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _loading = true);
     try {
       final profile = await _profileSvc.getProfileByAuthId(widget.userId);
-      // NOTE: In a future update, we should filter these by privacy (public/followers)
-      // For now, we fetch all videos returned by the service.
+      // NOTE: VideoService now automatically handles the privacy filtering!
       final created = await _videoSvc.getUserVideos(widget.userId);
       final reposted = await _videoSvc.getRepostedVideos(widget.userId);
       
@@ -88,7 +87,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         );
       }
     } catch (e) {
-      // Revert on error
       if (mounted) {
         setState(() {
           _isFollowing = !_isFollowing;
@@ -98,37 +96,94 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
+  // --- UPDATED SHARE LINK ---
   void _shareProfile() {
-    final url = 'https://getxprex.com/u/${widget.userId}';
+    // Points to your new Cloudflare Worker
+    final url = 'https://profile.getxprex.com?u=${widget.userId}';
     Share.share('Check out ${_profile?.displayName ?? "this user"} on XpreX! $url');
   }
 
+  // --- UPDATED BLOCK & REPORT LOGIC ---
   void _showOptionsSheet() {
+    final viewerId = supabase.auth.currentUser?.id;
+    if (viewerId == null) return;
+
     showModalBottomSheet(
       context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.flag_outlined, color: Colors.red),
-              title: const Text('Report User', style: TextStyle(color: Colors.red)),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report submitted')));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.block_outlined),
-              title: const Text('Block User'),
-              onTap: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked')));
-              },
-            ),
-          ],
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                width: 40, height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.flag_outlined, color: Colors.red),
+                title: const Text('Report User', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmReport(viewerId);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.block_outlined),
+                title: const Text('Block User'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _confirmBlock(viewerId);
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  void _confirmReport(String viewerId) {
+    // Simple report for now - reasons can be expanded later
+    _profileSvc.reportUser(
+      reporterId: viewerId, 
+      reportedId: widget.userId, 
+      reason: 'Inappropriate Content'
+    );
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Report submitted. We will review this shortly.')));
+  }
+
+  void _confirmBlock(String viewerId) {
+    showDialog(
+      context: context, 
+      builder: (ctx) => AlertDialog(
+        title: const Text("Block User?"),
+        content: const Text("They will not be able to find your profile, posts or story on XpreX. XpreX will not let them know you blocked them."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                await _profileSvc.blockUser(blockerId: viewerId, blockedId: widget.userId);
+                if (mounted) {
+                  context.go('/'); // Kick user back to home
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked')));
+                }
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to block user')));
+              }
+            }, 
+            child: const Text("Block", style: TextStyle(color: Colors.red))
+          ),
+        ],
+      )
     );
   }
 
@@ -168,7 +223,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         body: NestedScrollView(
           headerSliverBuilder: (context, _) => [
             SliverAppBar(
-              expandedHeight: 400, // Adjusted height for info
+              expandedHeight: 400,
               pinned: true,
               backgroundColor: theme.scaffoldBackgroundColor,
               leading: BackButton(color: theme.colorScheme.onSurface),
@@ -190,23 +245,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               ],
               flexibleSpace: FlexibleSpaceBar(
                 background: Padding(
-                  padding: const EdgeInsets.only(top: 90.0), // push down below navbar
+                  padding: const EdgeInsets.only(top: 90.0), 
                   child: Column(
                     children: [
-                      // Avatar
                       CircleAvatar(
                         radius: 40,
                         backgroundColor: theme.dividerColor,
                         backgroundImage: NetworkImage(_profile!.avatarUrl ?? 'https://placehold.co/100'),
                       ),
                       const SizedBox(height: 12),
-                      // Name
                       Text(
                         _profile!.displayName,
                         style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 16),
-                      // Stats Row (Likes removed)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -216,7 +268,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ],
                       ),
                       const SizedBox(height: 20),
-                      // Buttons
                       if (!isMe)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 40),
@@ -250,7 +301,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ),
                         ),
                       const SizedBox(height: 16),
-                      // Bio
                       if (_profile!.bio != null && _profile!.bio!.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -275,8 +325,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   labelColor: theme.colorScheme.onSurface,
                   unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                   tabs: const [
-                    Tab(icon: Icon(Icons.grid_on)), // Created
-                    Tab(icon: Icon(Icons.repeat)),  // Reposts
+                    Tab(icon: Icon(Icons.grid_on)), 
+                    Tab(icon: Icon(Icons.repeat)),  
                   ],
                 ),
                 theme.scaffoldBackgroundColor,
@@ -323,7 +373,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       padding: const EdgeInsets.all(1),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        childAspectRatio: 0.75, // Standard vertical video ratio
+        childAspectRatio: 0.75,
         crossAxisSpacing: 1,
         mainAxisSpacing: 1,
       ),
@@ -332,17 +382,14 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         final video = videos[index];
         return GestureDetector(
           onTap: () {
-            // NAVIGATE TO SCROLLABLE PLAYER
-            // We pass the full list so they can scroll
             context.push('/video-player', extra: {
               'videos': videos,
               'index': index,
-              // Pass username ONLY if we are in repost tab to trigger the badge logic
               'repostContextUsername': isRepostTab ? _profile?.username : null,
             });
           },
           child: Container(
-            color: Colors.black, // Placeholder background
+            color: Colors.black, 
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -351,7 +398,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                 else
                   const Center(child: Icon(Icons.play_arrow, color: Colors.white)),
                 
-                // View Count Overlay
                 Positioned(
                   bottom: 4,
                   left: 4,
