@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:xprex/models/video_model.dart'; // Needed for casting
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
@@ -19,6 +20,7 @@ import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 import 'package:xprex/screens/reset_password_screen.dart';
 import 'package:xprex/screens/single_video_screen.dart'; 
+import 'package:xprex/screens/video_player_screen.dart'; // NEW IMPORT
 
 // 1. GLOBAL OBSERVER
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
@@ -51,11 +53,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     
     redirect: (context, state) {
       // --- 1. DEEP LINK NORMALIZATION ---
-      // Fixes "no routes for location: xprex://video/..."
       if (state.uri.scheme == 'xprex') {
-        // Incoming: xprex://video/123
-        // Host: video
-        // Path: /123
         if (state.uri.host == 'video') {
           return '/video${state.uri.path}'; // Returns "/video/123"
         }
@@ -121,13 +119,25 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/reset-password',
         builder: (context, state) => const ResetPasswordScreen(),
       ),
-      // --- DEEP LINK ROUTE ---
+      // --- DEEP LINK ROUTE (Single Video) ---
       GoRoute(
         path: '/video/:id',
         builder: (context, state) {
           final id = state.pathParameters['id'];
           if (id == null) return const MainShell(); 
           return SingleVideoScreen(videoId: id);
+        },
+      ),
+      // --- NEW: PROFILE FEED PLAYER (Scrollable List) ---
+      GoRoute(
+        path: '/video-player',
+        builder: (context, state) {
+          final args = state.extra as Map<String, dynamic>;
+          return VideoPlayerScreen(
+            videos: args['videos'] as List<VideoModel>,
+            initialIndex: args['index'] as int,
+            repostContextUsername: args['repostContextUsername'] as String?,
+          );
         },
       ),
       GoRoute(
