@@ -37,8 +37,6 @@ class VideoService {
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
           .inFilter('author_auth_user_id', followingIds)
-          // --- GATEKEEPER 2A: FOLLOWING FEED ---
-          // Allow 'public' OR 'followers', but BLOCK 'private'
           .neq('privacy_level', 'private') 
           .order('created_at', ascending: false)
           .limit(limit);
@@ -55,8 +53,6 @@ class VideoService {
       final response = await _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
-          // --- GATEKEEPER 2B: FALLBACK FEED ---
-          // Strictly Public only
           .eq('privacy_level', 'public')
           .order('created_at', ascending: false)
           .limit(limit);
@@ -94,16 +90,44 @@ class VideoService {
     }
   }
   
-  Future<List<VideoModel>> getUserVideos(String userId) async {
+  // --- UPDATED: SMART PRIVACY FILTER ---
+  Future<List<VideoModel>> getUserVideos(String authorId) async {
     try {
-      final response = await _supabase
+      final viewerId = _supabase.auth.currentUser?.id;
+      
+      // 1. Base Query
+      var query = _supabase
           .from('videos')
           .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
-          .eq('author_auth_user_id', userId)
-          // Note: We show all videos on profile, but you might want to filter 
-          // based on who is viewing (me vs stranger). For now, we leave it open 
-          // so the author can see their own private videos.
-          .order('created_at', ascending: false);
+          .eq('author_auth_user_id', authorId);
+
+      // 2. Privacy Logic
+      if (viewerId == authorId) {
+        // CASE A: Author viewing own profile -> Show ALL (Public, Followers, Private)
+        // No filter needed.
+      } else if (viewerId != null) {
+        // CASE B: Logged in user viewing someone else
+        final count = await _supabase
+            .from('follows')
+            .count()
+            .eq('follower_auth_user_id', viewerId)
+            .eq('followee_auth_user_id', authorId);
+        
+        final isFollowing = count > 0;
+
+        if (isFollowing) {
+          // Following -> Show Public + Followers
+          query = query.inFilter('privacy_level', ['public', 'followers']);
+        } else {
+          // Stranger -> Show Public Only
+          query = query.eq('privacy_level', 'public');
+        }
+      } else {
+        // CASE C: Guest (Not logged in) -> Public Only
+        query = query.eq('privacy_level', 'public');
+      }
+
+      final response = await query.order('created_at', ascending: false);
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
       print('Error fetching user videos: $e');
