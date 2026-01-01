@@ -5,7 +5,8 @@ import 'package:xprex/theme.dart';
 import 'package:xprex/services/search_service.dart';
 import 'package:xprex/models/video_model.dart';
 import 'package:xprex/models/profile_model.dart';
-import 'package:xprex/screens/video_player_screen.dart'; // Ensure this import works now
+import 'package:xprex/screens/video_player_screen.dart';
+// Ensure this import works now
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -41,7 +42,6 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    
     // Wait 500ms after typing stops before hitting database
     _debounce = Timer(const Duration(milliseconds: 500), () {
       if (query.trim().isNotEmpty && query != _currentQuery) {
@@ -73,7 +73,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Container(
@@ -145,7 +145,7 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
 
   Widget _buildVideoGrid(ThemeData theme) {
     if (_currentQuery.isEmpty) return _buildEmptyState(theme, '');
-    
+
     return GridView.builder(
       padding: const EdgeInsets.all(4),
       itemCount: _videoResults.length,
@@ -225,10 +225,21 @@ class _SearchScreenState extends State<SearchScreen> with SingleTickerProviderSt
         return ListTile(
           leading: CircleAvatar(
             backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            backgroundImage: user.avatarUrl != null ? NetworkImage(user.avatarUrl!) : null,
+            backgroundImage: user.avatarUrl != null 
+              ? NetworkImage(user.avatarUrl!) : null,
             child: user.avatarUrl == null ? const Icon(Icons.person) : null,
           ),
-          title: Text(user.displayName),
+          // [NEW] Added Verified Badge
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: Text(user.displayName, overflow: TextOverflow.ellipsis)),
+              if (user.isPremium) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.verified, color: Colors.blue, size: 16),
+              ]
+            ],
+          ),
           subtitle: Text('@${user.username}'),
           onTap: () {
             context.push('/u/${user.authUserId}');
