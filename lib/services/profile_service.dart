@@ -21,17 +21,15 @@ class ProfileService {
     }
   }
 
-  // --- RESTORED & FIXED ---
   Future<void> ensureProfileExists({required String authUserId, required String email}) async {
     try {
       final exists = await getProfileByAuthId(authUserId);
       if (exists == null) {
-        // Create a minimal profile if none exists
         final newProfile = UserProfile(
-          id: authUserId, // FIXED: Added required 'id' (matches authUserId)
+          id: authUserId,
           authUserId: authUserId,
           email: email,
-          username: 'user_${authUserId.substring(0, 5)}', // Temporary username
+          username: 'user_${authUserId.substring(0, 5)}',
           displayName: email.split('@')[0],
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
@@ -40,7 +38,6 @@ class ProfileService {
       }
     } catch (e) {
       debugPrint('Error ensuring profile exists: $e');
-      // Don't rethrow here to allow app flow to continue if possible
     }
   }
 
@@ -116,7 +113,6 @@ class ProfileService {
         'follower_auth_user_id': followerId,
         'followee_auth_user_id': followeeId,
       });
-      // Increment counts via RPC
       try { await _supabase.rpc('increment_followers', params: {'target_user_id': followeeId});
       } catch (_) {}
       try { await _supabase.rpc('increment_following', params: {'target_user_id': followerId});
@@ -132,7 +128,6 @@ class ProfileService {
       await _supabase.from('follows').delete()
           .eq('follower_auth_user_id', followerId)
           .eq('followee_auth_user_id', followeeId);
-      // Decrement counts via RPC
       try { await _supabase.rpc('decrement_followers', params: {'target_user_id': followeeId});
       } catch (_) {}
       try { await _supabase.rpc('decrement_following', params: {'target_user_id': followerId});
@@ -145,14 +140,12 @@ class ProfileService {
 
   Future<List<UserProfile>> getFollowersList(String userId) async {
     try {
-      // 1. Get all follower IDs
       final follows = await _supabase
           .from('follows')
           .select('follower_auth_user_id')
           .eq('followee_auth_user_id', userId);
       final ids = (follows as List).map((e) => e['follower_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-      // 2. Fetch profiles for those IDs
       final profiles = await _supabase
           .from('profiles')
           .select()
@@ -166,14 +159,12 @@ class ProfileService {
 
   Future<List<UserProfile>> getFollowingList(String userId) async {
     try {
-      // 1. Get all followee IDs
       final follows = await _supabase
           .from('follows')
           .select('followee_auth_user_id')
           .eq('follower_auth_user_id', userId);
       final ids = (follows as List).map((e) => e['followee_auth_user_id']).toList();
       if (ids.isEmpty) return [];
-      // 2. Fetch profiles
       final profiles = await _supabase
           .from('profiles')
           .select()
@@ -182,6 +173,36 @@ class ProfileService {
     } catch (e) {
       debugPrint('❌ Error fetching following list: $e');
       return [];
+    }
+  }
+
+  // --- SAFETY METHODS (BLOCK & REPORT) ---
+
+  Future<void> blockUser({required String blockerId, required String blockedId}) async {
+    try {
+      await _supabase.from('user_blocks').insert({
+        'blocker_id': blockerId,
+        'blocked_id': blockedId,
+      });
+      // Optionally unfollow as well
+      try { await unfollowUser(followerId: blockerId, followeeId: blockedId); } catch (_) {}
+      try { await unfollowUser(followerId: blockedId, followeeId: blockerId); } catch (_) {}
+    } catch (e) {
+      debugPrint('❌ Error blocking user: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> reportUser({required String reporterId, required String reportedId, required String reason}) async {
+    try {
+      await _supabase.from('reports').insert({
+        'reporter_id': reporterId,
+        'reported_user_id': reportedId,
+        'reason': reason,
+      });
+    } catch (e) {
+      debugPrint('❌ Error reporting user: $e');
+      rethrow;
     }
   }
 }

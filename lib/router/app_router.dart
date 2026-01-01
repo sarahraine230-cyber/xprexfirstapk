@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:xprex/models/video_model.dart'; // Needed for casting
+import 'package:xprex/models/video_model.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/screens/splash_screen.dart';
 import 'package:xprex/screens/brand_splash_screen.dart';
@@ -20,12 +20,10 @@ import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
 import 'package:xprex/screens/reset_password_screen.dart';
 import 'package:xprex/screens/single_video_screen.dart'; 
-import 'package:xprex/screens/video_player_screen.dart'; // NEW IMPORT
+import 'package:xprex/screens/video_player_screen.dart';
 
-// 1. GLOBAL OBSERVER
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
-// 2. STREAM LISTENER CLASS (Keeps Router alive on Auth Change)
 class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
@@ -52,10 +50,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: GoRouterRefreshStream(authService.authStateChanges),
     
     redirect: (context, state) {
-      // --- 1. DEEP LINK NORMALIZATION ---
+      // --- DEEP LINK NORMALIZATION ---
       if (state.uri.scheme == 'xprex') {
+        // 1. VIDEO LINK: xprex://video/123 -> /video/123
         if (state.uri.host == 'video') {
-          return '/video${state.uri.path}'; // Returns "/video/123"
+          return '/video${state.uri.path}';
+        }
+        // 2. PROFILE LINK: xprex://u/123 -> /u/123
+        if (state.uri.host == 'u') {
+          return '/u${state.uri.path}';
         }
       }
 
@@ -68,20 +71,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final isVerify = state.uri.path == '/email-verification';
       final isReset = state.uri.path == '/reset-password';
       
-      // Check if we are trying to view a video
       final isDeepLink = state.uri.path.startsWith('/video/');
+      // Allow profile deep links too
+      final isProfileLink = state.uri.path.startsWith('/u/');
 
-      // --- 2. Unauthenticated Users ---
       if (!isAuth) {
-        // Allow deep links (video playback) even if not logged in!
-        if (isSplash || isBrandSplash || isLogin || isSignup || isVerify || isDeepLink) {
+        if (isSplash || isBrandSplash || isLogin || isSignup || isVerify || isDeepLink || isProfileLink) {
           return null;
         }
         return '/brand-splash';
       }
 
-      // --- 3. Authenticated Users ---
-      if (isVerify || isReset || isDeepLink) return null;
+      if (isVerify || isReset || isDeepLink || isProfileLink) return null;
 
       if (isSplash || isLogin || isSignup) return '/';
       
@@ -119,7 +120,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/reset-password',
         builder: (context, state) => const ResetPasswordScreen(),
       ),
-      // --- DEEP LINK ROUTE (Single Video) ---
       GoRoute(
         path: '/video/:id',
         builder: (context, state) {
@@ -128,7 +128,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return SingleVideoScreen(videoId: id);
         },
       ),
-      // --- NEW: PROFILE FEED PLAYER (Scrollable List) ---
       GoRoute(
         path: '/video-player',
         builder: (context, state) {
