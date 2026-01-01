@@ -19,6 +19,7 @@ class CommentModel {
   String? authorUsername;
   String? authorDisplayName;
   String? authorAvatarUrl;
+  bool authorIsPremium; // [NEW] Verification Badge
 
   CommentModel({
     required this.id,
@@ -35,6 +36,7 @@ class CommentModel {
     this.authorUsername,
     this.authorDisplayName,
     this.authorAvatarUrl,
+    this.authorIsPremium = false,
   });
 
   factory CommentModel.fromJson(Map<String, dynamic> json) {
@@ -63,6 +65,8 @@ class CommentModel {
         comment.authorUsername = profile['username'] as String?;
         comment.authorDisplayName = profile['display_name'] as String?;
         comment.authorAvatarUrl = profile['avatar_url'] as String?;
+        // [NEW] Map premium status
+        comment.authorIsPremium = profile['is_premium'] as bool? ?? false;
       }
     }
     
