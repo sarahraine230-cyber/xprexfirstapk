@@ -5,11 +5,11 @@ import 'package:xprex/models/comment_model.dart';
 
 class CommentsSheet extends StatefulWidget {
   final String videoId;
-  final int initialCount; 
+  final int initialCount;
   final VoidCallback? onNewComment;
   // NEW: Argument to control permission
-  final bool allowComments; 
-
+  final bool allowComments;
+  
   const CommentsSheet({
     super.key,
     required this.videoId, 
@@ -17,6 +17,7 @@ class CommentsSheet extends StatefulWidget {
     this.onNewComment,
     this.allowComments = true,
   });
+
   @override
   State<CommentsSheet> createState() => _CommentsSheetState();
 }
@@ -29,7 +30,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
   late int _commentsCount;
   CommentModel? _replyingTo;
   final List<String> _quickEmojis = ['🔥', '😂', '😍', '👏', '😢', '😮', '💯', '🙏'];
-  
+
   @override
   void initState() {
     super.initState();
@@ -46,6 +47,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
   Future<void> _post() async {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _posting) return;
+    
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to comment')));
@@ -223,7 +225,7 @@ class _CommentRow extends StatefulWidget {
 class _CommentRowState extends State<_CommentRow> {
   late bool _isLiked;
   late int _likesCount;
-
+  
   @override
   void initState() {
     super.initState();
@@ -242,7 +244,16 @@ class _CommentRowState extends State<_CommentRow> {
             CircleAvatar(radius: 20, backgroundImage: c.authorAvatarUrl != null ? NetworkImage(c.authorAvatarUrl!) : null, child: c.authorAvatarUrl == null ? const Icon(Icons.person) : null),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(c.authorDisplayName ?? '@${c.authorUsername}', style: const TextStyle(fontWeight: FontWeight.bold)),
+              // [NEW] Updated Name to include Verification Badge
+              Row(
+                children: [
+                  Text(c.authorDisplayName ?? '@${c.authorUsername}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                  if (c.authorIsPremium) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.verified, color: Colors.blue, size: 14),
+                  ]
+                ],
+              ),
               Text(c.text),
               GestureDetector(onTap: () => widget.onReplyTap(c), child: const Text('Reply', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
             ])),
