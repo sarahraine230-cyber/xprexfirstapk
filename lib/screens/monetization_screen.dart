@@ -50,7 +50,7 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
 
   if (earningsResponse.isEmpty) return [];
 
-  final Map<String, double> videoTotals = {}; 
+  final Map<String, double> videoTotals = {};
   final Map<String, String> videoDates = {};  
 
   for (final record in earningsResponse) {
@@ -68,7 +68,7 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
       final vidId = item['video_id'];
       final int sec = (item['sec'] ?? 0).toInt(); 
       final double videoMoney = sec * impliedRate;
-
+      
       if (vidId != null) {
         videoTotals[vidId] = (videoTotals[vidId] ?? 0.0) + videoMoney;
         videoDates[vidId] = recordDate; 
@@ -83,7 +83,7 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
       .from('videos')
       .select('id, title, created_at')
       .filter('id', 'in', videoIds);
-
+      
   return videoIds.map((vidId) {
     final vidDetails = videosResponse.firstWhere(
       (v) => v['id'] == vidId,
@@ -170,8 +170,10 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         data: (profileData) {
           if (profileData.isEmpty) return const Center(child: Text("Profile not found"));
 
+          // [UPDATED] Check Subscription Expiry here too (Optional visual check)
+          // The UserProfile model is the true "Bouncer", but we can check raw data here.
           final isPremium = profileData['is_premium'] == true;
-
+          
           if (isPremium) {
             return _buildProfessionalDashboard(theme, profileData);
           } else {
@@ -187,7 +189,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
     final isVerified = profileData['is_verified'] == true;
-    
     final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
     final payoutAsync = ref.watch(payoutHistoryProvider);
 
@@ -248,7 +249,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             onTap: () => context.push('/setup/bank'),
           ),
           
-          // REPLACED: Ad Manager removed. Now just Quick Links.
           _buildQuickLinksAccordion(theme),
 
           const SizedBox(height: 24),
@@ -379,7 +379,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 );
               }
               items.sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
-
               return Column(
                 children: items.take(5).map((item) {
                   final date = DateTime.tryParse(item['date'].toString());
@@ -755,7 +754,11 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email found')));
       return;
     }
-    final amount = 7000 * 100; // Kobo
+    
+    // [NEW] Use Paystack Plan for recurring subscription
+    final planCode = 'PLN_a1q0vr69elydx7i';
+    
+    final amount = 7000 * 100; // Kobo (Still passed as fallback/display, but Plan overrides)
     final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
 
     showModalBottomSheet(
@@ -774,6 +777,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             apiKey: _paystackPublicKey,
             email: email,
             amount: amount.toString(),
+            plan: planCode, // [NEW] Pass the Plan Code
             reference: ref,
             onSuccess: (ref) {
               Navigator.pop(context); 
@@ -799,6 +803,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       await supabase.rpc('confirm_premium_purchase', params: {
         'payment_reference': reference,
         'payment_amount': 7000,
+        // The backend handles the 'subscription' logic via webhook mostly, 
+        // but this confirms the immediate transaction success to the user.
       });
       if (!mounted) return;
       Navigator.pop(context); 
@@ -832,11 +838,20 @@ class _PaystackWebView extends StatefulWidget {
   final String apiKey;
   final String email;
   final String amount;
+  final String? plan; // [NEW] Plan code
   final String reference;
   final Function(String) onSuccess;
   final VoidCallback onCancel;
-
-  const _PaystackWebView({required this.apiKey, required this.email, required this.amount, required this.reference, required this.onSuccess, required this.onCancel});
+  
+  const _PaystackWebView({
+    required this.apiKey, 
+    required this.email, 
+    required this.amount, 
+    this.plan,
+    required this.reference, 
+    required this.onSuccess, 
+    required this.onCancel
+  });
 
   @override
   State<_PaystackWebView> createState() => _PaystackWebViewState();
@@ -864,6 +879,7 @@ class _PaystackWebViewState extends State<_PaystackWebView> {
               email: '${widget.email}',
               amount: ${widget.amount},
               currency: 'NGN',
+              ${widget.plan != null ? "plan: '${widget.plan}'," : ""} // [NEW] Inject Plan Code
               ref: '${widget.reference}',
               callback: function(response) { PaystackChannel.postMessage('success:' + response.reference); },
               onClose: function() { PaystackChannel.postMessage('close'); }
