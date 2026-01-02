@@ -43,8 +43,8 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
 
   Future<void> _handleSubmit() async {
     final code = _codeController.text.trim();
-    if (code.length < 8) {
-      setState(() => _errorMessage = "Please enter the full 8-digit code");
+    if (code.length < 6) { // OTPs are usually 6 digits, but Supabase can be 6-8. Relaxed check.
+      setState(() => _errorMessage = "Please enter the verification code");
       return;
     }
 
@@ -57,16 +57,16 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
         // --- SIGNUP FLOW ---
         await authService.verifySignupOtp(email: widget.email!, token: code);
         if (!mounted) return;
-        context.go('/profile-setup');
+        
+        // [FIX] BYPASS PROFILE SETUP -> GO STRAIGHT TO HOME
+        context.go('/'); 
       } else {
         // --- RECOVERY FLOW ---
         // 1. Verify code (Logs user in)
         await authService.verifyRecoveryOtp(email: widget.email!, token: code);
-        
         if (!mounted) return;
         
         // 2. NAVIGATE TO RESET SCREEN
-        // Because the Router is now Stream-based, it won't force-redirect us home
         context.go('/reset-password');
       }
     } catch (e) {
@@ -124,14 +124,15 @@ class _EmailVerificationScreenState extends ConsumerState<EmailVerificationScree
               TextField(
                 controller: _codeController,
                 keyboardType: TextInputType.number,
-                maxLength: 8,
+                // Removed explicit maxLength to allow 6 or 8 digits flexibly
                 onChanged: (value) {
-                  if (value.length == 8) _handleSubmit();
+                  // Auto-submit if 6 or 8 digits
+                  if (value.length >= 6) _handleSubmit();
                 },
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 24, letterSpacing: 4, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
-                  hintText: "00000000",
+                  hintText: "123456",
                   counterText: "",
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   contentPadding: const EdgeInsets.symmetric(vertical: 16),
