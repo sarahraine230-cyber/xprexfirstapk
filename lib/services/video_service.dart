@@ -7,6 +7,7 @@ class VideoService {
 
   Future<List<VideoModel>> getForYouFeed({int limit = 20}) async {
     try {
+      // NOTE: Ensure your Edge Function 'feed-algorithm' also selects is_premium!
       final response = await _supabase.functions.invoke('feed-algorithm');
       final data = response.data;
       if (data == null) return [];
@@ -35,7 +36,8 @@ class VideoService {
 
       final videosRes = await _supabase
           .from('videos')
-          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          // [NEW] Added is_premium to select
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
           .inFilter('author_auth_user_id', followingIds)
           .neq('privacy_level', 'private') 
           .order('created_at', ascending: false)
@@ -52,10 +54,12 @@ class VideoService {
     try {
       final response = await _supabase
           .from('videos')
-          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          // [NEW] Added is_premium to select
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
           .eq('privacy_level', 'public')
           .order('created_at', ascending: false)
           .limit(limit);
+      
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
       print('Fallback feed error: $e');
@@ -94,17 +98,16 @@ class VideoService {
   Future<List<VideoModel>> getUserVideos(String authorId) async {
     try {
       final viewerId = _supabase.auth.currentUser?.id;
-      
       // 1. Base Query
+      // [NEW] Added is_premium to select
       var query = _supabase
           .from('videos')
-          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
           .eq('author_auth_user_id', authorId);
-
+      
       // 2. Privacy Logic
       if (viewerId == authorId) {
         // CASE A: Author viewing own profile -> Show ALL (Public, Followers, Private)
-        // No filter needed.
       } else if (viewerId != null) {
         // CASE B: Logged in user viewing someone else
         final count = await _supabase
@@ -131,17 +134,19 @@ class VideoService {
       return (response as List).map((e) => VideoModel.fromMap(e)).toList();
     } catch (e) {
       print('Error fetching user videos: $e');
-      return []; 
+      return [];
     }
   }
 
   Future<List<VideoModel>> getRepostedVideos(String userId) async {
     try {
+      // [NEW] Added is_premium to select (nested in video:videos)
       final response = await _supabase
           .from('reposts')
-          .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url))')
+          .select('created_at, video:videos(*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium))')
           .eq('user_auth_id', userId)
           .order('created_at', ascending: false);
+      
       final list = <VideoModel>[];
       final data = response as List<dynamic>;
       for (final row in data) {
@@ -161,6 +166,7 @@ class VideoService {
     final userId = _supabase.auth.currentUser?.id;
     if (userId == null) return;
     if (userId == authorId) return;
+
     try {
       await _supabase.from('video_views').insert({
         'video_id': videoId,
@@ -180,6 +186,7 @@ class VideoService {
          .eq('video_id', videoId)
          .eq('user_auth_id', userId) 
          .maybeSingle();
+     
      if (existing != null) {
        await _supabase.from('likes').delete().eq('id', existing['id']);
        try { await _supabase.rpc('decrement_video_like', params: {'video_id': videoId});
@@ -213,7 +220,12 @@ class VideoService {
   
   Future<VideoModel?> getVideoById(String id) async {
     try {
-      final data = await _supabase.from('videos').select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url)').eq('id', id).single();
+      // [NEW] Added is_premium to select
+      final data = await _supabase
+          .from('videos')
+          .select('*, profiles!videos_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
+          .eq('id', id)
+          .single();
       return VideoModel.fromMap(data);
     } catch (e) {
       return null;

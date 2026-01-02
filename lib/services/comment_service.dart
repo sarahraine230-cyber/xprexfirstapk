@@ -11,17 +11,18 @@ class CommentService {
   Future<List<CommentModel>> getCommentsByVideo(String videoId) async {
     try {
       // 1. Fetch Root Comments (no parent)
+      // [NEW] Added is_premium to select
       final response = await _supabase
           .from('comments')
-          .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
           .eq('video_id', videoId)
-          .filter('parent_id', 'is', null) // FIX: Replaced .is_() with .filter()
+          .filter('parent_id', 'is', null)
           .order('created_at', ascending: false);
 
       final comments = (response as List)
           .map((json) => CommentModel.fromJson(json as Map<String, dynamic>))
           .toList();
-      
+
       // 2. Enrich with "isLiked" status if user is logged in
       await _enrichIsLiked(comments);
 
@@ -39,9 +40,10 @@ class CommentService {
   /// Fetches REPLIES for a specific parent comment.
   Future<List<CommentModel>> getReplies(String parentId) async {
     try {
+      // [NEW] Added is_premium to select
       final response = await _supabase
           .from('comments')
-          .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url)')
+          .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
           .eq('parent_id', parentId) // FILTER: Children of this parent
           .order('created_at', ascending: true); // Oldest first for conversation flow
 
@@ -68,14 +70,13 @@ class CommentService {
 
     try {
       final ids = comments.map((c) => c.id).toList();
-      
       // Fetch only the likes that belong to this user for these specific comments
       final likes = await _supabase
           .from('comment_likes')
           .select('comment_id')
           .eq('user_auth_id', uid)
           .inFilter('comment_id', ids);
-      
+
       final likedIds = (likes as List).map((m) => m['comment_id'] as String).toSet();
 
       for (var c in comments) {
@@ -104,12 +105,13 @@ class CommentService {
       };
 
       try {
+        // [NEW] Added is_premium to select
         final response = await _supabase
             .from('comments')
             .insert(data)
-            .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url)')
+            .select('*, profiles!comments_author_auth_user_id_fkey(username, display_name, avatar_url, is_premium)')
             .single();
-
+            
         debugPrint('✅ Comment/Reply created');
         return CommentModel.fromJson(response);
       } catch (e2) {
@@ -120,10 +122,11 @@ class CommentService {
             .insert(data)
             .select('*')
             .single();
-           
+            
+           // [NEW] Added is_premium to select
            final profile = await _supabase
             .from('profiles')
-            .select('auth_user_id, username, display_name, avatar_url')
+            .select('auth_user_id, username, display_name, avatar_url, is_premium')
             .eq('auth_user_id', authorAuthUserId)
             .maybeSingle();
 
@@ -189,13 +192,10 @@ class CommentService {
   // --- Fallback Method (preserved from previous version, updated for hierarchy) ---
   Future<List<CommentModel>> _fallbackFetchComments(String id, {required bool isRoot}) async {
      debugPrint('ℹ️ Falling back to 2-step comments fetch');
-     
-     // FIX: Changed logic to avoid Type Assignment error
      final builder = _supabase.from('comments').select('*');
      
      final List<dynamic> rows;
      if (isRoot) {
-       // FIX: Replaced .is_() with .filter() and handled chaining cleanly
        rows = await builder
            .eq('video_id', id)
            .filter('parent_id', 'is', null) 
@@ -216,10 +216,12 @@ class CommentService {
 
       Map<String, Map<String, dynamic>> profilesByAuthId = {};
       if (authorIds.isNotEmpty) {
+        // [NEW] Added is_premium to select
         final profs = await _supabase
             .from('profiles')
-            .select('auth_user_id, username, display_name, avatar_url')
+            .select('auth_user_id, username, display_name, avatar_url, is_premium')
             .inFilter('auth_user_id', authorIds.toList());
+
         for (final p in (profs as List)) {
           final pm = (p as Map<String, dynamic>);
           final aid = pm['auth_user_id'] as String?;

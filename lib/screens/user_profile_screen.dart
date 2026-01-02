@@ -74,6 +74,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _isFollowing = !_isFollowing;
       _followerCount += _isFollowing ? 1 : -1;
     });
+
     try {
       if (_isFollowing) {
         await _profileSvc.followUser(
@@ -196,7 +197,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     if (_loading) {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -227,9 +228,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               pinned: true,
               backgroundColor: theme.scaffoldBackgroundColor,
               leading: BackButton(color: theme.colorScheme.onSurface),
-              title: Text(
-                _profile!.username, 
-                style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.bold)
+              // [NEW] Updated Title with Badge
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      _profile!.username, 
+                      style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_profile!.isPremium) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.verified, color: Colors.blue, size: 14),
+                  ]
+                ],
               ),
               centerTitle: true,
               actions: [
@@ -254,10 +268,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         backgroundImage: NetworkImage(_profile!.avatarUrl ?? 'https://placehold.co/100'),
                       ),
                       const SizedBox(height: 12),
-                      Text(
-                        _profile!.displayName,
-                        style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.bold),
+                      
+                      // [NEW] Updated Display Name with Badge
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _profile!.displayName,
+                            style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          if (_profile!.isPremium) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.verified, color: Colors.blue, size: 18),
+                          ],
+                        ],
                       ),
+                      
                       const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,

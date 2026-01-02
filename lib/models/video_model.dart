@@ -25,6 +25,8 @@ class VideoModel {
   String? authorUsername;
   String? authorDisplayName;
   String? authorAvatarUrl;
+  bool authorIsPremium; // [NEW] Verification Badge Field
+
   bool? isLikedByCurrentUser;
 
   final String? repostedByUsername;
@@ -57,6 +59,7 @@ class VideoModel {
     this.authorUsername,
     this.authorDisplayName,
     this.authorAvatarUrl,
+    this.authorIsPremium = false, // Default to false
     
     this.isLikedByCurrentUser,
     this.repostedByUsername,
@@ -100,11 +103,14 @@ class VideoModel {
       
       createdAt: DateTime.parse(json['created_at']),
       updatedAt: DateTime.parse(json['updated_at']),
+      
       tags: json['tags'] != null ? List<String>.from(json['tags']) : [],
       
       authorUsername: profileMap?['username'] as String?,
       authorDisplayName: profileMap?['display_name'] as String?,
       authorAvatarUrl: profileMap?['avatar_url'] as String?,
+      // [NEW] Map the premium status
+      authorIsPremium: profileMap?['is_premium'] as bool? ?? false,
       
       isLikedByCurrentUser: false, 
       

@@ -8,7 +8,7 @@ class ProfileHeader extends StatelessWidget {
   final ThemeData theme;
   // NEW: Callback for the share action
   final VoidCallback onShare;
-  
+
   const ProfileHeader({
     super.key,
     required this.profile,
@@ -38,13 +38,23 @@ class ProfileHeader extends StatelessWidget {
             const SizedBox(height: 16),
             
             // 2. Name & Handle
-            Text(
-              profile.displayName,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                fontSize: 22,
-              ),
-              textAlign: TextAlign.center,
+            // [NEW] Row for Name + Badge
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  profile.displayName,
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 22,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                if (profile.isPremium) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.verified, color: Colors.blue, size: 22),
+                ],
+              ],
             ),
             Text(
               '@${profile.username}',

@@ -41,7 +41,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   final _profileService = ProfileService();
 
   CachedVideoPlayerPlusController? _controller;
-  
   late AnimationController _playPauseController;
   late Animation<double> _playPauseAnimation;
 
@@ -55,12 +54,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
   bool _isSaved = false;
   bool _isReposted = false;
   bool _isFollowing = false;
-  
   bool _loading = true;
   Timer? _watchTimer;
   int _secondsWatched = 0;
   bool _hasRecordedView = false;
-  
+
   @override
   void initState() {
     super.initState();
@@ -99,7 +97,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         Uri.parse(playableUrl),
         invalidateCacheIfOlderThan: const Duration(days: 30),
       )..setLooping(true);
-      
+
       await _controller!.initialize();
       
       final uid = supabase.auth.currentUser?.id;
@@ -120,7 +118,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         _repostService.isVideoReposted(widget.video.id, uid).then((reposted) {
           if (mounted) setState(() => _isReposted = reposted);
         });
-        
         if (!isOwnVideo) {
           _profileService.isFollowing(followerId: uid, followeeId: widget.video.authorAuthUserId)
               .then((following) {
@@ -226,7 +223,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     if (uid == widget.video.authorAuthUserId) return;
 
     setState(() => _isFollowing = !_isFollowing);
-
     try {
       if (_isFollowing) {
         await _profileService.followUser(followerId: uid, followeeId: widget.video.authorAuthUserId);
@@ -264,7 +260,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
     final url = 'https://watch.getxprex.com/?v=${widget.video.id}';
     await Share.share(url);
     setState(() => _shareCount++);
-    
     final uid = supabase.auth.currentUser?.id;
     if (uid != null) _videoService.recordShare(widget.video.id, uid);
   }
@@ -316,7 +311,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
               color: Colors.transparent,
               child: InkWell(
                 onTap: () {
-                   if (_controller == null) return;
+                  if (_controller == null) return;
                    if (_controller!.value.isPlaying) {
                      _controller!.pause();
                      _playPauseController.forward();
@@ -393,6 +388,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                             widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
                           ),
+                          // [NEW] Added Verified Badge in Feed
+                          if (widget.video.authorIsPremium ?? false) ...[
+                             const SizedBox(width: 4),
+                             const Icon(Icons.verified, color: Colors.blue, size: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
+                          ],
                         ],
                       ),
                     ),
