@@ -47,16 +47,18 @@ serve(async (req) => {
       .from('video_views')
       .select('video_id')
       .eq('viewer_id', user.id);
-
+    
     const watchedSet = new Set((history || []).map((h: any) => h.video_id));
 
     // 4. FETCH PROFILES
     const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
+    
+    // [NEW] Added is_premium to the select list
     const { data: profiles } = await supabaseClient
       .from('profiles')
-      .select('auth_user_id, username, display_name, avatar_url')
+      .select('auth_user_id, username, display_name, avatar_url, is_premium')
       .in('auth_user_id', userIds);
-
+      
     const profileMap: any = {};
     if (profiles) {
       profiles.forEach((p: any) => profileMap[p.auth_user_id] = p);
@@ -91,7 +93,9 @@ serve(async (req) => {
         profiles: authorProfile ? {
           username: authorProfile.username,
           display_name: authorProfile.display_name,
-          avatar_url: authorProfile.avatar_url
+          avatar_url: authorProfile.avatar_url,
+          // [NEW] Pass the premium status to the frontend
+          is_premium: authorProfile.is_premium 
         } : null
       };
     })
