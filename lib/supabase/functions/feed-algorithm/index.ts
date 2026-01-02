@@ -24,7 +24,7 @@ serve(async (req) => {
     const { data: { user } } = await supabaseClient.auth.getUser()
     if (!user) throw new Error('Unauthorized: User not logged in')
 
-    // 2. Fetch Candidates
+    // 2. Fetch Candidates (Raw Videos)
     let { data: candidates, error } = await supabaseClient
       .rpc('get_feed_candidates', { 
         viewer_id: user.id, 
@@ -39,7 +39,6 @@ serve(async (req) => {
 
     // --- GATEKEEPER 1: PUBLIC ONLY FILTER ---
     // Ensure "For You" only shows Public videos
-    // (We assume the RPC returns the privacy_level column)
     candidates = candidates.filter((v: any) => v.privacy_level === 'public');
 
     // 3. FETCH CONTEXT (Watch History)
@@ -53,7 +52,7 @@ serve(async (req) => {
     // 4. FETCH PROFILES
     const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
     
-    // [NEW] Added is_premium to the select list
+    // [CRITICAL] We fetch 'is_premium' here to power the Boost Logic
     const { data: profiles } = await supabaseClient
       .from('profiles')
       .select('auth_user_id, username, display_name, avatar_url, is_premium')
@@ -69,7 +68,7 @@ serve(async (req) => {
       // A. Base Score (Engagement)
       const engagementScore = (video.likes_count * 5) + (video.comments_count * 3) + (video.playback_count * 0.1);
       
-      // B. Recency Factor
+      // B. Recency Factor (Decay over time)
       const uploadTime = new Date(video.created_at).getTime();
       const now = new Date().getTime();
       const hoursAgo = Math.max(0, (now - uploadTime) / (1000 * 60 * 60));
@@ -77,16 +76,24 @@ serve(async (req) => {
       
       let finalScore = engagementScore / recencyFactor;
 
+      const authorProfile = profileMap[video.author_auth_user_id];
+
+      // --- [NEW] THE PREMIUM BOOST LOGIC ---
+      // If the author pays, they get 1.5x reach.
+      if (authorProfile && authorProfile.is_premium) {
+        finalScore = finalScore * 1.5; 
+      }
+
       // C. PENALTY LOGIC
+      // Penalty 1: Own videos
       if (video.author_auth_user_id === user.id) {
         finalScore *= 0.01; 
       }
+      // Penalty 2: Already watched
       if (watchedSet.has(video.id)) {
         finalScore *= 0.1; 
       }
 
-      const authorProfile = profileMap[video.author_auth_user_id];
-      
       return { 
         ...video, 
         algorithm_score: finalScore,
@@ -94,8 +101,7 @@ serve(async (req) => {
           username: authorProfile.username,
           display_name: authorProfile.display_name,
           avatar_url: authorProfile.avatar_url,
-          // [NEW] Pass the premium status to the frontend
-          is_premium: authorProfile.is_premium 
+          is_premium: authorProfile.is_premium // Pass to frontend for the badge
         } : null
       };
     })
