@@ -5,6 +5,7 @@ import 'package:xprex/models/comment_model.dart';
 
 class CommentsSheet extends StatefulWidget {
   final String videoId;
+  final String videoAuthorId; // [NEW] We need to know who the boss is
   final int initialCount;
   final VoidCallback? onNewComment;
   // NEW: Argument to control permission
@@ -13,6 +14,7 @@ class CommentsSheet extends StatefulWidget {
   const CommentsSheet({
     super.key,
     required this.videoId, 
+    required this.videoAuthorId,
     required this.initialCount, 
     this.onNewComment,
     this.allowComments = true,
@@ -134,11 +136,21 @@ class _CommentsSheetState extends State<CommentsSheet> {
                       if (snap.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
                       final items = snap.data ?? const <CommentModel>[];
                       if (items.isEmpty) return const Center(child: Text('No comments yet'));
+                      
                       return ListView.separated(
                         controller: scrollController,
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         itemCount: items.length,
-                        itemBuilder: (context, i) => _CommentRow(comment: items[i], onReplyTap: (c) => setState(() => _replyingTo = c)),
+                        itemBuilder: (context, i) {
+                          // [NEW] Check if this comment is from the video author
+                          final isCreator = items[i].authorAuthUserId == widget.videoAuthorId;
+                          
+                          return _CommentRow(
+                            comment: items[i],
+                            isCreator: isCreator,
+                            onReplyTap: (c) => setState(() => _replyingTo = c),
+                          );
+                        },
                         separatorBuilder: (_, __) => const SizedBox(height: 20),
                       );
                     },
@@ -215,8 +227,14 @@ class _CommentsSheetState extends State<CommentsSheet> {
 
 class _CommentRow extends StatefulWidget {
   final CommentModel comment;
+  final bool isCreator; // [NEW]
   final Function(CommentModel) onReplyTap;
-  const _CommentRow({required this.comment, required this.onReplyTap});
+  
+  const _CommentRow({
+    required this.comment, 
+    required this.isCreator,
+    required this.onReplyTap
+  });
 
   @override
   State<_CommentRow> createState() => _CommentRowState();
@@ -287,17 +305,39 @@ class _CommentRowState extends State<_CommentRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start, 
                 children: [
-                  // Name + Badge
+                  // Name + Badge(s)
                   Row(
                     children: [
                       Text(
                         c.authorDisplayName ?? '@${c.authorUsername}', 
                         style: const TextStyle(fontWeight: FontWeight.bold)
                       ),
+                      
+                      // Premium Verification Badge
                       if (c.authorIsPremium) ...[
                         const SizedBox(width: 4),
                         const Icon(Icons.verified, color: Colors.blue, size: 14),
-                      ]
+                      ],
+
+                      // [NEW] Creator Badge
+                      if (widget.isCreator) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.error.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Creator',
+                            style: TextStyle(
+                              fontSize: 10, 
+                              fontWeight: FontWeight.w700, 
+                              color: theme.colorScheme.error
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
