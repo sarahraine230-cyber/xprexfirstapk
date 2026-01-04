@@ -223,8 +223,10 @@ class _CommentRow extends StatefulWidget {
 }
 
 class _CommentRowState extends State<_CommentRow> {
+  final _svc = CommentService();
   late bool _isLiked;
   late int _likesCount;
+  bool _isToggling = false;
   
   @override
   void initState() {
@@ -233,30 +235,103 @@ class _CommentRowState extends State<_CommentRow> {
     _likesCount = widget.comment.likesCount;
   }
 
+  // --- NEW: HANDLE LIKE TOGGLE ---
+  Future<void> _toggleLike() async {
+    if (_isToggling) return;
+    
+    // 1. Optimistic Update (Instant feedback)
+    setState(() {
+      _isToggling = true;
+      _isLiked = !_isLiked;
+      _likesCount += _isLiked ? 1 : -1;
+    });
+
+    try {
+      // 2. API Call
+      await _svc.toggleCommentLike(widget.comment.id);
+    } catch (e) {
+      // 3. Rollback on error
+      if (mounted) {
+        setState(() {
+          _isLiked = !_isLiked;
+          _likesCount += _isLiked ? 1 : -1;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to like comment")));
+      }
+    } finally {
+      if (mounted) setState(() => _isToggling = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = widget.comment;
+    final theme = Theme.of(context);
+
     return Column(
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(radius: 20, backgroundImage: c.authorAvatarUrl != null ? NetworkImage(c.authorAvatarUrl!) : null, child: c.authorAvatarUrl == null ? const Icon(Icons.person) : null),
+            // 1. Avatar
+            CircleAvatar(
+              radius: 20, 
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              backgroundImage: c.authorAvatarUrl != null ? NetworkImage(c.authorAvatarUrl!) : null, 
+              child: c.authorAvatarUrl == null ? const Icon(Icons.person) : null
+            ),
             const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // [NEW] Updated Name to include Verification Badge
-              Row(
+            
+            // 2. Content (Name + Text + Reply)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start, 
                 children: [
-                  Text(c.authorDisplayName ?? '@${c.authorUsername}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                  if (c.authorIsPremium) ...[
-                    const SizedBox(width: 4),
-                    const Icon(Icons.verified, color: Colors.blue, size: 14),
-                  ]
-                ],
-              ),
-              Text(c.text),
-              GestureDetector(onTap: () => widget.onReplyTap(c), child: const Text('Reply', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
-            ])),
+                  // Name + Badge
+                  Row(
+                    children: [
+                      Text(
+                        c.authorDisplayName ?? '@${c.authorUsername}', 
+                        style: const TextStyle(fontWeight: FontWeight.bold)
+                      ),
+                      if (c.authorIsPremium) ...[
+                        const SizedBox(width: 4),
+                        const Icon(Icons.verified, color: Colors.blue, size: 14),
+                      ]
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(c.text),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () => widget.onReplyTap(c), 
+                    child: Text(
+                      'Reply', 
+                      style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.bold, color: Colors.grey)
+                    )
+                  ),
+                ]
+              )
+            ),
+
+            // 3. Like Button Column
+            Column(
+              children: [
+                InkWell(
+                  onTap: _toggleLike,
+                  child: Icon(
+                    _isLiked ? Icons.favorite : Icons.favorite_border,
+                    size: 20,
+                    color: _isLiked ? Colors.red : Colors.grey,
+                  ),
+                ),
+                if (_likesCount > 0)
+                  Text(
+                    _likesCount.toString(),
+                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+                  ),
+              ],
+            ),
           ],
         ),
       ],
