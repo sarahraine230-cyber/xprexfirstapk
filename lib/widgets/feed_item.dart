@@ -246,8 +246,9 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       backgroundColor: Colors.transparent,
       builder: (_) => CommentsSheet(
         videoId: widget.video.id,
+        // [NEW] Passing the author's ID so the comments knows who 'Boss' is
+        videoAuthorId: widget.video.authorAuthUserId,
         initialCount: _commentsCount,
-        // --- PASS PERMISSION ---
         allowComments: widget.video.allowComments, 
         onNewComment: () => setState(() => _commentsCount++),
       ),
