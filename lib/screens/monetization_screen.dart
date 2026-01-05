@@ -122,9 +122,20 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
+  // TODO: SWAP THESE FOR LIVE KEYS WHEN READY
+  // Test Key: pk_test_...
+  // Live Key: pk_live_...
   final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
   
-  String _selectedPeriod = 'Dec 2025';
+  // [FIX] Dynamic Month Initialization
+  late String _selectedPeriod;
+  
+  @override
+  void initState() {
+    super.initState();
+    // Automatically set to Current Month (e.g., "Jan 2026")
+    _selectedPeriod = DateFormat('MMM yyyy').format(DateTime.now());
+  }
   
   List<String> get _periods {
     final now = DateTime.now();
@@ -186,7 +197,10 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
   // 1. PROFESSIONAL DASHBOARD
   // ===========================================================================
   Widget _buildProfessionalDashboard(ThemeData theme, Map<String, dynamic> profileData) {
+    // We check specific verification status for more granular UI
+    final monetizationStatus = profileData['monetization_status'] ?? 'locked'; 
     final isVerified = profileData['is_verified'] == true;
+    
     final breakdownAsync = ref.watch(earningsBreakdownProvider(_selectedPeriod));
     final payoutAsync = ref.watch(payoutHistoryProvider);
 
@@ -220,7 +234,9 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          isVerified ? 'Active & Enrolled' : 'Verification Pending',
+                          isVerified 
+                              ? 'Active & Enrolled' 
+                              : (monetizationStatus == 'pending' ? 'Under Review' : 'Verification Pending'),
                           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                         ),
                       ],
@@ -230,7 +246,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 if (!isVerified)
                   TextButton(
                     onPressed: () => context.push('/verify'),
-                    child: const Text('Complete Setup'),
+                    child: Text(monetizationStatus == 'pending' ? 'Check Status' : 'Complete Setup'),
                   ),
               ],
             ),
@@ -505,7 +521,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           
-          // [UPDATED] WITH REAL LINKS
           children: [
             _buildLinkItem(theme, 'The Partner Playbook', 'https://creators.getxprex.com/playbook'),
             _buildLinkItem(theme, 'Quality Guidelines', 'https://creators.getxprex.com/guidelines'),
@@ -673,8 +688,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              
-              // [UPDATED] Replaced Sheet logic with External URL Launch
               GestureDetector(
                 onTap: () => _launchURL('https://creators.getxprex.com/program'),
                 child: Text(
@@ -719,10 +732,12 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       return;
     }
     
-    // [NEW] Use Paystack Plan for recurring subscription
+    // [TODO] CHANGE THIS FOR LIVE MODE
+    // Test: PLN_a1q0vr69elydx7i
+    // Live: PLN_... (You need to create a live plan on Paystack)
     final planCode = 'PLN_a1q0vr69elydx7i';
     
-    final amount = 7000 * 100; // Kobo (Still passed as fallback/display, but Plan overrides)
+    final amount = 7000 * 100; // Kobo
     final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
 
     showModalBottomSheet(
@@ -741,7 +756,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             apiKey: _paystackPublicKey,
             email: email,
             amount: amount.toString(),
-            plan: planCode, // [NEW] Pass the Plan Code
+            plan: planCode, 
             reference: ref,
             onSuccess: (ref) {
               Navigator.pop(context); 
@@ -802,7 +817,7 @@ class _PaystackWebView extends StatefulWidget {
   final String apiKey;
   final String email;
   final String amount;
-  final String? plan; // [NEW] Plan code
+  final String? plan; 
   final String reference;
   final Function(String) onSuccess;
   final VoidCallback onCancel;
@@ -843,7 +858,7 @@ class _PaystackWebViewState extends State<_PaystackWebView> {
               email: '${widget.email}',
               amount: ${widget.amount},
               currency: 'NGN',
-              ${widget.plan != null ? "plan: '${widget.plan}'," : ""} // [NEW] Inject Plan Code
+              ${widget.plan != null ? "plan: '${widget.plan}'," : ""} 
               ref: '${widget.reference}',
               callback: function(response) { PaystackChannel.postMessage('success:' + response.reference); },
               onClose: function() { PaystackChannel.postMessage('close'); }
