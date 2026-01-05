@@ -17,10 +17,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
   File? _imageFile;
   bool _isUploading = false;
   bool _isLoadingStatus = true;
-  
-  // 'none', 'pending', 'verified', 'rejected'
   String _currentStatus = 'none';
-  
   final _picker = ImagePicker();
 
   @override
@@ -34,7 +31,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
     if (uid == null) return;
 
     try {
-      // 1. Check Profile Status first (Source of Truth)
       final profile = await supabase
           .from('profiles')
           .select('monetization_status, is_verified')
@@ -47,7 +43,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
             _currentStatus = 'verified';
           } else {
             _currentStatus = profile['monetization_status'] ?? 'none';
-            // Default to 'none' if it's 'locked' so they can apply
             if (_currentStatus == 'locked') _currentStatus = 'none';
           }
           _isLoadingStatus = false;
@@ -73,7 +68,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
     if (uid == null) return;
 
     try {
-      // 1. Upload Image to Supabase Storage
       final fileExt = _imageFile!.path.split('.').last;
       final fileName = '$uid-verification.$fileExt';
       final path = 'verifications/$fileName';
@@ -84,30 +78,32 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
         fileOptions: const FileOptions(upsert: true),
       );
       
-      // 2. Get Public URL
       final imageUrl = supabase.storage.from('verifications').getPublicUrl(path);
       
-      // 3. Create Request Record in Database
-      // Note: Triggers should update profile status to 'pending' automatically
       await supabase.from('verification_requests').insert({
         'user_id': uid,
         'id_document_url': imageUrl,
         'status': 'pending',
       });
       
-      // 4. Force update local profile status to pending for immediate UI feedback
       await supabase.from('profiles').update({'monetization_status': 'pending'}).eq('auth_user_id', uid);
 
       if (mounted) {
-        // --- THE NEXT STEP IN THE SEQUENCE ---
-        context.push('/setup/bank');
+        // [UPDATED] Update local state to show "Under Review" immediately.
+        setState(() {
+          _currentStatus = 'pending';
+          _isUploading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Verification Submitted Successfully!')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() => _isUploading = false);
       }
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
     }
   }
 
@@ -116,7 +112,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
     final theme = Theme.of(context);
     
     return Scaffold(
-      appBar: AppBar(title: const Text('Request Verification')),
+      appBar: AppBar(title: const Text('Final Step: Identity')),
       body: _isLoadingStatus 
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(theme),
@@ -124,7 +120,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
   }
 
   Widget _buildBody(ThemeData theme) {
-    // --- SCENARIO 1: PENDING ---
     if (_currentStatus == 'pending') {
       return Center(
         child: Padding(
@@ -156,7 +151,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
       );
     }
 
-    // --- SCENARIO 2: VERIFIED ---
     if (_currentStatus == 'verified') {
       return Center(
         child: Padding(
@@ -188,10 +182,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
       );
     }
 
-    // --- SCENARIO 3: REJECTED (Show Reason + Upload) ---
-    // (We treat Rejected similarly to 'none', but with a warning message)
-    
-    // --- SCENARIO 4: NONE (Show Form) ---
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -220,7 +210,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
             ),
 
           Text(
-            'Step 1 of 2: Identity',
+            'Step 3 of 3: Identity',
             style: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.primary),
           ),
           const SizedBox(height: 8),
@@ -235,7 +225,6 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
           ),
           const SizedBox(height: 32),
           
-          // Image Picker Area
           GestureDetector(
             onTap: _pickImage,
             child: Container(
@@ -280,7 +269,7 @@ class _VerificationRequestScreenState extends State<VerificationRequestScreen> {
               onPressed: (_imageFile == null || _isUploading) ? null : _submitRequest,
               child: _isUploading 
                   ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                  : const Text('Next: Bank Details'),
+                  : const Text('Submit Application'),
             ),
           ),
         ],
