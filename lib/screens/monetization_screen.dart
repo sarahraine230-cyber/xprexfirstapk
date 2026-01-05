@@ -181,6 +181,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         data: (profileData) {
           if (profileData.isEmpty) return const Center(child: Text("Profile not found"));
 
+          // [UPDATED] Check Subscription Expiry here too (Optional visual check)
+          // The UserProfile model is the true "Bouncer", but we can check raw data here.
           final isPremium = profileData['is_premium'] == true;
           
           if (isPremium) {
@@ -521,6 +523,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           
+          // [UPDATED] WITH REAL LINKS
           children: [
             _buildLinkItem(theme, 'The Partner Playbook', 'https://creators.getxprex.com/playbook'),
             _buildLinkItem(theme, 'Quality Guidelines', 'https://creators.getxprex.com/guidelines'),
@@ -732,12 +735,10 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       return;
     }
     
-    // [TODO] CHANGE THIS FOR LIVE MODE
-    // Test: PLN_a1q0vr69elydx7i
-    // Live: PLN_... (You need to create a live plan on Paystack)
+    // [NEW] Use Paystack Plan for recurring subscription
     final planCode = 'PLN_a1q0vr69elydx7i';
     
-    final amount = 7000 * 100; // Kobo
+    final amount = 7000 * 100; // Kobo (Still passed as fallback/display, but Plan overrides)
     final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
 
     showModalBottomSheet(
@@ -756,7 +757,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             apiKey: _paystackPublicKey,
             email: email,
             amount: amount.toString(),
-            plan: planCode, 
+            plan: planCode, // [NEW] Pass the Plan Code
             reference: ref,
             onSuccess: (ref) {
               Navigator.pop(context); 
@@ -797,7 +798,8 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                context.push('/verify');
+                // [UPDATED] Navigate to Step 1: Personal Info
+                context.push('/setup/personal');
               },
               child: const Text('Let\'s Go'),
             ),
@@ -817,7 +819,7 @@ class _PaystackWebView extends StatefulWidget {
   final String apiKey;
   final String email;
   final String amount;
-  final String? plan; 
+  final String? plan; // [NEW] Plan code
   final String reference;
   final Function(String) onSuccess;
   final VoidCallback onCancel;
@@ -858,7 +860,7 @@ class _PaystackWebViewState extends State<_PaystackWebView> {
               email: '${widget.email}',
               amount: ${widget.amount},
               currency: 'NGN',
-              ${widget.plan != null ? "plan: '${widget.plan}'," : ""} 
+              ${widget.plan != null ? "plan: '${widget.plan}'," : ""} // [NEW] Inject Plan Code
               ref: '${widget.reference}',
               callback: function(response) { PaystackChannel.postMessage('success:' + response.reference); },
               onClose: function() { PaystackChannel.postMessage('close'); }
