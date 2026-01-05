@@ -18,6 +18,7 @@ import 'package:xprex/screens/monetization/payout_history_screen.dart';
 import 'package:xprex/screens/monetization/ad_manager_screen.dart';
 import 'package:xprex/screens/verification_request_screen.dart';
 import 'package:xprex/screens/bank_details_screen.dart';
+import 'package:xprex/screens/verification_personal_info_screen.dart'; // NEW
 import 'package:xprex/screens/reset_password_screen.dart';
 import 'package:xprex/screens/single_video_screen.dart'; 
 import 'package:xprex/screens/video_player_screen.dart';
@@ -66,13 +67,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       
       final isSplash = state.uri.path == '/splash';
       final isBrandSplash = state.uri.path == '/brand-splash';
+      
       final isLogin = state.uri.path == '/login';
       final isSignup = state.uri.path == '/signup';
       final isVerify = state.uri.path == '/email-verification';
       final isReset = state.uri.path == '/reset-password';
       
       final isDeepLink = state.uri.path.startsWith('/video/');
-      // Allow profile deep links too
       final isProfileLink = state.uri.path.startsWith('/u/');
 
       if (!isAuth) {
@@ -83,7 +84,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       }
 
       if (isVerify || isReset || isDeepLink || isProfileLink) return null;
-
       if (isSplash || isLogin || isSignup) return '/';
       
       return null;
@@ -158,6 +158,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           if (id == null) return const SplashScreen();
           return UserProfileScreen(userId: id);
         },
+      ),
+      // --- NEW: PERSONAL INFO STEP ---
+      GoRoute(
+        path: '/setup/personal',
+        builder: (context, state) => const VerificationPersonalInfoScreen(),
       ),
       GoRoute(
         path: '/verify',
