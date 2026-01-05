@@ -170,8 +170,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         data: (profileData) {
           if (profileData.isEmpty) return const Center(child: Text("Profile not found"));
 
-          // [UPDATED] Check Subscription Expiry here too (Optional visual check)
-          // The UserProfile model is the true "Bouncer", but we can check raw data here.
           final isPremium = profileData['is_premium'] == true;
           
           if (isPremium) {
@@ -240,7 +238,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           
           const SizedBox(height: 32),
 
-          // --- 2. TOOLS SECTION (CLEANED UP) ---
+          // --- 2. TOOLS SECTION ---
           _buildSettingsTile(
             theme, 
             title: 'Payout settings', 
@@ -507,11 +505,12 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           
+          // [UPDATED] WITH REAL LINKS
           children: [
-            _buildLinkItem(theme, 'The Partner Playbook', 'https://xprex.vercel.app/partner-playbook'),
-            _buildLinkItem(theme, 'Quality Guidelines', 'https://xprex.vercel.app/quality'),
-            _buildLinkItem(theme, 'Earnings FAQ', 'https://xprex.vercel.app/earnings-faq'),
-            _buildLinkItem(theme, 'Leave Partner Program', 'https://xprex.vercel.app/leave-program', isDestructive: true),
+            _buildLinkItem(theme, 'The Partner Playbook', 'https://creators.getxprex.com/playbook'),
+            _buildLinkItem(theme, 'Quality Guidelines', 'https://creators.getxprex.com/guidelines'),
+            _buildLinkItem(theme, 'Earnings FAQ', 'https://creators.getxprex.com/faq'),
+            _buildLinkItem(theme, 'Leave Partner Program', 'https://creators.getxprex.com/contact', isDestructive: true),
           ],
         ),
       ),
@@ -674,8 +673,10 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+              
+              // [UPDATED] Replaced Sheet logic with External URL Launch
               GestureDetector(
-                onTap: () => _showRequirementsSheet(context, theme, null),
+                onTap: () => _launchURL('https://creators.getxprex.com/program'),
                 child: Text(
                   'Learn more about monetization requirements',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -706,43 +707,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
           const SizedBox(height: 4),
           Text(desc, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
         ]))
-      ]),
-    );
-  }
-
-  void _showRequirementsSheet(BuildContext context, ThemeData theme, Map<String, dynamic>? profileData) {
-    final criteria = profileData?['criteria'] as Map<String, dynamic>?;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(24),
-        height: MediaQuery.of(context).size.height * 0.6,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Eligibility Requirements', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 24),
-            if (criteria != null) ...[
-               _buildReqItem('1,000+ Followers', criteria['min_followers'] ?? false, theme),
-               _buildReqItem('10,000+ Video Views', criteria['min_video_views'] ?? false, theme),
-               _buildReqItem('Account Age 30+ Days', criteria['min_account_age'] ?? false, theme),
-               _buildReqItem('Email Verified', criteria['email_verified'] ?? false, theme),
-            ] else 
-              const Text('Standard Criteria apply.'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReqItem(String text, bool met, ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: Row(children: [
-        Icon(met ? Icons.check_circle : Icons.circle_outlined, color: met ? Colors.green : theme.colorScheme.onSurfaceVariant),
-        const SizedBox(width: 12),
-        Text(text, style: theme.textTheme.bodyLarge),
       ]),
     );
   }

@@ -48,6 +48,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
           .from('categories')
           .select('id, name')
           .order('name');
+      
       if (mounted) {
         setState(() {
           _categories = List<Map<String, dynamic>>.from(data);
@@ -69,6 +70,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   void _insertText(String text) {
     final currentText = _captionController.text;
     final selection = _captionController.selection;
+
     if (selection.baseOffset >= 0) {
       final newText = currentText.replaceRange(selection.start, selection.end, text);
       _captionController.value = TextEditingValue(
@@ -105,7 +107,7 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
       privacyLevel: _privacyLevel,
       allowComments: _allowComments,
     );
-
+    
     _playerController?.pause();
     if (mounted) {
       Navigator.of(context).pop(); 
@@ -118,8 +120,11 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   }
 
   Future<void> _launchHelp() async {
-    final Uri url = Uri.parse('https://creator-guide.pages.dev'); // Your guide URL
-    if (!await launchUrl(url)) debugPrint("Could not launch guide");
+    // [UPDATED] Points to the Partner Playbook
+    final Uri url = Uri.parse('https://creators.getxprex.com/playbook');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+       debugPrint("Could not launch guide");
+    }
   }
   
   // Privacy Selector Sheet
@@ -176,7 +181,6 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
@@ -232,11 +236,11 @@ class _UploadScreenState extends ConsumerState<UploadScreen> {
                           border: Border.all(color: theme.dividerColor),
                         ),
                         child: _playerController != null && _playerController!.value.isInitialized
-                           ? ClipRRect(
+                            ? ClipRRect(
                                borderRadius: BorderRadius.circular(8), 
                                child: VideoPlayer(_playerController!)
                              )
-                           : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                            : const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                       ),
                     ],
                   ),

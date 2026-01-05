@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
-import 'package:xprex/screens/settings/account_screen.dart'; // We will create this next
-import 'package:xprex/screens/settings/notifications_screen.dart'; // And this
+import 'package:xprex/screens/settings/account_screen.dart'; 
+import 'package:xprex/screens/settings/notifications_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -75,29 +75,30 @@ class SettingsScreen extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const NotificationsScreen()),
               ),
             ),
-            // Easy win: Dark Mode toggle could go here in v1.1
 
             const SizedBox(height: 24),
 
             // GROUP 3: LEGAL & SUPPORT
             _buildSectionHeader(theme, 'Support & Legal'),
+            // [UPDATED] WITH REAL LINKS
             _buildSettingsTile(
               theme,
               icon: Icons.help_outline,
               title: 'Help Center',
-              onTap: () => _launchURL(context, 'https://xprex.vercel.app/help'),
+              // Mapped to FAQ since it's the main support resource
+              onTap: () => _launchURL(context, 'https://creators.getxprex.com/faq'),
             ),
             _buildSettingsTile(
               theme,
               icon: Icons.privacy_tip_outlined,
               title: 'Privacy Policy',
-              onTap: () => _launchURL(context, 'https://xprex.vercel.app/privacy'),
+              onTap: () => _launchURL(context, 'https://creators.getxprex.com/privacy'),
             ),
             _buildSettingsTile(
               theme,
               icon: Icons.description_outlined,
               title: 'Terms of Service',
-              onTap: () => _launchURL(context, 'https://xprex.vercel.app/terms'),
+              onTap: () => _launchURL(context, 'https://creators.getxprex.com/terms'),
             ),
 
             const SizedBox(height: 24),
@@ -133,7 +134,6 @@ class SettingsScreen extends ConsumerWidget {
                     ],
                   ),
                 );
-
                 if (confirm == true) {
                   await ref.read(authServiceProvider).signOut();
                   if (context.mounted) context.go('/login');
