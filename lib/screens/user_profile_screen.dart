@@ -37,10 +37,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     setState(() => _loading = true);
     try {
       final profile = await _profileSvc.getProfileByAuthId(widget.userId);
-      // NOTE: VideoService now automatically handles the privacy filtering!
       final created = await _videoSvc.getUserVideos(widget.userId);
       final reposted = await _videoSvc.getRepostedVideos(widget.userId);
-      
       final viewerId = supabase.auth.currentUser?.id;
       bool following = false;
       if (viewerId != null && viewerId != widget.userId) {
@@ -74,7 +72,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       _isFollowing = !_isFollowing;
       _followerCount += _isFollowing ? 1 : -1;
     });
-
     try {
       if (_isFollowing) {
         await _profileSvc.followUser(
@@ -97,14 +94,11 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
   }
 
-  // --- UPDATED SHARE LINK ---
   void _shareProfile() {
-    // Points to your new Cloudflare Worker
     final url = 'https://profile.getxprex.com?u=${widget.userId}';
     Share.share('Check out ${_profile?.displayName ?? "this user"} on XpreX! $url');
   }
 
-  // --- UPDATED BLOCK & REPORT LOGIC ---
   void _showOptionsSheet() {
     final viewerId = supabase.auth.currentUser?.id;
     if (viewerId == null) return;
@@ -151,7 +145,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   }
 
   void _confirmReport(String viewerId) {
-    // Simple report for now - reasons can be expanded later
     _profileSvc.reportUser(
       reporterId: viewerId, 
       reportedId: widget.userId, 
@@ -174,7 +167,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               try {
                 await _profileSvc.blockUser(blockerId: viewerId, blockedId: widget.userId);
                 if (mounted) {
-                  context.go('/'); // Kick user back to home
+                  context.go('/'); 
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User blocked')));
                 }
               } catch (e) {
@@ -197,7 +190,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     if (_loading) {
       return Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
@@ -216,7 +208,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     }
 
     final isMe = widget.userId == supabase.auth.currentUser?.id;
-
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -228,7 +219,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
               pinned: true,
               backgroundColor: theme.scaffoldBackgroundColor,
               leading: BackButton(color: theme.colorScheme.onSurface),
-              // [NEW] Updated Title with Badge
               title: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -262,19 +252,25 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                   padding: const EdgeInsets.only(top: 90.0), 
                   child: Column(
                     children: [
+                      // [PROTOCOL UPDATE] Profile Avatar Logic
                       CircleAvatar(
                         radius: 40,
                         backgroundColor: theme.dividerColor,
-                        backgroundImage: NetworkImage(_profile!.avatarUrl ?? 'https://placehold.co/100'),
+                        // 1. Try to load image if URL exists
+                        backgroundImage: (_profile!.avatarUrl != null && _profile!.avatarUrl!.isNotEmpty)
+                             ? NetworkImage(_profile!.avatarUrl!)
+                             : null,
+                        // 2. If no URL, show Icon
+                        child: (_profile!.avatarUrl == null || _profile!.avatarUrl!.isEmpty)
+                             ? Icon(Icons.person, size: 40, color: theme.colorScheme.onSurface)
+                             : null,
                       ),
                       const SizedBox(height: 12),
-                      
-                      // [NEW] Updated Display Name with Badge
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            _profile!.displayName,
+                             _profile!.displayName,
                             style: TextStyle(color: theme.colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                           if (_profile!.isPremium) ...[
@@ -283,7 +279,6 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           ],
                         ],
                       ),
-                      
                       const SizedBox(height: 16),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -300,26 +295,26 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           child: Row(
                             children: [
                               Expanded(
-                                child: FilledButton(
+                                 child: FilledButton(
                                   onPressed: _toggleFollow,
                                   style: FilledButton.styleFrom(
                                     backgroundColor: _isFollowing ? theme.colorScheme.surfaceContainerHighest : theme.colorScheme.primary,
                                     foregroundColor: _isFollowing ? theme.colorScheme.onSurface : theme.colorScheme.onPrimary,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                     elevation: 0,
-                                  ),
+                                   ),
                                   child: Text(_isFollowing ? 'Following' : 'Follow'),
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
-                                child: OutlinedButton(
+                                 child: OutlinedButton(
                                   onPressed: _handleMessage,
                                   style: OutlinedButton.styleFrom(
                                     side: BorderSide(color: theme.dividerColor),
                                     foregroundColor: theme.colorScheme.onSurface,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
+                                   ),
                                   child: const Text('Message'),
                                 ),
                               ),

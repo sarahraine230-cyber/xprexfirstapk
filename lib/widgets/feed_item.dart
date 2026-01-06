@@ -97,12 +97,11 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
         Uri.parse(playableUrl),
         invalidateCacheIfOlderThan: const Duration(days: 30),
       )..setLooping(true);
-
       await _controller!.initialize();
       
       final uid = supabase.auth.currentUser?.id;
       final isOwnVideo = uid == widget.video.authorAuthUserId;
-
+      
       if (widget.video.authorAuthUserId.isNotEmpty && !_hasRecordedView && !isOwnVideo) {
         _videoService.recordView(widget.video.id, widget.video.authorAuthUserId);
         _hasRecordedView = true;
@@ -246,7 +245,6 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
       backgroundColor: Colors.transparent,
       builder: (_) => CommentsSheet(
         videoId: widget.video.id,
-        // [NEW] Passing the author's ID so the comments knows who 'Boss' is
         videoAuthorId: widget.video.authorAuthUserId,
         initialCount: _commentsCount,
         allowComments: widget.video.allowComments, 
@@ -313,7 +311,7 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
               child: InkWell(
                 onTap: () {
                   if (_controller == null) return;
-                   if (_controller!.value.isPlaying) {
+                  if (_controller!.value.isPlaying) {
                      _controller!.pause();
                      _playPauseController.forward();
                    } else {
@@ -379,18 +377,25 @@ class _VideoFeedItemState extends State<VideoFeedItem> with SingleTickerProvider
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // [PROTOCOL UPDATE] Local Icon Fallback
                           CircleAvatar(
                             radius: 18,
                             backgroundColor: Colors.white.withOpacity(0.1),
-                            backgroundImage: NetworkImage(widget.video.authorAvatarUrl ?? 'https://placehold.co/50'),
+                            // Only use NetworkImage if we have a valid URL
+                            backgroundImage: (widget.video.authorAvatarUrl != null && widget.video.authorAvatarUrl!.isNotEmpty)
+                                ? NetworkImage(widget.video.authorAvatarUrl!)
+                                : null,
+                            // Otherwise, show the Icon child
+                            child: (widget.video.authorAvatarUrl == null || widget.video.authorAvatarUrl!.isEmpty)
+                                ? const Icon(Icons.person, color: Colors.white, size: 20)
+                                : null,
                           ),
                           const SizedBox(width: 8),
                           Text(
                             widget.video.authorDisplayName ?? '@${widget.video.authorUsername ?? "User"}', 
                             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
                           ),
-                          // [NEW] Added Verified Badge in Feed
-                          if (widget.video.authorIsPremium ?? false) ...[
+                          if (widget.video.authorIsPremium) ...[
                              const SizedBox(width: 4),
                              const Icon(Icons.verified, color: Colors.blue, size: 16, shadows: [Shadow(color: Colors.black, blurRadius: 2)]),
                           ],
