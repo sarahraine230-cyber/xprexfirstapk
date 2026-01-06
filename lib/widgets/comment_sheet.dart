@@ -5,12 +5,11 @@ import 'package:xprex/models/comment_model.dart';
 
 class CommentsSheet extends StatefulWidget {
   final String videoId;
-  final String videoAuthorId; // [NEW] We need to know who the boss is
+  final String videoAuthorId;
   final int initialCount;
   final VoidCallback? onNewComment;
-  // NEW: Argument to control permission
   final bool allowComments;
-  
+
   const CommentsSheet({
     super.key,
     required this.videoId, 
@@ -49,7 +48,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
   Future<void> _post() async {
     final text = _inputCtrl.text.trim();
     if (text.isEmpty || _posting) return;
-    
+
     final uid = supabase.auth.currentUser?.id;
     if (uid == null) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please sign in to comment')));
@@ -67,6 +66,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
         text: text,
         parentId: parentId,
       );
+      
       _inputCtrl.clear();
       setState(() {
         _replyingTo = null; 
@@ -142,9 +142,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         itemCount: items.length,
                         itemBuilder: (context, i) {
-                          // [NEW] Check if this comment is from the video author
                           final isCreator = items[i].authorAuthUserId == widget.videoAuthorId;
-                          
                           return _CommentRow(
                             comment: items[i],
                             isCreator: isCreator,
@@ -157,7 +155,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
                   ),
                 ),
                 
-                // --- GATEKEEPER 3: DISABLE INPUT IF COMMENTS OFF ---
                 if (!widget.allowComments) 
                   Container(
                     width: double.infinity,
@@ -169,7 +166,6 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     child: Text('Comments are turned off for this post.', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
                   )
                 else ...[
-                  // NORMAL INPUT UI
                   if (_replyingTo != null)
                     Container(
                       color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -227,7 +223,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
 
 class _CommentRow extends StatefulWidget {
   final CommentModel comment;
-  final bool isCreator; // [NEW]
+  final bool isCreator; 
   final Function(CommentModel) onReplyTap;
   
   const _CommentRow({
@@ -253,22 +249,16 @@ class _CommentRowState extends State<_CommentRow> {
     _likesCount = widget.comment.likesCount;
   }
 
-  // --- NEW: HANDLE LIKE TOGGLE ---
   Future<void> _toggleLike() async {
     if (_isToggling) return;
-    
-    // 1. Optimistic Update (Instant feedback)
     setState(() {
       _isToggling = true;
       _isLiked = !_isLiked;
       _likesCount += _isLiked ? 1 : -1;
     });
-
     try {
-      // 2. API Call
       await _svc.toggleCommentLike(widget.comment.id);
     } catch (e) {
-      // 3. Rollback on error
       if (mounted) {
         setState(() {
           _isLiked = !_isLiked;
@@ -291,35 +281,36 @@ class _CommentRowState extends State<_CommentRow> {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. Avatar
+            // 1. Avatar [PROTOCOL UPDATE]
             CircleAvatar(
               radius: 20, 
               backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              backgroundImage: c.authorAvatarUrl != null ? NetworkImage(c.authorAvatarUrl!) : null, 
-              child: c.authorAvatarUrl == null ? const Icon(Icons.person) : null
+              // Check directly for valid URL
+              backgroundImage: (c.authorAvatarUrl != null && c.authorAvatarUrl!.isNotEmpty) 
+                  ? NetworkImage(c.authorAvatarUrl!) 
+                  : null,
+              // If no URL, show Icon
+              child: (c.authorAvatarUrl == null || c.authorAvatarUrl!.isEmpty) 
+                  ? const Icon(Icons.person, color: Colors.grey) 
+                  : null,
             ),
             const SizedBox(width: 12),
             
-            // 2. Content (Name + Text + Reply)
+            // 2. Content
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start, 
                 children: [
-                  // Name + Badge(s)
                   Row(
                     children: [
                       Text(
                         c.authorDisplayName ?? '@${c.authorUsername}', 
                         style: const TextStyle(fontWeight: FontWeight.bold)
                       ),
-                      
-                      // Premium Verification Badge
                       if (c.authorIsPremium) ...[
                         const SizedBox(width: 4),
                         const Icon(Icons.verified, color: Colors.blue, size: 14),
                       ],
-
-                      // [NEW] Creator Badge
                       if (widget.isCreator) ...[
                         const SizedBox(width: 6),
                         Container(
@@ -354,7 +345,7 @@ class _CommentRowState extends State<_CommentRow> {
               )
             ),
 
-            // 3. Like Button Column
+            // 3. Like Button
             Column(
               children: [
                 InkWell(
