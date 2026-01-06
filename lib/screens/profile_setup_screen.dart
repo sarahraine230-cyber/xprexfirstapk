@@ -64,10 +64,9 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       final authService = ref.read(authServiceProvider);
       final profileService = ref.read(profileServiceProvider);
       final storageService = StorageService();
-
       final uid = authService.currentUserId;
       if (uid == null) throw Exception("Not authenticated");
-
+      
       // Check username uniqueness if changed
       if (widget.originalProfile?.username != _usernameController.text) {
         final available = await profileService.isUsernameAvailable(_usernameController.text);
@@ -78,14 +77,13 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
 
       String? avatarUrl = widget.originalProfile?.avatarUrl;
       if (_avatarFile != null) {
-        // FIXED: Corrected method name from 'uploadProfileAvatar' to 'uploadAvatar'
         avatarUrl = await storageService.uploadAvatar(userId: uid, file: _avatarFile!);
       }
 
       if (widget.originalProfile == null) {
         // CREATE:
         final newProfile = UserProfile(
-          id: uid, // FIXED: Added required 'id' (matches authUserId)
+          id: uid, 
           authUserId: uid,
           email: authService.currentUser?.email ?? '',
           username: _usernameController.text,
@@ -113,7 +111,21 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
       if (mounted) {
         // Refresh local profile provider
         ref.invalidate(currentUserProfileProvider);
-        context.go('/'); 
+        
+        // [PROTOCOL UPDATE] Handling Navigation & Feedback
+        if (widget.originalProfile != null) {
+          // EDIT MODE: Show success + Go back
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully!'),
+              backgroundColor: Colors.green,
+            )
+          );
+          Navigator.of(context).pop(); 
+        } else {
+          // SETUP MODE: Go to Home
+          context.go('/'); 
+        }
       }
     } catch (e) {
       setState(() => _errorMessage = e.toString().replaceAll('Exception: ', ''));
