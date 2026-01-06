@@ -6,6 +6,7 @@ import 'package:xprex/models/video_model.dart';
 import 'package:xprex/services/profile_service.dart';
 import 'package:xprex/services/video_service.dart';
 import 'package:xprex/config/supabase_config.dart';
+import 'package:xprex/router/app_router.dart'; // [NEW] Needed for routeObserver
 
 class UserProfileScreen extends StatefulWidget {
   final String userId; 
@@ -15,7 +16,8 @@ class UserProfileScreen extends StatefulWidget {
   State<UserProfileScreen> createState() => _UserProfileScreenState();
 }
 
-class _UserProfileScreenState extends State<UserProfileScreen> {
+// [NEW] Added RouteAware to listen for navigation events
+class _UserProfileScreenState extends State<UserProfileScreen> with RouteAware {
   final _profileSvc = ProfileService();
   final _videoSvc = VideoService();
   
@@ -33,8 +35,37 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _load();
   }
 
+  // [NEW] Subscribe to route observer
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is ModalRoute<void>) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  // [NEW] Unsubscribe
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    super.dispose();
+  }
+
+  // [NEW] This triggers when you come BACK to this screen (e.g. from Edit Profile)
+  @override
+  void didPopNext() {
+    // Reload profile data to show updates immediately
+    if (widget.userId == supabase.auth.currentUser?.id) {
+      _load();
+    }
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    // Only show loading indicator on initial load, not refreshes
+    if (_profile == null) {
+      setState(() => _loading = true);
+    }
     try {
       final profile = await _profileSvc.getProfileByAuthId(widget.userId);
       final created = await _videoSvc.getUserVideos(widget.userId);
