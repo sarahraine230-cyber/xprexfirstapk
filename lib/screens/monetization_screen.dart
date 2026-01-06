@@ -15,7 +15,7 @@ import 'package:intl/intl.dart';
 // ==============================================================================
 // TODO: Replace these with your OFFICIAL keys from the Paystack Dashboard.
 const String kPaystackPublicKey = 'pk_live_def13cfe9e8f0c39607a4e758c2338aeb37a8e0f'; 
-const String kPaystackPlanCode  = 'PASTE_YOUR_LIVE_PLAN_CODE_HERE'; 
+const String kPaystackPlanCode  = 'PLN_w8gfaqx90iwy3yt'; 
 // ==============================================================================
 
 // --- 1. PROFILE STREAM (Wallet Balance & Status) ---
