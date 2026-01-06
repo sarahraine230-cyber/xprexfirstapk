@@ -14,7 +14,7 @@ import 'package:intl/intl.dart';
 // 🔴 LIVE MODE CONFIGURATION
 // ==============================================================================
 // TODO: Replace these with your OFFICIAL keys from the Paystack Dashboard.
-const String kPaystackPublicKey = 'PASTE_YOUR_PAYSTACK_LIVE_PUBLIC_KEY_HERE'; 
+const String kPaystackPublicKey = 'pk_live_def13cfe9e8f0c39607a4e758c2338aeb37a8e0f'; 
 const String kPaystackPlanCode  = 'PASTE_YOUR_LIVE_PLAN_CODE_HERE'; 
 // ==============================================================================
 
