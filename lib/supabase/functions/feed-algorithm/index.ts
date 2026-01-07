@@ -1,7 +1,6 @@
-// supabase functions deploy feed-algorithm
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+// [FIXED] Pinned version to prevent 522 deployment errors
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.8"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,40 +37,42 @@ serve(async (req) => {
     }
 
     // --- GATEKEEPER 1: PUBLIC ONLY FILTER ---
-    // Ensure "For You" only shows Public videos
-    candidates = candidates.filter((v: any) => v.privacy_level === 'public');
+    candidates = candidates.filter((v: any) => v.privacy_level === 'public')
 
-    // 3. FETCH CONTEXT (Watch History)
-    const { data: history } = await supabaseClient
+    // 4. Fetch Viewed History
+    const { data: viewed } = await supabaseClient
       .from('video_views')
       .select('video_id')
-      .eq('viewer_id', user.id);
+      .eq('viewer_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(100)
     
-    const watchedSet = new Set((history || []).map((h: any) => h.video_id));
+    const watchedSet = new Set(viewed?.map((v: any) => v.video_id) || [])
 
-    // 4. FETCH PROFILES
-    const userIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))];
-    
-    // [CRITICAL] We fetch 'is_premium' here to power the Boost Logic
+    // 5. Fetch Profiles Map
+    const authorIds = [...new Set(candidates.map((v: any) => v.author_auth_user_id))]
     const { data: profiles } = await supabaseClient
       .from('profiles')
-      .select('auth_user_id, username, display_name, avatar_url, is_premium')
-      .in('auth_user_id', userIds);
-      
-    const profileMap: any = {};
-    if (profiles) {
-      profiles.forEach((p: any) => profileMap[p.auth_user_id] = p);
-    }
+      .select('auth_user_id, username, display_name, avatar_url, is_premium') // [NOTE] Ensure is_premium is selected
+      .in('auth_user_id', authorIds)
 
-    // 5. THE SCORING ENGINE
+    const profileMap: any = {}
+    profiles?.forEach((p: any) => { profileMap[p.auth_user_id] = p })
+
+    // 6. SCORING LOOP
     const scoredVideos = candidates.map((video: any) => {
-      // A. Base Score (Engagement)
-      const engagementScore = (video.likes_count * 5) + (video.comments_count * 3) + (video.playback_count * 0.1);
-      
-      // B. Recency Factor (Decay over time)
-      const uploadTime = new Date(video.created_at).getTime();
+      let engagementScore = 
+        (video.likes_count * 1) + 
+        (video.comments_count * 2) + 
+        (video.shares_count * 3) + 
+        (video.saves_count * 2) + 
+        (video.reposts_count * 4) +
+        (video.playback_count * 0.1);
+
+      // Recency Decay
+      const created = new Date(video.created_at).getTime();
       const now = new Date().getTime();
-      const hoursAgo = Math.max(0, (now - uploadTime) / (1000 * 60 * 60));
+      const hoursAgo = (now - created) / (1000 * 60 * 60);
       const recencyFactor = Math.pow(hoursAgo + 2, 1.5);
       
       let finalScore = engagementScore / recencyFactor;
@@ -79,17 +80,14 @@ serve(async (req) => {
       const authorProfile = profileMap[video.author_auth_user_id];
 
       // --- [NEW] THE PREMIUM BOOST LOGIC ---
-      // If the author pays, they get 1.5x reach.
       if (authorProfile && authorProfile.is_premium) {
         finalScore = finalScore * 1.5; 
       }
 
       // C. PENALTY LOGIC
-      // Penalty 1: Own videos
       if (video.author_auth_user_id === user.id) {
         finalScore *= 0.01; 
       }
-      // Penalty 2: Already watched
       if (watchedSet.has(video.id)) {
         finalScore *= 0.1; 
       }
@@ -101,24 +99,23 @@ serve(async (req) => {
           username: authorProfile.username,
           display_name: authorProfile.display_name,
           avatar_url: authorProfile.avatar_url,
-          is_premium: authorProfile.is_premium // Pass to frontend for the badge
+          is_premium: authorProfile.is_premium
         } : null
       };
     })
 
-    // 6. Sort & Return
+    // 7. Sort & Return
     scoredVideos.sort((a: any, b: any) => b.algorithm_score - a.algorithm_score);
     const finalFeed = scoredVideos.slice(0, 20);
 
     return new Response(JSON.stringify(finalFeed), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200,
     })
 
   } catch (error) {
     return new Response(JSON.stringify({ error: error.message }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 })
