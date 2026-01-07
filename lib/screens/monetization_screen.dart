@@ -13,7 +13,7 @@ import 'package:intl/intl.dart';
 // ==============================================================================
 // 🔴 LIVE MODE CONFIGURATION
 // ==============================================================================
-// TODO: Replace these with your OFFICIAL keys from the Paystack Dashboard.
+// These are your OFFICIAL keys. Do not change them back to test keys.
 const String kPaystackPublicKey = 'pk_live_def13cfe9e8f0c39607a4e758c2338aeb37a8e0f'; 
 const String kPaystackPlanCode  = 'PLN_w8gfaqx90iwy3yt'; 
 // ==============================================================================
@@ -129,7 +129,6 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
-  // [PROTOCOL UPDATE] Using the Live Keys defined at the top
   late String _selectedPeriod;
   
   @override
@@ -779,14 +778,24 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      await supabase.rpc('confirm_premium_purchase', params: {
-        'payment_reference': reference,
-        'payment_amount': 7000,
-        // The backend handles the 'subscription' logic via webhook mostly, 
-        // but this confirms the immediate transaction success to the user.
-      });
+      // [PROTOCOL UPDATE] Call Edge Function for Secure Verification
+      // Instead of insecure RPC, we ask the server to check with Paystack
+      final response = await supabase.functions.invoke(
+        'verify-purchase',
+        body: {'reference': reference},
+      );
+
+      // Handle Edge Function Errors
+      if (response.status != 200) {
+        throw Exception("Verification failed. Please contact support.");
+      }
+
       if (!mounted) return;
-      Navigator.pop(context); 
+      Navigator.pop(context); // Close loading
+      
+      // Refresh Profile Data Immediately
+      ref.invalidate(monetizationProfileProvider);
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -797,7 +806,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                // [UPDATED] Navigate to Step 1: Personal Info
                 context.push('/setup/personal');
               },
               child: const Text('Let\'s Go'),
