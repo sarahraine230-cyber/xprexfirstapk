@@ -5,7 +5,7 @@
 create or replace trigger on_profile_created
   after insert on public.profiles
   for each row execute function supabase_functions.http_request(
-    'https://[YOUR_PROJECT_REF].supabase.co/functions/v1/send-welcome-email',
+    'https://svyuxdowffweanjjzvis.supabase.co/functions/v1/send-welcome-email',
     'POST',
     '{"Content-type":"application/json"}',
     '{}',
@@ -18,7 +18,7 @@ create or replace trigger on_premium_upgrade
   for each row
   when (old.is_premium is distinct from true and new.is_premium = true)
   execute function supabase_functions.http_request(
-    'https://[YOUR_PROJECT_REF].supabase.co/functions/v1/send-premium-guide',
+    'https://svyuxdowffweanjjzvis.supabase.co/functions/v1/send-premium-guide',
     'POST',
     '{"Content-type":"application/json"}',
     '{}',
