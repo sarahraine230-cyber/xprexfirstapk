@@ -10,6 +10,14 @@ import 'package:xprex/providers/auth_provider.dart';
 import 'package:xprex/theme.dart';
 import 'package:intl/intl.dart'; 
 
+// ==============================================================================
+// 🔴 LIVE MODE CONFIGURATION
+// ==============================================================================
+// These are your OFFICIAL keys. Do not change them back to test keys.
+const String kPaystackPublicKey = 'pk_live_def13cfe9e8f0c39607a4e758c2338aeb37a8e0f'; 
+const String kPaystackPlanCode  = 'PLN_w8gfaqx90iwy3yt'; 
+// ==============================================================================
+
 // --- 1. PROFILE STREAM (Wallet Balance & Status) ---
 final monetizationProfileProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
   final authService = ref.watch(authServiceProvider);
@@ -58,7 +66,7 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
     final int daySeconds = (record['seconds_watched'] ?? 0).toInt();
     final List<dynamic> breakdown = record['video_breakdown'] ?? [];
     final recordDate = record['date'];
-
+    
     double impliedRate = 0.0;
     if (daySeconds > 0) {
       impliedRate = dayEarnings / daySeconds;
@@ -68,7 +76,6 @@ final earningsBreakdownProvider = FutureProvider.family.autoDispose<List<Map<Str
       final vidId = item['video_id'];
       final int sec = (item['sec'] ?? 0).toInt(); 
       final double videoMoney = sec * impliedRate;
-      
       if (vidId != null) {
         videoTotals[vidId] = (videoTotals[vidId] ?? 0.0) + videoMoney;
         videoDates[vidId] = recordDate; 
@@ -122,12 +129,6 @@ class MonetizationScreen extends ConsumerStatefulWidget {
 }
 
 class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
-  // TODO: SWAP THESE FOR LIVE KEYS WHEN READY
-  // Test Key: pk_test_...
-  // Live Key: pk_live_...
-  final String _paystackPublicKey = 'pk_test_99d8aff0dc4162e41153b3b57e424bd9c3b37639';
-  
-  // [FIX] Dynamic Month Initialization
   late String _selectedPeriod;
   
   @override
@@ -523,7 +524,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)
           ),
           
-          // [UPDATED] WITH REAL LINKS
           children: [
             _buildLinkItem(theme, 'The Partner Playbook', 'https://creators.getxprex.com/playbook'),
             _buildLinkItem(theme, 'Quality Guidelines', 'https://creators.getxprex.com/guidelines'),
@@ -735,9 +735,7 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       return;
     }
     
-    // [NEW] Use Paystack Plan for recurring subscription
-    final planCode = 'PLN_a1q0vr69elydx7i';
-    
+    // [PROTOCOL UPDATE] Using the Live Keys & Plan
     final amount = 7000 * 100; // Kobo (Still passed as fallback/display, but Plan overrides)
     final ref = 'Tx_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -754,10 +752,10 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
         child: ClipRRect(
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           child: _PaystackWebView(
-            apiKey: _paystackPublicKey,
+            apiKey: kPaystackPublicKey, // LIVE KEY
             email: email,
             amount: amount.toString(),
-            plan: planCode, // [NEW] Pass the Plan Code
+            plan: kPaystackPlanCode, // LIVE PLAN
             reference: ref,
             onSuccess: (ref) {
               Navigator.pop(context); 
@@ -780,14 +778,24 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
       builder: (_) => const Center(child: CircularProgressIndicator()),
     );
     try {
-      await supabase.rpc('confirm_premium_purchase', params: {
-        'payment_reference': reference,
-        'payment_amount': 7000,
-        // The backend handles the 'subscription' logic via webhook mostly, 
-        // but this confirms the immediate transaction success to the user.
-      });
+      // [PROTOCOL UPDATE] Call Edge Function for Secure Verification
+      // Instead of insecure RPC, we ask the server to check with Paystack
+      final response = await supabase.functions.invoke(
+        'verify-purchase',
+        body: {'reference': reference},
+      );
+
+      // Handle Edge Function Errors
+      if (response.status != 200) {
+        throw Exception("Verification failed. Please contact support.");
+      }
+
       if (!mounted) return;
-      Navigator.pop(context); 
+      Navigator.pop(context); // Close loading
+      
+      // Refresh Profile Data Immediately
+      ref.invalidate(monetizationProfileProvider);
+
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -798,7 +806,6 @@ class _MonetizationScreenState extends ConsumerState<MonetizationScreen> {
             FilledButton(
               onPressed: () {
                 Navigator.of(ctx).pop();
-                // [UPDATED] Navigate to Step 1: Personal Info
                 context.push('/setup/personal');
               },
               child: const Text('Let\'s Go'),
